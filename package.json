@@ -1,7 +1,7 @@
 {
-  "name": "s3filesync",
-  "displayName": "S3 File Sync",
-  "description": "A VS Code extension for syncing notes with AWS S3",
+  "name": "encrypt-sync-s3",
+  "displayName": "Encrypt Sync S3",
+  "description": "A VS Code extension for securely syncing notes with AWS S3 using AES encryption.",
   "version": "0.0.1",
   "publisher": "your-publisher-name",
   "engines": {
@@ -12,10 +12,45 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "configuration": {
+      "type": "object",
+      "title": "EncryptSyncS3 Configuration",
+      "properties": {
+        "encryptSyncS3.awsAccessKeyId": {
+          "type": "string",
+          "description": "AWS Access Key ID for S3",
+          "default": ""
+        },
+        "encryptSyncS3.s3Bucket": {
+          "type": "string",
+          "description": "S3 Bucket Name",
+          "default": ""
+        },
+        "encryptSyncS3.s3Region": {
+          "type": "string",
+          "description": "S3 Region",
+          "default": ""
+        },
+        "encryptSyncS3.s3Endpoint": {
+          "type": "string",
+          "description": "S3 Custom Endpoint (optional)",
+          "default": ""
+        },
+        "encryptSyncS3.s3PrefixPath": {
+          "type": "string",
+          "description": "S3 Prefix Path (optional)",
+          "default": ""
+        }
+      }
+    },
     "commands": [
       {
-        "command": "extension.setCredentials",
-        "title": "Set AWS Credentials and AES Key"
+        "command": "extension.setAWSSecret",
+        "title": "Set AWS secret access key"
+      },
+      {
+        "command": "extension.setAESKey",
+        "title": "Set AES encryption Key"
       },
       {
         "command": "extension.syncNotes",
@@ -24,6 +59,10 @@
       {
         "command": "extension.downloadNotes",
         "title": "Download and Decrypt Notes from S3"
+      },
+      {
+        "command": "extension.generateEncryptedText",
+        "title": "Generate 32-Byte Encrypted Text"
       }
     ]
   },
