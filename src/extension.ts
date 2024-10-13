@@ -3,8 +3,18 @@ import * as vscode from "vscode";
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import * as crypto from "crypto";
 
+let outputChannel: vscode.OutputChannel;
+
+// Log message to output channel
+function logMessage(message: string) {
+  outputChannel.appendLine(message);
+}
+
 export function activate(context: vscode.ExtensionContext) {
   vscode.window.showInformationMessage("EncryptSyncS3 Extension Activated");
+
+  // Create output channel
+  outputChannel = vscode.window.createOutputChannel("EncryptSyncS3");
 
   // Command to Set AES Key
   let setAESKeyCommand = vscode.commands.registerCommand("extension.setAESKeyCommand", async () => {
@@ -17,8 +27,10 @@ export function activate(context: vscode.ExtensionContext) {
     if (aesEncryptionKey) {
       await context.secrets.store("aesEncryptionKey", aesEncryptionKey);
       vscode.window.showInformationMessage("AES Encryption Key saved successfully.");
+      logMessage("AES Encryption Key saved successfully.");
     } else {
       vscode.window.showErrorMessage("Encryption key is required to save credentials.");
+      logMessage("Encryption key not provided. Failed to save credentials.");
     }
   });
 
@@ -33,19 +45,23 @@ export function activate(context: vscode.ExtensionContext) {
       await context.secrets.store("awsSecretAccessKey", awsSecretAccessKey);
 
       vscode.window.showInformationMessage("AWS Credentials saved successfully.");
+      logMessage("AWS Credentials saved successfully.");
     } else {
       vscode.window.showErrorMessage("Both AWS Access Key ID and Secret Access Key are required.");
+      logMessage("Failed to save AWS Credentials: Missing Access Key ID or Secret Access Key.");
     }
   });
 
   // Command to Sync Notes with S3
   let syncNotesCommand = vscode.commands.registerCommand("extension.syncNotes", async () => {
+    logMessage("Starting note sync with S3...");
     try {
       const { awsAccessKeyId, awsSecretAccessKey, s3Bucket, s3Region, s3Endpoint, s3PrefixPath, aesEncryptionKey } =
         await getConfigAndSecrets(context);
 
       if (!s3Bucket || !s3Region || !aesEncryptionKey) {
         vscode.window.showErrorMessage("S3 bucket, region, or AES key not set. Please configure the extension settings and credentials.");
+        logMessage("Sync failed: Missing S3 bucket, region, or AES key.");
         return;
       }
 
@@ -67,24 +83,29 @@ export function activate(context: vscode.ExtensionContext) {
             };
             const uploadCommand = new PutObjectCommand(uploadParams);
             await s3.send(uploadCommand);
+            logMessage(`File ${relativeFilePath} synced to S3 successfully.`);
           }
         }
       }
 
       vscode.window.showInformationMessage("Notes synced with S3 successfully.");
+      logMessage("All notes synced with S3 successfully.");
     } catch (error: any) {
       vscode.window.showErrorMessage(`Error syncing notes: ${error instanceof Error ? error.message : String(error)}`);
+      logMessage(`Error syncing notes: ${error.message}`);
     }
   });
 
   // Command to Download and Decrypt Notes from S3
   let downloadNotesCommand = vscode.commands.registerCommand("extension.downloadNotes", async () => {
+    logMessage("Starting download and decryption of notes from S3...");
     try {
       const { awsAccessKeyId, awsSecretAccessKey, s3Bucket, s3Region, s3Endpoint, s3PrefixPath, aesEncryptionKey } =
         await getConfigAndSecrets(context);
 
       if (!s3Bucket || !s3Region || !aesEncryptionKey) {
         vscode.window.showErrorMessage("S3 bucket, region, or AES key not set. Please configure the extension settings and credentials.");
+        logMessage("Download failed: Missing S3 bucket, region, or AES key.");
         return;
       }
 
@@ -98,20 +119,25 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       vscode.window.showInformationMessage("Notes downloaded and decrypted from S3 successfully.");
+      logMessage("All notes downloaded and decrypted from S3 successfully.");
     } catch (error: any) {
       vscode.window.showErrorMessage(`Error downloading notes: ${error instanceof Error ? error.message : String(error)}`);
+      logMessage(`Error downloading notes: ${error.message}`);
     }
   });
 
   // Command to Generate 32-Byte Encrypted Text
   let generateEncryptedTextCommand = vscode.commands.registerCommand("extension.generateEncryptedText", async () => {
     try {
+      logMessage("Generating 32-byte AES encryption key...");
       const randomBytes = crypto.randomBytes(32); // 32 bytes
       const encryptedText = randomBytes.toString("hex"); // Convert to hex string (64 characters)
       await context.secrets.store("aesEncryptionKey", encryptedText);
       vscode.window.showInformationMessage(`Generated and stored 32-byte encrypted text as AES key: ${encryptedText}`);
+      logMessage(`Generated AES key and stored successfully: ${encryptedText}`);
     } catch (error: any) {
       vscode.window.showErrorMessage(`Error generating encrypted text: ${error instanceof Error ? error.message : String(error)}`);
+      logMessage(`Error generating AES key: ${error.message}`);
     }
   });
 
@@ -120,6 +146,9 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(syncNotesCommand);
   context.subscriptions.push(downloadNotesCommand);
   context.subscriptions.push(generateEncryptedTextCommand);
+
+  // Show the output channel when the extension is activated
+  outputChannel.show(true);
 }
 
 async function getConfigAndSecrets(context: vscode.ExtensionContext) {
@@ -183,15 +212,24 @@ async function downloadAndDecryptFolder(
     const data = await s3.send(listCommand);
     if (data.Contents) {
       for (const item of data.Contents) {
-        await downloadAndDecryptItem(folder, item, s3, aesEncryptionKey, s3Bucket);
+        await downloadAndDecryptItem(folder, item, s3, aesEncryptionKey, s3Bucket, s3PrefixPath);
+        logMessage(`Downloaded and decrypted item: ${item.Key}`);
       }
     }
   } catch (error: any) {
     vscode.window.showErrorMessage(`Error in downloading folder: ${error instanceof Error ? error.message : String(error)}`);
+    logMessage(`Error in downloading folder: ${error.message}`);
   }
 }
 
-async function downloadAndDecryptItem(folder: vscode.WorkspaceFolder, item: any, s3: S3Client, aesEncryptionKey: string, s3Bucket: string) {
+async function downloadAndDecryptItem(
+  folder: vscode.WorkspaceFolder,
+  item: any,
+  s3: S3Client,
+  aesEncryptionKey: string,
+  s3Bucket: string,
+  s3PrefixPath: string
+) {
   try {
     const getObjectParams = {
       Bucket: s3Bucket,
@@ -202,11 +240,17 @@ async function downloadAndDecryptItem(folder: vscode.WorkspaceFolder, item: any,
     if (objectData.Body) {
       const bodyBuffer = await streamToBuffer(objectData.Body as NodeJS.ReadableStream);
       const decryptedContent = decryptContent(bodyBuffer, aesEncryptionKey);
-      const localFilePath = vscode.Uri.joinPath(folder.uri, item.Key || "");
+
+      // S3のキーからprefixPathを削除
+      const relativeFilePath = item.Key.replace(s3PrefixPath, "");
+
+      // ローカルのファイルパスを作成
+      const localFilePath = vscode.Uri.joinPath(folder.uri, relativeFilePath);
       await vscode.workspace.fs.writeFile(localFilePath, decryptedContent);
     }
   } catch (error: any) {
     vscode.window.showErrorMessage(`Error in downloading item: ${error instanceof Error ? error.message : String(error)}`);
+    logMessage(`Error in downloading item: ${error.message}`);
   }
 }
 
@@ -266,4 +310,6 @@ function decryptContent(encryptedContent: Buffer, key: string): Uint8Array {
   return decrypted;
 }
 
-export function deactivate() {}
+export function deactivate() {
+  logMessage("EncryptSyncS3 Extension Deactivated.");
+}
