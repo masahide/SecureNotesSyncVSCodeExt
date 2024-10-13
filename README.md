@@ -1,8 +1,8 @@
-# S3 File Sync VS Code Extension
+# Encrypt Sync S3 VS Code Extension
 
 ## Overview
 
-The **S3 File Sync** extension allows users to sync notes between their local VS Code workspace and AWS S3. This includes encrypting the notes with AES encryption before uploading them to S3, as well as downloading and decrypting them for local use. It is ideal for anyone who needs a simple, secure way to back up and retrieve notes or any text documents using AWS S3.
+The **Encrypt Sync S3** extension allows users to sync notes between their local VS Code workspace and AWS S3. This includes encrypting the notes with AES encryption before uploading them to S3, as well as downloading and decrypting them for local use. It is ideal for anyone who needs a simple, secure way to back up and retrieve notes or any text documents using AWS S3.
 
 ## Features
 
