@@ -9,9 +9,9 @@ export function activate(context: vscode.ExtensionContext) {
   // Command to Set AES Key
   let setAESKeyCommand = vscode.commands.registerCommand("extension.setAESKeyCommand", async () => {
     const aesEncryptionKey = await vscode.window.showInputBox({
-      prompt: "Enter AES Encryption Key (32 characters)",
+      prompt: "Enter AES Encryption Key (64 hex characters representing 32 bytes)",
       password: true,
-      validateInput: (value) => (value.length === 32 ? null : "AES Encryption Key must be 32 characters long"),
+      validateInput: (value) => (value.length === 64 ? null : "AES Encryption Key must be 64 hex characters long"),
     });
 
     if (aesEncryptionKey) {
@@ -57,8 +57,8 @@ export function activate(context: vscode.ExtensionContext) {
         for (const folder of workspaceFolders) {
           const files = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, "**/*"));
           for (const file of files) {
-            const document = await vscode.workspace.openTextDocument(file);
-            const encryptedContent = encryptContent(document.getText(), aesEncryptionKey);
+            const content = await vscode.workspace.fs.readFile(file);
+            const encryptedContent = encryptContent(content, aesEncryptionKey);
             const relativeFilePath = vscode.workspace.asRelativePath(file, false);
             const uploadParams = {
               Bucket: s3Bucket,
@@ -106,8 +106,8 @@ export function activate(context: vscode.ExtensionContext) {
   // Command to Generate 32-Byte Encrypted Text
   let generateEncryptedTextCommand = vscode.commands.registerCommand("extension.generateEncryptedText", async () => {
     try {
-      const randomBytes = crypto.randomBytes(32);
-      const encryptedText = randomBytes.toString("hex");
+      const randomBytes = crypto.randomBytes(32); // 32 bytes
+      const encryptedText = randomBytes.toString("hex"); // Convert to hex string (64 characters)
       await context.secrets.store("aesEncryptionKey", encryptedText);
       vscode.window.showInformationMessage(`Generated and stored 32-byte encrypted text as AES key: ${encryptedText}`);
     } catch (error: any) {
@@ -203,7 +203,7 @@ async function downloadAndDecryptItem(folder: vscode.WorkspaceFolder, item: any,
       const bodyBuffer = await streamToBuffer(objectData.Body as NodeJS.ReadableStream);
       const decryptedContent = decryptContent(bodyBuffer, aesEncryptionKey);
       const localFilePath = vscode.Uri.joinPath(folder.uri, item.Key || "");
-      await vscode.workspace.fs.writeFile(localFilePath, Buffer.from(decryptedContent, "utf-8"));
+      await vscode.workspace.fs.writeFile(localFilePath, decryptedContent);
     }
   } catch (error: any) {
     vscode.window.showErrorMessage(`Error in downloading item: ${error instanceof Error ? error.message : String(error)}`);
@@ -240,28 +240,30 @@ async function streamToBuffer(stream: Blob | ReadableStream | NodeJS.ReadableStr
 }
 
 // Encrypt content using AES
-function encryptContent(content: string, key: string): Buffer {
+function encryptContent(content: Uint8Array, key: string): Buffer {
   const iv = crypto.randomBytes(16);
-  if (key.length !== 32) {
-    throw new Error("Encryption key must be 32 characters long for AES-256-CBC.");
+  const keyBuffer = Buffer.from(key, "hex");
+  if (keyBuffer.length !== 32) {
+    throw new Error("Encryption key must be 32 bytes long for AES-256-CBC.");
   }
-  const cipher = crypto.createCipheriv("aes-256-cbc", Buffer.from(key), iv);
+  const cipher = crypto.createCipheriv("aes-256-cbc", keyBuffer, iv);
   let encrypted = cipher.update(content);
   encrypted = Buffer.concat([encrypted, cipher.final()]);
   return Buffer.concat([iv, encrypted]); // Prepend IV for decryption
 }
 
 // Decrypt content using AES
-function decryptContent(encryptedContent: Buffer, key: string): string {
+function decryptContent(encryptedContent: Buffer, key: string): Uint8Array {
   const iv = encryptedContent.subarray(0, 16);
   const encryptedText = encryptedContent.subarray(16);
-  if (key.length !== 32) {
-    throw new Error("Decryption key must be 32 characters long for AES-256-CBC.");
+  const keyBuffer = Buffer.from(key, "hex");
+  if (keyBuffer.length !== 32) {
+    throw new Error("Decryption key must be 32 bytes long for AES-256-CBC.");
   }
-  const decipher = crypto.createDecipheriv("aes-256-cbc", Buffer.from(key), iv);
+  const decipher = crypto.createDecipheriv("aes-256-cbc", keyBuffer, iv);
   let decrypted = decipher.update(encryptedText);
   decrypted = Buffer.concat([decrypted, decipher.final()]);
-  return decrypted.toString();
+  return decrypted;
 }
 
 export function deactivate() {}
