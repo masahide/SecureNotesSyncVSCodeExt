@@ -234,22 +234,45 @@ export async function generateLocalIndexFile(): Promise<IndexFile> {
   }
 
   const files: FileEntry[] = [];
+  const previousIndex = await loadLocalIndexFile(); // 前回のローカルインデックスを読み込み
+  const previousFileMap = new Map<string, FileEntry>();
+  if (previousIndex) {
+    for (const file of previousIndex.files) {
+      previousFileMap.set(file.path, file);
+    }
+  }
 
   for (const folder of workspaceFolders) {
-    const filesInFolder = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, "**/*"), "**/node_modules/**");
+    const filesInFolder = await vscode.workspace.findFiles(
+      new vscode.RelativePattern(folder, "**/*"),
+      "**/node_modules/**,.encrypt-sync-index.json"
+    );
 
     for (const fileUri of filesInFolder) {
-      const fileContent = await vscode.workspace.fs.readFile(fileUri);
-      const hash = crypto.createHash("sha256").update(fileContent).digest("hex");
       const stat = await vscode.workspace.fs.stat(fileUri);
-
       const relativePath = vscode.workspace.asRelativePath(fileUri, false);
 
-      files.push({
-        path: relativePath,
-        hash: hash,
-        timestamp: stat.mtime,
-      });
+      // 前回のインデックスに同じファイルがあるか確認
+      const previousFileEntry = previousFileMap.get(relativePath);
+
+      if (previousFileEntry && previousFileEntry.timestamp === stat.mtime) {
+        // タイムスタンプが同じ場合、ハッシュ値を再利用
+        files.push({
+          path: relativePath,
+          hash: previousFileEntry.hash,
+          timestamp: stat.mtime,
+        });
+      } else {
+        // タイムスタンプが異なる場合、ハッシュ値を再計算
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const hash = crypto.createHash("sha256").update(fileContent).digest("hex");
+
+        files.push({
+          path: relativePath,
+          hash: hash,
+          timestamp: stat.mtime,
+        });
+      }
     }
   }
 
@@ -259,6 +282,9 @@ export async function generateLocalIndexFile(): Promise<IndexFile> {
     files: files,
     timestamp: Date.now(),
   };
+
+  // 新しいインデックスファイルをローカルに保存
+  await saveLocalIndexFile(indexFile);
 
   return indexFile;
 }
@@ -403,4 +429,29 @@ export function createNewIndexFile(localIndex: IndexFile, parentIndexUUID: strin
   };
 
   return newIndexFile;
+}
+
+// 前回のインデックスファイルを読み込む関数
+async function loadLocalIndexFile(): Promise<IndexFile | null> {
+  const indexUri = getLocalIndexFilePath();
+  try {
+    const indexContent = await vscode.workspace.fs.readFile(indexUri);
+    const indexFile: IndexFile = JSON.parse(Buffer.from(indexContent).toString("utf-8"));
+    return indexFile;
+  } catch (error) {
+    // ファイルが存在しない場合や読み込みエラーの場合は null を返す
+    return null;
+  }
+}
+
+// 新しいインデックスファイルをローカルに保存する関数
+async function saveLocalIndexFile(indexFile: IndexFile): Promise<void> {
+  const indexUri = getLocalIndexFilePath();
+  const indexContent = Buffer.from(JSON.stringify(indexFile), "utf-8");
+  await vscode.workspace.fs.writeFile(indexUri, indexContent);
+}
+// ローカルインデックスファイルのパスを取得する
+function getLocalIndexFilePath(): vscode.Uri {
+  // ワークスペースのルートディレクトリに .encrypt-sync-index.json というファイル名で保存
+  return vscode.Uri.joinPath(vscode.Uri.file(getRootPath()), ".encrypt-sync-index.json");
 }
