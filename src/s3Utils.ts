@@ -104,20 +104,27 @@ function getRootPath(): string {
 }
 
 // 新規または変更されたファイルを暗号化し、S3 にアップロードします。
-export async function uploadFilesToS3(files: FileEntry[], initResult: S3InitializationResult): Promise<boolean> {
-  let Uploaded = false;
-  for (const file of files) {
+export async function uploadFilesToS3(
+  localFiles: FileEntry[],
+  remoteIndex: IndexFile,
+  initResult: S3InitializationResult
+): Promise<boolean> {
+  let uploaded = false;
+
+  // リモートのファイルハッシュ値のセットを作成
+  const remoteFileHashes = new Set(remoteIndex.files.map((file) => file.hash));
+
+  for (const file of localFiles) {
     // s3PrefixPath を適用して S3 のキーを作成
     const s3Key = joinS3Path(initResult.s3PrefixPath, "files", file.hash);
 
-    // ファイルが既に S3 に存在するか確認
-    const exists = await checkIfObjectExists(initResult, s3Key);
-    if (exists) {
+    // ファイルがリモートインデックスに存在するか確認
+    if (remoteFileHashes.has(file.hash)) {
       continue; // 既に存在する場合、アップロードをスキップ
     }
 
     // ファイルを読み込み
-    const fileUri = vscode.Uri.file(getRootPath() + "/" + file.path);
+    const fileUri = vscode.Uri.joinPath(vscode.Uri.file(getRootPath()), file.path);
     const fileContent = await vscode.workspace.fs.readFile(fileUri);
 
     // ファイルを暗号化
@@ -131,9 +138,9 @@ export async function uploadFilesToS3(files: FileEntry[], initResult: S3Initiali
     };
     await initResult.s3.send(new PutObjectCommand(putObjectParams));
     logMessage(`Uploaded file to S3: ${file.path} s3: ${s3Key}`);
-    Uploaded = true;
+    uploaded = true;
   }
-  return Uploaded;
+  return uploaded;
 }
 
 async function checkIfObjectExists(initResult: S3InitializationResult, key: string): Promise<boolean> {
@@ -338,7 +345,7 @@ async function overwriteLocalFileWithRemote(filePath: string, fileHash: string, 
     const decryptedContent = decryptContent(encryptedContent, initResult.aesEncryptionKey);
 
     // ローカルファイルパスを取得
-    const localUri = vscode.Uri.file(getRootPath() + "/" + filePath);
+    const localUri = vscode.Uri.joinPath(vscode.Uri.file(getRootPath()), filePath);
 
     // ローカルファイルをリモートの内容で上書き
     await vscode.workspace.fs.writeFile(localUri, decryptedContent);
@@ -373,7 +380,7 @@ async function saveRemoteFileAsConflict(filePath: string, fileHash: string, init
     const conflictFileName = `conflict-${timestamp}-${filePath}`;
 
     // ローカルパスを取得し、コンフリクトファイルとして保存
-    const localUri = vscode.Uri.file(getRootPath() + "/" + conflictFileName);
+    const localUri = vscode.Uri.joinPath(vscode.Uri.file(getRootPath()), conflictFileName);
     await vscode.workspace.fs.writeFile(localUri, decryptedContent);
 
     logMessage(`Saved remote file as conflict file: ${conflictFileName}`);

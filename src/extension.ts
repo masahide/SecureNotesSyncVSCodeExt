@@ -82,7 +82,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       // 7. 新規または変更されたファイルを S3 にアップロード
-      const uploaded = await uploadFilesToS3(localIndex.files, s3);
+      const uploaded = await uploadFilesToS3(localIndex.files, remoteIndex, s3);
 
       if (!uploaded) {
         showInfo("There are no update files.");
