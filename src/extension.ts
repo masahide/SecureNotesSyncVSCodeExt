@@ -1,52 +1,28 @@
 // VSCode Extension Skeleton for Note-Taking App with S3 Integration
 import * as vscode from "vscode";
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import {
+  initializeS3,
+  getHeadIndexUUID,
+  detectConflicts,
+  generateLocalIndexFile,
+  uploadFilesToS3,
+  getIndexFile,
+  resolveConflicts,
+  createNewIndexFile,
+  encryptAndUploadIndexFile,
+  updateHeadFile,
+} from "./s3Utils";
+import { streamToBuffer } from "./streamUtils";
+import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
+import { encryptContent, decryptContent } from "./cryptoUtils";
+import { setSecret } from "./secretManager";
 import * as crypto from "crypto";
-
-let outputChannel: vscode.OutputChannel;
-
-// Log message to output channel
-function logMessage(message: string) {
-  outputChannel.appendLine(message);
-}
-
-// Show error message and log
-function showError(message: string) {
-  vscode.window.showErrorMessage(message);
-  logMessage(message);
-}
-
-// Show info message and log
-function showInfo(message: string) {
-  vscode.window.showInformationMessage(message);
-  logMessage(message);
-}
-
-// Command to set secrets (AES Key or AWS Secret Access Key)
-async function setSecret(
-  context: vscode.ExtensionContext,
-  secretName: string,
-  prompt: string,
-  password: boolean = false,
-  validate?: (value: string) => string | null
-) {
-  const secretValue = await vscode.window.showInputBox({
-    prompt,
-    password,
-    validateInput: validate,
-  });
-
-  if (secretValue) {
-    await context.secrets.store(secretName, secretValue);
-    showInfo(`${secretName} saved successfully.`);
-  } else {
-    showError(`${secretName} is required.`);
-  }
-}
 
 export function activate(context: vscode.ExtensionContext) {
   // Create output channel
-  outputChannel = vscode.window.createOutputChannel("EncryptSyncS3");
+  const outputChannel = vscode.window.createOutputChannel("EncryptSyncS3");
+  setOutputChannel(outputChannel);
   showInfo("EncryptSyncS3 Extension Activated");
 
   // Command to Set AES Key
@@ -78,6 +54,56 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Command to Sync Notes with S3
   let syncNotesCommand = vscode.commands.registerCommand("extension.syncNotes", async () => {
+    logMessage("Starting note sync with S3...");
+
+    try {
+      // 1. S3 クライアントと設定の初期化
+      const s3 = await initializeS3(context);
+
+      // 2. HEAD ファイルを取得・復号して最新のインデックスファイルの UUID を取得
+      const remoteIndexUUID = await getHeadIndexUUID(s3);
+
+      // 3. リモートの最新インデックスファイルを取得・復号
+      const remoteIndex = await getIndexFile(s3, remoteIndexUUID);
+
+      // 4. ローカルのインデックスファイルを生成
+      const localIndex = await generateLocalIndexFile();
+
+      // 5. 競合の検出
+      const conflicts = detectConflicts(localIndex, remoteIndex);
+
+      // 6. 競合がある場合、解決を試みる
+      if (conflicts.length > 0) {
+        const conflictsResolved = await resolveConflicts(conflicts, s3);
+        if (!conflictsResolved) {
+          showInfo("Sync aborted due to unresolved conflicts.");
+          return;
+        }
+      }
+
+      // 7. 新規または変更されたファイルを S3 にアップロード
+      const uploaded = await uploadFilesToS3(localIndex.files, s3);
+
+      if (!uploaded) {
+        showInfo("There are no update files.");
+        return;
+      }
+
+      // 8. 新しいインデックスファイルを作成し、アップロード
+      const newIndex = createNewIndexFile(localIndex, remoteIndexUUID);
+      const newIndexUUID = await encryptAndUploadIndexFile(newIndex, s3);
+
+      // 9. HEAD ファイルを新しいインデックスファイルの UUID で更新
+      await updateHeadFile(newIndexUUID, s3);
+
+      showInfo("Notes synced with S3 successfully.");
+    } catch (error: any) {
+      showError(`Error syncing notes: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
+  // Command to Sync Notes with S3
+  let syncNotesCommandOld = vscode.commands.registerCommand("extension.syncNotes2", async () => {
     logMessage("Starting note sync with S3...");
     try {
       const { s3, s3Bucket, s3PrefixPath, aesEncryptionKey } = await initializeS3(context);
@@ -128,12 +154,11 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Command to Generate 32-Byte Encrypted Text
   let generateEncryptedTextCommand = vscode.commands.registerCommand("extension.generateEncryptedText", async () => {
+    logMessage("Generating 32-byte AES encryption key...");
+    const key = crypto.randomBytes(32).toString("hex"); // 32 bytes
     try {
-      logMessage("Generating 32-byte AES encryption key...");
-      const randomBytes = crypto.randomBytes(32); // 32 bytes
-      const encryptedText = randomBytes.toString("hex"); // 64 hex characters
-      await context.secrets.store("aesEncryptionKey", encryptedText);
-      showInfo(`Generated and stored AES key: ${encryptedText}`);
+      await context.secrets.store("aesEncryptionKey", key);
+      showInfo(`Generated and stored AES key: ${key}`);
     } catch (error: any) {
       showError(`Error generating encrypted text: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -145,7 +170,15 @@ export function activate(context: vscode.ExtensionContext) {
   outputChannel.show(true);
 }
 
-async function initializeS3(context: vscode.ExtensionContext) {
+type S3InitializationResult = {
+  s3: S3Client;
+  s3Bucket: string;
+  s3PrefixPath: string;
+  aesEncryptionKey: string;
+};
+
+/*
+async function initializeS3(context: vscode.ExtensionContext): Promise<S3InitializationResult> {
   const config = vscode.workspace.getConfiguration("encryptSyncS3");
   const awsAccessKeyId = config.get<string>("awsAccessKeyId");
   const awsSecretAccessKey = await context.secrets.get("awsSecretAccessKey");
@@ -173,6 +206,7 @@ async function initializeS3(context: vscode.ExtensionContext) {
 
   return { s3, s3Bucket, s3PrefixPath, aesEncryptionKey };
 }
+*/
 
 async function downloadAndDecryptFolder(
   folder: vscode.WorkspaceFolder,
@@ -218,54 +252,6 @@ async function downloadAndDecryptItem(
     await vscode.workspace.fs.writeFile(localFilePath, decryptedContent);
     logMessage(`Downloaded and decrypted item: ${relativeFilePath}`);
   }
-}
-
-// Convert stream to buffer
-async function streamToBuffer(stream: Blob | ReadableStream | NodeJS.ReadableStream): Promise<Buffer> {
-  if (stream instanceof ReadableStream) {
-    const reader = stream.getReader();
-    const chunks: Uint8Array[] = [];
-    let done = false;
-
-    while (!done) {
-      const { value, done: readerDone } = await reader.read();
-      if (readerDone) {
-        done = true;
-      } else if (value) {
-        chunks.push(value);
-      }
-    }
-
-    return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
-  } else if (stream instanceof Blob) {
-    return Buffer.from(await stream.arrayBuffer());
-  } else {
-    return new Promise<Buffer>((resolve, reject) => {
-      const chunks: any[] = [];
-      stream.on("data", (chunk) => chunks.push(chunk));
-      stream.on("end", () => resolve(Buffer.concat(chunks)));
-      stream.on("error", reject);
-    });
-  }
-}
-
-// Encrypt content using AES
-function encryptContent(content: Uint8Array, key: string): Buffer {
-  const iv = crypto.randomBytes(16);
-  const keyBuffer = Buffer.from(key, "hex");
-  const cipher = crypto.createCipheriv("aes-256-cbc", keyBuffer, iv);
-  const encrypted = Buffer.concat([cipher.update(content), cipher.final()]);
-  return Buffer.concat([iv, encrypted]); // Prepend IV for decryption
-}
-
-// Decrypt content using AES
-function decryptContent(encryptedContent: Buffer, key: string): Uint8Array {
-  const iv = encryptedContent.subarray(0, 16);
-  const encryptedText = encryptedContent.subarray(16);
-  const keyBuffer = Buffer.from(key, "hex");
-  const decipher = crypto.createDecipheriv("aes-256-cbc", keyBuffer, iv);
-  const decrypted = Buffer.concat([decipher.update(encryptedText), decipher.final()]);
-  return decrypted;
 }
 
 export function deactivate() {
