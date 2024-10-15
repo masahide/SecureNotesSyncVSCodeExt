@@ -227,7 +227,7 @@ export async function initializeS3(context: vscode.ExtensionContext): Promise<S3
 }
 
 // ローカルのワークスペースからファイルリスト、ハッシュ値、タイムスタンプを取得し、インデックスファイルを生成します。
-export async function generateLocalIndexFile(): Promise<IndexFile> {
+export async function generateLocalIndexFile(parentUuid: string): Promise<IndexFile> {
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders) {
     throw new Error("No workspace folders found.");
@@ -245,7 +245,7 @@ export async function generateLocalIndexFile(): Promise<IndexFile> {
   for (const folder of workspaceFolders) {
     const filesInFolder = await vscode.workspace.findFiles(
       new vscode.RelativePattern(folder, "**/*"),
-      "**/node_modules/**,**/.encrypt-sync-index.json"
+      "{**/node_modules/**,.encrypt-sync-index.json}"
     );
 
     for (const fileUri of filesInFolder) {
@@ -278,7 +278,7 @@ export async function generateLocalIndexFile(): Promise<IndexFile> {
 
   const indexFile: IndexFile = {
     uuid: "", // 新しいインデックスファイルを作成する際に設定
-    parentUuid: "", // 後で設定
+    parentUuid: parentUuid, // ここでリモートのインデックス UUID を設定
     files: files,
     timestamp: Date.now(),
   };
@@ -293,6 +293,13 @@ export async function generateLocalIndexFile(): Promise<IndexFile> {
 export function detectConflicts(localIndex: IndexFile, remoteIndex: IndexFile): Conflict[] {
   const conflicts: Conflict[] = [];
 
+  // リモートのインデックス UUID とローカルの parentUuid を比較
+  if (remoteIndex.uuid === localIndex.parentUuid) {
+    // リモートに変更がないため、競合なし
+    return conflicts;
+  }
+
+  // リモートに変更がある場合のみ競合を検出
   const remoteFileMap = new Map<string, FileEntry>();
   for (const file of remoteIndex.files) {
     remoteFileMap.set(file.path, file);

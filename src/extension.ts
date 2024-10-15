@@ -67,7 +67,7 @@ export function activate(context: vscode.ExtensionContext) {
       const remoteIndex = await getIndexFile(s3, remoteIndexUUID);
 
       // 4. ローカルのインデックスファイルを生成
-      const localIndex = await generateLocalIndexFile();
+      const localIndex = await generateLocalIndexFile(remoteIndex.uuid);
 
       // 5. 競合の検出
       const conflicts = detectConflicts(localIndex, remoteIndex);
@@ -95,37 +95,6 @@ export function activate(context: vscode.ExtensionContext) {
 
       // 9. HEAD ファイルを新しいインデックスファイルの UUID で更新
       await updateHeadFile(newIndexUUID, s3);
-
-      showInfo("Notes synced with S3 successfully.");
-    } catch (error: any) {
-      showError(`Error syncing notes: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  });
-
-  // Command to Sync Notes with S3
-  let syncNotesCommandOld = vscode.commands.registerCommand("extension.syncNotes2", async () => {
-    logMessage("Starting note sync with S3...");
-    try {
-      const { s3, s3Bucket, s3PrefixPath, aesEncryptionKey } = await initializeS3(context);
-
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (workspaceFolders) {
-        for (const folder of workspaceFolders) {
-          const files = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, "**/*"));
-          for (const file of files) {
-            const content = await vscode.workspace.fs.readFile(file);
-            const encryptedContent = encryptContent(content, aesEncryptionKey);
-            const relativeFilePath = vscode.workspace.asRelativePath(file, false);
-            const uploadParams = {
-              Bucket: s3Bucket,
-              Key: `${s3PrefixPath}/${relativeFilePath}`,
-              Body: encryptedContent,
-            };
-            await s3.send(new PutObjectCommand(uploadParams));
-            logMessage(`File ${relativeFilePath} synced to S3 successfully.`);
-          }
-        }
-      }
 
       showInfo("Notes synced with S3 successfully.");
     } catch (error: any) {
@@ -176,37 +145,6 @@ type S3InitializationResult = {
   s3PrefixPath: string;
   aesEncryptionKey: string;
 };
-
-/*
-async function initializeS3(context: vscode.ExtensionContext): Promise<S3InitializationResult> {
-  const config = vscode.workspace.getConfiguration("encryptSyncS3");
-  const awsAccessKeyId = config.get<string>("awsAccessKeyId");
-  const awsSecretAccessKey = await context.secrets.get("awsSecretAccessKey");
-  const s3Bucket = config.get<string>("s3Bucket");
-  const s3Region = config.get<string>("s3Region");
-  const s3Endpoint = config.get<string>("s3Endpoint");
-  const s3PrefixPath = config.get<string>("s3PrefixPath") || "";
-  const aesEncryptionKey = (await context.secrets.get("aesEncryptionKey"))!;
-
-  if (!s3Bucket || !s3Region || !aesEncryptionKey) {
-    throw new Error("S3 bucket, region, or AES key not set. Please configure the extension settings and credentials.");
-  }
-
-  const s3 = new S3Client({
-    region: s3Region,
-    endpoint: s3Endpoint,
-    credentials:
-      awsAccessKeyId && awsSecretAccessKey
-        ? {
-            accessKeyId: awsAccessKeyId,
-            secretAccessKey: awsSecretAccessKey,
-          }
-        : undefined,
-  });
-
-  return { s3, s3Bucket, s3PrefixPath, aesEncryptionKey };
-}
-*/
 
 async function downloadAndDecryptFolder(
   folder: vscode.WorkspaceFolder,
