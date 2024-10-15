@@ -245,7 +245,7 @@ export async function generateLocalIndexFile(): Promise<IndexFile> {
   for (const folder of workspaceFolders) {
     const filesInFolder = await vscode.workspace.findFiles(
       new vscode.RelativePattern(folder, "**/*"),
-      "**/node_modules/**,.encrypt-sync-index.json"
+      "**/node_modules/**,**/.encrypt-sync-index.json"
     );
 
     for (const fileUri of filesInFolder) {
@@ -333,6 +333,11 @@ export function detectConflicts(localIndex: IndexFile, remoteIndex: IndexFile): 
 // 検出された競合をユーザーに通知し、解決します。
 export async function resolveConflicts(conflicts: Conflict[], initResult: S3InitializationResult): Promise<boolean> {
   for (const conflict of conflicts) {
+    if (conflict.localHash.length == 0) {
+      logMessage(`Remote only file: ${conflict.filePath}`);
+      await fetchDecryptAndSaveFile(conflict.filePath, conflict.remoteHash, initResult);
+      continue;
+    }
     const choice = await vscode.window.showQuickPick(
       ["Keep Local Version", "Keep Remote Version", "Save Remote as Conflict File", "Abort Sync"],
       {
@@ -357,8 +362,8 @@ export async function resolveConflicts(conflicts: Conflict[], initResult: S3Init
   return true;
 }
 
-// リモートのファイルでローカルを上書き
-async function overwriteLocalFileWithRemote(filePath: string, fileHash: string, initResult: S3InitializationResult): Promise<void> {
+// S3からファイルを取得し、復号化した内容を返す共通関数
+async function fetchAndDecryptFileFromS3(fileHash: string, initResult: S3InitializationResult): Promise<Uint8Array> {
   const s3Key = joinS3Path(initResult.s3PrefixPath, "files", fileHash); // ハッシュ値を使用してS3キーを作成
 
   try {
@@ -368,52 +373,56 @@ async function overwriteLocalFileWithRemote(filePath: string, fileHash: string, 
     };
     const data = await initResult.s3.send(new GetObjectCommand(getObjectParams));
     const encryptedContent = await streamToBuffer(data.Body as NodeJS.ReadableStream);
-    const decryptedContent = decryptContent(encryptedContent, initResult.aesEncryptionKey);
-
-    // ローカルファイルパスを取得
-    const localUri = vscode.Uri.joinPath(vscode.Uri.file(getRootPath()), filePath);
-
-    // ローカルファイルをリモートの内容で上書き
-    await vscode.workspace.fs.writeFile(localUri, decryptedContent);
-    logMessage(`Overwrote local file with remote content: ${filePath}`);
+    return decryptContent(encryptedContent, initResult.aesEncryptionKey);
   } catch (error: any) {
-    logMessage(`Failed to overwrite local file: ${filePath}. Error: ${error.message}`);
+    logMessage(`Failed to fetch or decrypt file: ${fileHash}. Error: ${error.message}`);
     throw error;
   }
 }
 
-// リモートのファイルを別名で保存
-async function saveRemoteFileAsConflict(filePath: string, fileHash: string, initResult: S3InitializationResult): Promise<void> {
-  const s3Key = joinS3Path(initResult.s3PrefixPath, "files", fileHash); // ハッシュ値を使用してS3キーを作成
-
+// S3からファイルを取得し、ローカルに保存する共通関数
+async function fetchDecryptAndSaveFile(
+  filePath: string,
+  fileHash: string,
+  initResult: S3InitializationResult,
+  conflictFileName?: string
+): Promise<void> {
   try {
-    const getObjectParams = {
-      Bucket: initResult.s3Bucket,
-      Key: s3Key,
-    };
-    const data = await initResult.s3.send(new GetObjectCommand(getObjectParams));
-    const encryptedContent = await streamToBuffer(data.Body as NodeJS.ReadableStream);
-    const decryptedContent = decryptContent(encryptedContent, initResult.aesEncryptionKey);
+    const decryptedContent = await fetchAndDecryptFileFromS3(fileHash, initResult);
+    const savePath = conflictFileName ? conflictFileName : filePath;
 
-    // ワークスペースフォルダを取得
-    const workspaceFolder = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri.fsPath : undefined;
-    if (!workspaceFolder) {
-      throw new Error("No workspace folder found.");
-    }
+    // ローカルファイルパスを取得
+    const localUri = vscode.Uri.joinPath(vscode.Uri.file(getRootPath()), savePath);
 
-    // コンフリクト用のファイル名を生成（例: conflict-YYYYMMDD-HHmmss-ファイル名.ext）
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").split("Z")[0];
-    const conflictFileName = `conflict-${timestamp}-${filePath}`;
-
-    // ローカルパスを取得し、コンフリクトファイルとして保存
-    const localUri = vscode.Uri.joinPath(vscode.Uri.file(getRootPath()), conflictFileName);
+    // ローカルファイルに保存
     await vscode.workspace.fs.writeFile(localUri, decryptedContent);
-
-    logMessage(`Saved remote file as conflict file: ${conflictFileName}`);
+    logMessage(`Saved remote file to local path: ${savePath}`);
   } catch (error: any) {
-    logMessage(`Failed to save remote file as conflict: ${filePath}. Error: ${error.message}`);
+    logMessage(`Failed to save remote file to local path: ${filePath}. Error: ${error.message}`);
     throw error;
   }
+}
+
+// リモートのファイルでローカルを上書き
+async function overwriteLocalFileWithRemote(filePath: string, fileHash: string, initResult: S3InitializationResult): Promise<void> {
+  await fetchDecryptAndSaveFile(filePath, fileHash, initResult);
+  logMessage(`Overwrote local file with remote content: ${filePath}`);
+}
+
+// リモートのファイルを別名で保存
+async function saveRemoteFileAsConflict(filePath: string, fileHash: string, initResult: S3InitializationResult): Promise<void> {
+  // ワークスペースフォルダを取得
+  const workspaceFolder = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri.fsPath : undefined;
+  if (!workspaceFolder) {
+    throw new Error("No workspace folder found.");
+  }
+
+  // コンフリクト用のファイル名を生成（例: conflict-YYYYMMDD-HHmmss-ファイル名.ext）
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").split("Z")[0];
+  const conflictFileName = `conflict-${timestamp}-${filePath}`;
+
+  await fetchDecryptAndSaveFile(filePath, fileHash, initResult, conflictFileName);
+  logMessage(`Saved remote file as conflict file: ${conflictFileName}`);
 }
 
 // 親の UUID を含む新しいインデックスファイルを作成します。
