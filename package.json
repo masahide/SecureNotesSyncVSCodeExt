@@ -16,24 +16,9 @@
       "type": "object",
       "title": "EncryptSyncS3 Configuration",
       "properties": {
-        "encryptSyncS3.awsAccessKeyId": {
-          "type": "string",
-          "description": "AWS Access Key ID for S3",
-          "default": ""
-        },
         "encryptSyncS3.s3Bucket": {
           "type": "string",
           "description": "S3 Bucket Name",
-          "default": ""
-        },
-        "encryptSyncS3.s3Region": {
-          "type": "string",
-          "description": "S3 Region",
-          "default": ""
-        },
-        "encryptSyncS3.s3Endpoint": {
-          "type": "string",
-          "description": "S3 Custom Endpoint (optional)",
           "default": ""
         },
         "encryptSyncS3.s3PrefixPath": {
@@ -45,20 +30,24 @@
     },
     "commands": [
       {
-        "command": "extension.setAWSSecret",
-        "title": "Set AWS secret access key"
+        "command": "extension.createConfig",
+        "title": "Create config file"
       },
       {
         "command": "extension.setAESKey",
         "title": "Set AES encryption Key"
       },
       {
-        "command": "extension.syncNotes",
-        "title": "Sync Notes with S3"
+        "command": "extension.createRepository",
+        "title": "Create repository"
       },
       {
-        "command": "extension.downloadNotes",
-        "title": "Download and Decrypt Notes from S3"
+        "command": "extension.sync",
+        "title": "Sync Notes with Remote storage"
+      },
+      {
+        "command": "extension.initializeFromRemote",
+        "title": "Download and Decrypt Notes from Remote storage"
       },
       {
         "command": "extension.generateEncryptedText",
@@ -78,6 +67,8 @@
     "test": "vscode-test"
   },
   "devDependencies": {
+    "@aws-sdk/credential-providers": "^3.675.0",
+    "@types/ini": "^4.1.1",
     "@types/mocha": "^10.0.8",
     "@types/node": "20.x",
     "@types/vscode": "^1.94.0",
@@ -87,6 +78,7 @@
     "@vscode/test-electron": "^2.4.1",
     "aws-sdk": "^2.1691.0",
     "eslint": "^9.11.1",
+    "ini": "^5.0.0",
     "ts-loader": "^9.5.1",
     "typescript": "^5.6.2",
     "webpack": "^5.95.0",
