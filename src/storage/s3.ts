@@ -1,9 +1,8 @@
 import * as vscode from "vscode";
 import { RemoteStorage, IndexFile } from "./storage";
-import { fromIni } from "@aws-sdk/credential-providers";
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { decryptContent, encryptContent } from "../cryptoUtils";
-import { logMessage } from "../logger";
+import { logMessage, showError, showInfo } from "../logger";
 import { streamToBuffer } from "../streamUtils";
 import { Config, S3Config } from "../dotdir/config";
 import { getSecret, SecretKey } from "../secretManager";
@@ -16,23 +15,25 @@ export class S3Storage implements RemoteStorage {
   async initialize(context: vscode.ExtensionContext, config: Config): Promise<void> {
     this.conf = config.S3;
     const aesEncryptionKey = await getSecret(context, SecretKey(config));
-    if (this.conf.profile) {
-      this.s3 = new S3Client({ credentials: fromIni({ profile: this.conf.profile }) });
-    } else {
-      this.s3 = new S3Client();
+    if (!aesEncryptionKey) {
+      throw new Error("AES encryption key not found.");
     }
+    this.aesEncryptionKey = aesEncryptionKey;
+    if (this.conf.profile) {
+      process.env.AWS_PROFILE = this.conf.profile;
+    }
+    this.s3 = new S3Client();
   }
 
   async uploadFile(filePath: string, content: Uint8Array): Promise<void> {
     const s3Key = joinS3Path(this.conf.prefixPath, "files", filePath);
-    const encryptedContent = encryptContent(content, this.aesEncryptionKey);
+    const encryptedContent = new Uint8Array(encryptContent(Buffer.from(content), this.aesEncryptionKey));
     const putObjectParams = {
       Bucket: this.conf.bucket,
       Key: s3Key,
       Body: encryptedContent,
     };
     await this.s3.send(new PutObjectCommand(putObjectParams));
-    logMessage(`Uploaded file to S3: ${filePath}`);
   }
 
   async downloadFile(filePath: string): Promise<Uint8Array> {
@@ -111,22 +112,21 @@ export class S3Storage implements RemoteStorage {
   async testS3Access(): Promise<boolean> {
     const testKey = joinS3Path(this.conf.prefixPath, "test");
     try {
-      await this.s3.send(
+      const putRes = await this.s3.send(
         new PutObjectCommand({
           Bucket: this.conf.bucket,
           Key: testKey,
           Body: "test",
         })
       );
-      const response = await this.s3.send(
+      vscode.window.showInformationMessage(`S3 putObject key:${testKey} ETag:${putRes.ETag}`);
+      await this.s3.send(
         new DeleteObjectCommand({
           Bucket: this.conf.bucket,
           Key: testKey,
         })
       );
-      // 成功した場合、S3へのアクセスが可能
-      vscode.window.showInformationMessage("S3 access test succeeded.");
-      console.log("S3 response:", response);
+      vscode.window.showInformationMessage(`S3 deleteObject key:${testKey}`);
       return true;
     } catch (error) {
       // エラーが発生した場合、S3へのアクセスに失敗

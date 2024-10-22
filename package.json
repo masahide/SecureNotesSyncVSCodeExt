@@ -50,6 +50,10 @@
         "title": "Download and Decrypt Notes from Remote storage"
       },
       {
+        "command": "extension.testRemoteAccess",
+        "title": "test remote access"
+      },
+      {
         "command": "extension.generateEncryptedText",
         "title": "Generate 32-Byte Encrypted Text"
       }

@@ -1,6 +1,6 @@
 // VSCode Extension for Memo Note-Taking App with S3 Integration
 import * as vscode from "vscode";
-import { createConfigFile, loadConfig } from "./dotdir/config";
+import { createConfigFile, loadConfig, Config } from "./dotdir/config";
 import { IndexFile, FileEntry, Conflict, RemoteStorage } from "./storage/storage";
 import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
 import { setSecret, storeSecret } from "./secretManager";
@@ -16,7 +16,12 @@ export function activate(context: vscode.ExtensionContext) {
   showInfo("MemoSyncS3 Extension Activated");
 
   let createConfigCommand = vscode.commands.registerCommand("extension.createConfig", async () => {
-    await createConfigFile(dotDir);
+    try {
+      await createConfigFile(dotDir);
+      showInfo("Config file created successfully.");
+    } catch {}
+    const config = await loadConfig(dotDir);
+    showInfo(`config: ${JSON.stringify(config)}`);
   });
 
   // Command to Set AES Key
@@ -34,16 +39,33 @@ export function activate(context: vscode.ExtensionContext) {
       // Generate initial index and upload
       const storage = new S3Storage();
       await storage.initialize(context, config);
-      const initialIndex = await generateLocalIndexFile("", crypto.randomUUID()); // No parentUuid or nextUuid for initial index
+
+      const uuid = await storage.getHeadIndexUuid();
+      if (uuid) {
+        showError("Remote repository not found or empty.");
+        return;
+      }
+      const initialIndex = await generateLocalIndexFile(config, "", crypto.randomUUID()); // No parentUuid or nextUuid for initial index
+      showInfo(`generated local index uuid:${initialIndex.uuid}`);
+
+      const uploaded = await uploadFilesToS3(initialIndex.files, storage);
+
+      if (!uploaded) {
+        showInfo("No updated files.");
+        return;
+      }
 
       // Encrypt and upload initial index file
       await storage.uploadIndexFile(initialIndex);
+      showInfo("Initial index file uploaded successfully.");
 
       // Update HEAD file
       await storage.updateHeadFile(initialIndex.uuid);
+      showInfo("HEAD file updated successfully.");
 
       // Save local index file
       await saveLocalIndexFile(initialIndex);
+      showInfo("Local index file saved successfully.");
 
       showInfo("New Memo Repository created and initial sync completed.");
     } catch (error: any) {
@@ -81,7 +103,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       // Generate new local index file
-      const newLocalIndex = await generateLocalIndexFile(localIndex.uuid, crypto.randomUUID()); // parentUuid is local index's uuid
+      const newLocalIndex = await generateLocalIndexFile(config, localIndex.parentUuid, localIndex.uuid); // parentUuid is local index's uuid
 
       // Detect conflicts
       const conflicts = detectConflicts(localIndex, remoteIndex, newLocalIndex);
@@ -104,6 +126,10 @@ export function activate(context: vscode.ExtensionContext) {
       const filesToUpload = getFilesToUpload(newLocalIndex, remoteIndex);
       const uploaded = await uploadFilesToS3(filesToUpload, storage);
 
+      if (!uploaded) {
+        showInfo("No updated files.");
+        return;
+      }
       // Create new index file with proper nextUuid
       const newIndex = createNewIndexFile(newLocalIndex, remoteIndex.uuid);
 
@@ -173,6 +199,22 @@ export function activate(context: vscode.ExtensionContext) {
       showError(`Error generating encrypted text: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
+  // Command to Generate 32-Byte Encrypted Text
+  let testRemoteAccess = vscode.commands.registerCommand("extension.testRemoteAccess", async () => {
+    try {
+      const config = await loadConfig(dotDir);
+      const storage = new S3Storage();
+      await storage.initialize(context, config);
+      const test = await storage.testS3Access();
+      if (test) {
+        showInfo("Remote S3 access test successful.");
+      } else {
+        showError("Remote S3 access test failed.");
+      }
+    } catch (error: any) {
+      showError(`Error testing remote access: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
 
   context.subscriptions.push(
     createConfigCommand,
@@ -225,7 +267,7 @@ async function uploadFilesToS3(localFiles: FileEntry[], storage: RemoteStorage):
 }
 
 // ローカルのワークスペースからファイルリスト、ハッシュ値、タイムスタンプを取得し、インデックスファイルを生成します。
-async function generateLocalIndexFile(parentUuid: string, nextUuid: string): Promise<IndexFile> {
+async function generateLocalIndexFile(config: Config, parentUuid: string, uuid: string): Promise<IndexFile> {
   const files: FileEntry[] = [];
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders) {
@@ -233,7 +275,7 @@ async function generateLocalIndexFile(parentUuid: string, nextUuid: string): Pro
   }
 
   for (const folder of workspaceFolders) {
-    const filesInFolder = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, "**/*"), "{**/node_modules/**,.memo/**}");
+    const filesInFolder = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, config.core.include), config.core.exclude);
 
     for (const fileUri of filesInFolder) {
       const stat = await vscode.workspace.fs.stat(fileUri);
@@ -253,9 +295,9 @@ async function generateLocalIndexFile(parentUuid: string, nextUuid: string): Pro
   }
 
   const indexFile: IndexFile = {
-    uuid: "", // 新しいインデックスファイルを作成する際に設定
+    uuid: uuid, // 新しいインデックスファイルを作成する際に設定
     parentUuid: parentUuid,
-    nextUuid: nextUuid,
+    nextUuid: crypto.randomUUID(),
     files: files,
     timestamp: Date.now(),
   };
@@ -281,7 +323,7 @@ function detectConflicts(localIndex: IndexFile, remoteIndex: IndexFile, newLocal
     const localFile = localFileMap.get(newLocalFile.path);
     const remoteFile = remoteFileMap.get(newLocalFile.path);
 
-    if (localFile && remoteFile && localFile.hash !== newLocalFile.hash && remoteFile.hash !== newLocalFile.hash) {
+    if (localFile && remoteFile && localFile.hash !== newLocalFile.hash && localFile.hash !== remoteFile.hash) {
       conflicts.push({
         filePath: newLocalFile.path,
         localHash: newLocalFile.hash,
@@ -336,7 +378,6 @@ async function fetchDecryptAndSaveFile(filePath: string, fileHash: string, stora
     const localUri = vscode.Uri.joinPath(vscode.Uri.file(getRootPath()), filePath);
     // ローカルファイルに保存
     await vscode.workspace.fs.writeFile(localUri, data);
-    logMessage(`Saved remote file to local path: ${filePath}`);
   } catch (error: any) {
     logMessage(`Failed to save remote file to local path: ${filePath}. Error: ${error.message}`);
     throw error;

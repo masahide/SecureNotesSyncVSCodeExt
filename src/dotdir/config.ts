@@ -19,6 +19,8 @@ export interface Config {
   core: {
     localID: string;
     storageType: StrageType;
+    include: string;
+    exclude: string;
   };
   S3: S3Config;
 }
@@ -27,6 +29,8 @@ const defaultConfig = `
 [core]
     localID = ${crypto.randomUUID().toString()}
     storageType = S3
+    include =  **/*
+    exclude =  {**/node_modules/**,.memo/**}
 
 [S3]
     bucket = memoBucket

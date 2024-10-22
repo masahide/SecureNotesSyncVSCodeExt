@@ -1,7 +1,7 @@
 import * as crypto from "crypto";
 
 // Encrypt content using AES
-export function encryptContent(content: Uint8Array, key: string): Buffer {
+export function encryptContent(content: Buffer, key: string): Buffer {
   const iv = crypto.randomBytes(16);
   const keyBuffer = Buffer.from(key, "hex");
   const cipher = crypto.createCipheriv("aes-256-cbc", keyBuffer, iv);
