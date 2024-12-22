@@ -1,6 +1,6 @@
 {
-  "name": "encrypt-sync-s3",
-  "displayName": "Encrypt Sync S3",
+  "name": "secure-notes-sync",
+  "displayName": "Secure Notes Sync",
   "description": "A VS Code extension for securely syncing notes with AWS S3 using AES encryption.",
   "version": "0.0.1",
   "publisher": "your-publisher-name",
