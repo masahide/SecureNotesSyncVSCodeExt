@@ -14,29 +14,29 @@
   "contributes": {
     "configuration": {
       "type": "object",
-      "title": "EncryptSyncS3 Configuration",
+      "title": "secureNotesSync Configuration",
       "properties": {
-        "encryptSyncS3.awsAccessKeyId": {
+        "secureNotesSync.awsAccessKeyId": {
           "type": "string",
           "description": "AWS Access Key ID for S3",
           "default": ""
         },
-        "encryptSyncS3.s3Bucket": {
+        "secureNotesSync.s3Bucket": {
           "type": "string",
           "description": "S3 Bucket Name",
           "default": ""
         },
-        "encryptSyncS3.s3Region": {
+        "secureNotesSync.s3Region": {
           "type": "string",
           "description": "S3 Region",
           "default": ""
         },
-        "encryptSyncS3.s3Endpoint": {
+        "secureNotesSync.s3Endpoint": {
           "type": "string",
           "description": "S3 Custom Endpoint (optional)",
           "default": ""
         },
-        "encryptSyncS3.s3PrefixPath": {
+        "secureNotesSync.s3PrefixPath": {
           "type": "string",
           "description": "S3 Prefix Path (optional)",
           "default": ""

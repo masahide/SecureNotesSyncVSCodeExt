@@ -46,8 +46,8 @@ async function setSecret(
 
 export function activate(context: vscode.ExtensionContext) {
   // Create output channel
-  outputChannel = vscode.window.createOutputChannel("EncryptSyncS3");
-  showInfo("EncryptSyncS3 Extension Activated");
+  outputChannel = vscode.window.createOutputChannel("secureNotesSync");
+  showInfo("secureNotesSync Extension Activated");
 
   // Command to Set AES Key
   let setAESKeyCommand = vscode.commands.registerCommand("extension.setAESKeyCommand", () =>
@@ -67,7 +67,7 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     if (awsAccessKeyId && awsSecretAccessKey) {
-      const config = vscode.workspace.getConfiguration("encryptSyncS3");
+      const config = vscode.workspace.getConfiguration("secureNotesSync");
       await config.update("awsAccessKeyId", awsAccessKeyId, vscode.ConfigurationTarget.Global);
       await context.secrets.store("awsSecretAccessKey", awsSecretAccessKey);
       showInfo("AWS Credentials saved successfully.");
@@ -146,7 +146,7 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 async function initializeS3(context: vscode.ExtensionContext) {
-  const config = vscode.workspace.getConfiguration("encryptSyncS3");
+  const config = vscode.workspace.getConfiguration("secureNotesSync");
   const awsAccessKeyId = config.get<string>("awsAccessKeyId");
   const awsSecretAccessKey = await context.secrets.get("awsSecretAccessKey");
   const s3Bucket = config.get<string>("s3Bucket");
@@ -165,9 +165,9 @@ async function initializeS3(context: vscode.ExtensionContext) {
     credentials:
       awsAccessKeyId && awsSecretAccessKey
         ? {
-            accessKeyId: awsAccessKeyId,
-            secretAccessKey: awsSecretAccessKey,
-          }
+          accessKeyId: awsAccessKeyId,
+          secretAccessKey: awsSecretAccessKey,
+        }
         : undefined,
   });
 
@@ -269,5 +269,5 @@ function decryptContent(encryptedContent: Buffer, key: string): Uint8Array {
 }
 
 export function deactivate() {
-  logMessage("EncryptSyncS3 Extension Deactivated.");
+  logMessage("secureNotesSync Extension Deactivated.");
 }
