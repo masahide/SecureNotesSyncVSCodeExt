@@ -22,3 +22,14 @@ export async function setSecret(
     showError(`${secretName} is required.`);
   }
 }
+
+export async function getSecret(
+  context: vscode.ExtensionContext,
+  secretName: string
+): Promise<string> {
+  const aesEncryptionKey = (await context.secrets.get("aesEncryptionKey"))!;
+  if (!aesEncryptionKey) {
+    throw new Error("AES key not set. Please set the AES key first.");
+  }
+  return aesEncryptionKey;
+}

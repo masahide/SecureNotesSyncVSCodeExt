@@ -53,16 +53,12 @@
         "title": "Set AES encryption Key"
       },
       {
+        "command": "extension.generateAESKey",
+        "title": "Generate AES Key"
+      },
+      {
         "command": "extension.syncNotes",
-        "title": "Sync Notes with S3"
-      },
-      {
-        "command": "extension.downloadNotes",
-        "title": "Download and Decrypt Notes from S3"
-      },
-      {
-        "command": "extension.generateEncryptedText",
-        "title": "Generate 32-Byte Encrypted Text"
+        "title": "Sync Notes"
       }
     ]
   },
@@ -93,6 +89,7 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.668.0"
+    "@aws-sdk/client-s3": "^3.668.0",
+    "uuid": "^11.0.3"
   }
 }
