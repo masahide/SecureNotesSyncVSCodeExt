@@ -6,14 +6,16 @@ import { IndexFile, FileEntry, Conflict, LocalObjectManagerOptions } from "../ty
 import { v7 as uuidv7 } from 'uuid';
 
 const secureNotesDir = ".secureNotes";
+const objectDirName = "objects";
 const indexDirName = "indexes";
 const filesDirName = "files";
 const previousIndexIDFilename = "index";
 const rootUri = getRootUri();
-const secureNootesUri = vscode.Uri.joinPath(rootUri, secureNotesDir);
-const indexDirUri = vscode.Uri.joinPath(secureNootesUri, indexDirName);
-const filesDirUri = vscode.Uri.joinPath(secureNootesUri, filesDirName);
+export const secureNootesUri = vscode.Uri.joinPath(rootUri, secureNotesDir);
+export const objectDirUri = vscode.Uri.joinPath(secureNootesUri, objectDirName);
 const previousIndexIDUri = vscode.Uri.joinPath(secureNootesUri, previousIndexIDFilename);
+const indexDirUri = vscode.Uri.joinPath(objectDirUri, indexDirName);
+const filesDirUri = vscode.Uri.joinPath(objectDirUri, filesDirName);
 
 interface FileIndex {
     originalFile: string;
@@ -63,7 +65,7 @@ export class LocalObjectManager {
     }
 
     /**
-     * ローカル .secureNotes/indexes にあるすべての index-<UUID>.json のパス一覧
+     * ローカル .secureNotes/indexes にあるすべての <UUID> のパス一覧
      */
     public static async listLocalIndexFiles(): Promise<string[]> {
         // .secureNotes/indexes ディレクトリが存在しない場合は空配列を返す
@@ -73,11 +75,7 @@ export class LocalObjectManager {
             return [];
         }
         const dirs = await vscode.workspace.fs.readDirectory(indexDirUri);
-        return dirs.filter(
-            (f) => f[1] === vscode.FileType.File
-                && f[0].startsWith("index-")
-                && f[0].endsWith(".json")
-        ).map((f) => f[0]);
+        return dirs.filter((f) => f[1] === vscode.FileType.File).map((f) => f[0]);
     }
 
     /**
@@ -97,7 +95,7 @@ export class LocalObjectManager {
         }
 
         // 1) ファイル名（basename）を抽出してソート（降順）
-        //    "index-017f8d3f-e23c-7aa6-85f8-fc1855b36328.json" の比較で、
+        //    "017f8d3f-e23c-7aa6-85f8-fc1855b36328" の比較で、
         //    UUIDv7部分を含む文字列を比較する
         indexFiles.sort((a, b) => {
             // 降順なのでB→Aの順で返す
@@ -109,7 +107,8 @@ export class LocalObjectManager {
         // 2) 先頭(最も新しい=一番大きいUUIDv7)を読み込む
         const latestFilePath = indexFiles[0];
         const latestIndexFileUri = vscode.Uri.joinPath(indexDirUri, latestFilePath);
-        const content = await vscode.workspace.fs.readFile(latestIndexFileUri);
+        const encryptContent = await vscode.workspace.fs.readFile(latestIndexFileUri);
+        const content = this.decryptContent(Buffer.from(encryptContent), options.encryptionKey);
         return JSON.parse(content.toString()) as IndexFile;
     }
 
@@ -117,7 +116,8 @@ export class LocalObjectManager {
     public static async loadPreviousIndex(options: LocalObjectManagerOptions): Promise<IndexFile> {
         try {
             const indexContent = await vscode.workspace.fs.readFile(previousIndexIDUri);
-            const index = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(indexDirUri, indexContent.toString()));
+            const encryptedIndex = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(indexDirUri, indexContent.toString()));
+            const index = this.decryptContent(Buffer.from(encryptedIndex), options.encryptionKey);
             return JSON.parse(index.toString());
         } catch (error) {
             // ファイルが存在しない場合や読み込みエラーの場合は新規作成
@@ -132,7 +132,7 @@ export class LocalObjectManager {
     }
 
     /**
-     * 新しい index-<UUID>.json を作成し保存
+     * 新しい <UUID> を作成し保存
      */
     public static createNewIndexFile(localIndex: IndexFile, previousIndex: IndexFile): IndexFile {
         const newUUID = uuidv7();
@@ -146,14 +146,6 @@ export class LocalObjectManager {
 
         return newIndexFile;
     }
-    /*
-        vscode.workspace.fs.createDirectory(filesDirUri);
-        const fileUri = vscode.Uri.joinPath(indexDirUri, `index-${newUUID}.json`);
-        const encryptedIndex = this.encryptContent(Buffer.from(JSON.stringify(newIndex, null, 2)), options.encryptionKey);
-        vscode.workspace.fs.writeFile(fileUri, encryptedIndex);
-        */
-
-
 
     /**
      * AES-256-CBC で暗号化
@@ -375,12 +367,13 @@ export class LocalObjectManager {
         return indexFile;
     }
     // 新しいインデックスファイルをローカルに保存する関数
-    public static async saveLocalIndexFile(indexFile: IndexFile): Promise<void> {
+    public static async saveLocalIndexFile(indexFile: IndexFile, options: LocalObjectManagerOptions): Promise<void> {
         await vscode.workspace.fs.createDirectory(indexDirUri);
         const indexContent = Buffer.from(JSON.stringify(indexFile, null, 2), "utf-8");
-        const indexFileName = `index-${indexFile.uuid}.json`;
+        const indexFileName = indexFile.uuid;
         const indexFilePath = vscode.Uri.joinPath(indexDirUri, indexFileName);
-        await vscode.workspace.fs.writeFile(indexFilePath, indexContent);
+        const encryptedIndex = this.encryptContent(indexContent, options.encryptionKey);
+        await vscode.workspace.fs.writeFile(indexFilePath, encryptedIndex);
         await vscode.workspace.fs.writeFile(previousIndexIDUri, Buffer.from(indexFileName));
     }
 }

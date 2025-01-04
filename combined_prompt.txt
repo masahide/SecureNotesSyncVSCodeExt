@@ -1,3 +1,706 @@
-以下の変更をお願いします
-- IStorageProviderはダウンロードとアップロード関数を分けずに同期する関数のみにする
-- LocalIndexFileに環境名（ホスト名＋UUID）を追加する。この環境名は初回実行時に自動生成して以後同じ環境からは同じ値を利用する。目的はどの環境から生成されたindexか判断するため
+以下のコードはvscode拡張のコードです。
+この拡張はvscodeワークスペースにあるファイルを暗号化しindexファイルを作成してオブジェクトっディレクトリに保存します。
+オブジェクトディレクトリをgitコマンドでgithubのリポジトリに同期する機能を追加してください。
+
+### Start of webpack.config.js ###
+//@ts-check
+
+'use strict';
+
+const path = require('path');
+
+//@ts-check
+/** @typedef {import('webpack').Configuration} WebpackConfig **/
+
+/** @type WebpackConfig */
+const extensionConfig = {
+  target: 'node', // VS Code extensions run in a Node.js-context 📖 -> https://webpack.js.org/configuration/node/
+	mode: 'none', // this leaves the source code as close as possible to the original (when packaging we set this to 'production')
+
+  entry: './src/extension.ts', // the entry point of this extension, 📖 -> https://webpack.js.org/configuration/entry-context/
+  output: {
+    // the bundle is stored in the 'dist' folder (check package.json), 📖 -> https://webpack.js.org/configuration/output/
+    path: path.resolve(__dirname, 'dist'),
+    filename: 'extension.js',
+    libraryTarget: 'commonjs2'
+  },
+  externals: {
+    vscode: 'commonjs vscode' // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
+    // modules added here also need to be added in the .vscodeignore file
+  },
+  resolve: {
+    // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
+    extensions: ['.ts', '.js']
+  },
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        exclude: /node_modules/,
+        use: [
+          {
+            loader: 'ts-loader'
+          }
+        ]
+      }
+    ]
+  },
+  devtool: 'nosources-source-map',
+  infrastructureLogging: {
+    level: "log", // enables logging required for problem matchers
+  },
+};
+module.exports = [ extensionConfig ];
+### End of webpack.config.js ###
+
+### Start of src/envUtils.ts ###
+// src/envUtils.ts
+import * as vscode from "vscode";
+import * as os from "os";
+import * as crypto from "crypto";
+
+const ENV_ID_KEY = "encryptSyncEnvironmentId";
+
+export async function getOrCreateEnvironmentId(context: vscode.ExtensionContext): Promise<string> {
+    let envId = context.globalState.get<string>(ENV_ID_KEY);
+    if (!envId) {
+        const hostname = os.hostname();
+        envId = `${hostname}-${crypto.randomUUID()}`;
+        await context.globalState.update(ENV_ID_KEY, envId);
+    }
+    return envId;
+}
+
+### End of src/envUtils.ts ###
+
+### Start of src/extension.ts ###
+// VSCode Extension Skeleton for Note-Taking App with S3 Integration
+import * as vscode from "vscode";
+import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
+import { setSecret } from "./secretManager";
+import { LocalObjectManager } from "./storage/LocalObjectManager";
+import { getOrCreateEnvironmentId } from "./envUtils";
+import * as crypto from "crypto";
+
+
+const aesEncryptionKey = "aesEncryptionKey";
+const appName = "SecureNotesSync";
+
+export async function activate(context: vscode.ExtensionContext) {
+  // Create output channel
+  const outputChannel = vscode.window.createOutputChannel(appName);
+  setOutputChannel(outputChannel);
+  showInfo(`${appName} Extension Activated`);
+
+  // 環境IDを生成or取得 (ホスト名 + UUID)
+  const environmentId = await getOrCreateEnvironmentId(context);
+  logMessage(`Current Environment ID: ${environmentId}`);
+
+  // Command to Set AES Key
+  let setAESKeyCommand = vscode.commands.registerCommand("extension.setAESKey", () =>
+    setSecret(context,
+      aesEncryptionKey,
+      "Enter AES Encryption Key (64 hex characters representing 32 bytes)",
+      true,
+      (value) => value.length === 64 ? null : "AES Key must be 64 hex characters long"
+    )
+  );
+
+  // Command to Set AWS Credentials
+  let setAWSSecretCommand = vscode.commands.registerCommand("extension.setAWSSecretCommand", async () => {
+    const awsAccessKeyId = await vscode.window.showInputBox({
+      prompt: "Enter AWS Access Key ID",
+    });
+    const awsSecretAccessKey = await vscode.window.showInputBox({
+      prompt: "Enter AWS Secret Access Key",
+      password: true,
+    });
+
+    if (awsAccessKeyId && awsSecretAccessKey) {
+      const config = vscode.workspace.getConfiguration(appName);
+      await config.update("awsAccessKeyId", awsAccessKeyId, vscode.ConfigurationTarget.Global);
+      await context.secrets.store("awsSecretAccessKey", awsSecretAccessKey);
+      showInfo("AWS Credentials saved successfully.");
+    } else {
+      showError("Both AWS Access Key ID and Secret Access Key are required.");
+    }
+  });
+
+  // Command to Generate 32-Byte Encrypted Text
+  let generateAESKeyCommand = vscode.commands.registerCommand("extension.generateAESKey", async () => {
+    logMessage("Generating 32-byte AES encryption key...");
+    const key = crypto.randomBytes(32).toString("hex"); // 32 bytes
+    try {
+      await context.secrets.store("aesEncryptionKey", key);
+      showInfo(`Generated and stored AES key: ${key}`);
+    } catch (error: any) {
+      showError(`Error generating encrypted text: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
+  let syncCommand = vscode.commands.registerCommand("extension.syncNotes", async () => {
+    try {
+      // 1. S3クライアント準備
+      const encryptKey = await context.secrets.get(aesEncryptionKey);
+      if (!encryptKey) {
+        showError("AES Key not set");
+        return false;
+      }
+      const config = vscode.workspace.getConfiguration("encryptSync");
+      const options = { environmentId, encryptionKey: encryptKey };
+      // const awsAccessKeyId = config.get<string>("awsAccessKeyId");
+      // const awsSecretAccessKey = await context.secrets.get("awsSecretAccessKey");
+      // const s3Bucket = config.get<string>("s3Bucket");
+      // const s3Region = config.get<string>("s3Region");
+      // if (!awsAccessKeyId || !awsSecretAccessKey || !s3Bucket || !s3Region) {
+      //   showError("S3 config incomplete");
+      //   return;
+      // }
+
+      // TODO: 2. S3 とローカルを同期する
+      // const s3Client = new S3Client({ region: s3Region, credentials: { accessKeyId: awsAccessKeyId, secretAccessKey: awsSecretAccessKey } });
+      // const provider: IStorageProvider = new S3StorageProvider(s3Client, s3Bucket, "files");
+      // await provider.sync();
+      // showInfo("Rsync-like sync completed.");
+
+      // 3. インデックスファイルを更新したい場合 (例):
+      //    例として「ローカルにある最新Indexに変更があれば、新しいindex-xxx.jsonを作る」
+      const latestIndex = await LocalObjectManager.loadLatestLocalIndex(options);
+      const previousIndex = await LocalObjectManager.loadPreviousIndex(options);
+      const localIndex = await LocalObjectManager.generateLocalIndexFile(previousIndex, options);
+      const conflicts = LocalObjectManager.detectConflicts(localIndex, latestIndex);
+      if (conflicts.length > 0) {
+        const conflictsResolved = await LocalObjectManager.resolveConflicts(conflicts, options);
+        if (!conflictsResolved) {
+          showInfo("Sync aborted due to unresolved conflicts.");
+          return true;
+        }
+      }
+
+      // 7. 新規または変更されたファイルを S3 にアップロード
+      const updated = await LocalObjectManager.saveEncryptedObject(localIndex.files, latestIndex, options);
+
+      if (!updated) {
+        showInfo("There are no update files.");
+        return;
+      }
+
+      // 8. ローカルインデックスファイルを更新
+      const newIndex = LocalObjectManager.createNewIndexFile(localIndex, previousIndex);
+      showInfo("New local index file created.");
+      LocalObjectManager.saveLocalIndexFile(newIndex);
+    } catch (error: any) {
+      showError(`Sync failed: ${error.message}`);
+    }
+    return true;
+  });
+
+  context.subscriptions.push(syncCommand, setAESKeyCommand, generateAESKeyCommand);
+  outputChannel.show(true);
+}
+
+export function deactivate() {
+  logMessage(`${appName} Extension Deactivated.`);
+}
+### End of src/extension.ts ###
+
+### Start of src/logger.ts ###
+import * as vscode from "vscode";
+
+let outputChannel: vscode.OutputChannel;
+
+export function setOutputChannel(channel: vscode.OutputChannel) {
+  outputChannel = channel;
+}
+
+// Log message to output channel
+export function logMessage(message: string) {
+  outputChannel.appendLine(message);
+}
+
+// Show error message and log
+export function showError(message: string) {
+  vscode.window.showErrorMessage(message);
+  logMessage(message);
+}
+
+// Show info message and log
+export function showInfo(message: string) {
+  vscode.window.showInformationMessage(message);
+  logMessage(message);
+}
+
+### End of src/logger.ts ###
+
+### Start of src/secretManager.ts ###
+import * as vscode from "vscode";
+import { showInfo, showError } from "./logger";
+
+// Command to set secrets (AES Key or AWS Secret Access Key)
+export async function setSecret(
+  context: vscode.ExtensionContext,
+  secretName: string,
+  prompt: string,
+  password: boolean = false,
+  validate?: (value: string) => string | null
+) {
+  const secretValue = await vscode.window.showInputBox({
+    prompt,
+    password,
+    validateInput: validate,
+  });
+
+  if (secretValue) {
+    await context.secrets.store(secretName, secretValue);
+    showInfo(`${secretName} saved successfully.`);
+  } else {
+    showError(`${secretName} is required.`);
+  }
+}
+
+export async function getSecret(
+  context: vscode.ExtensionContext,
+  secretName: string
+): Promise<string> {
+  const aesEncryptionKey = (await context.secrets.get("aesEncryptionKey"))!;
+  if (!aesEncryptionKey) {
+    throw new Error("AES key not set. Please set the AES key first.");
+  }
+  return aesEncryptionKey;
+}
+### End of src/secretManager.ts ###
+
+### Start of src/types.ts ###
+// ファイル情報を保持するインターフェース
+export interface FileEntry {
+    path: string; // ファイルの相対パス
+    hash: string; // ファイルのSHA-256ハッシュ値（暗号化前のデータに対して計算）
+    timestamp: number; // ファイルの最終更新タイムスタンプ
+}
+
+// インデックスファイルの構造
+export interface IndexFile {
+    uuid: string; // インデックスファイルのUUID（Version 7）
+    environmentId: string; // 追加
+    parentUuid: string; // 親インデックスファイルのUUID
+    files: FileEntry[]; // ファイル情報のリスト
+    timestamp: number; // インデックスファイルの作成タイムスタンプ
+}
+
+// 競合情報を保持するインターフェース
+export interface Conflict {
+    filePath: string; // 競合しているファイルのパス
+    localHash: string; // ローカルファイルのハッシュ値
+    remoteHash: string; // リモートファイルのハッシュ値
+    localTimestamp: number; // ローカルファイルのタイムスタンプ
+    remoteTimestamp: number; // リモートファイルのタイムスタンプ
+}
+export type LocalObjectManagerOptions = {
+    environmentId: string;
+    encryptionKey: string;
+};
+### End of src/types.ts ###
+
+### Start of src/storage/IStorageProvider.ts ###
+// src/IStorageProvider.ts
+export interface IStorageProvider {
+    /**
+     * rsync 的な双方向のファイル同期を行う
+     *  - ローカルの .enc ファイルをクラウドへ
+     *  - クラウドにしかない .enc ファイルをローカルへ
+     */
+    sync(): Promise<void>;
+}
+
+### End of src/storage/IStorageProvider.ts ###
+
+### Start of src/storage/LocalObjectManager.ts ###
+// src/LocalObjectManager.ts
+import * as vscode from "vscode";
+import * as crypto from "crypto";
+import { logMessage } from "../logger";
+import { IndexFile, FileEntry, Conflict, LocalObjectManagerOptions } from "../types";
+import { v7 as uuidv7 } from 'uuid';
+
+const secureNotesDir = ".secureNotes";
+const indexDirName = "indexes";
+const filesDirName = "files";
+const previousIndexIDFilename = "index";
+const rootUri = getRootUri();
+const secureNootesUri = vscode.Uri.joinPath(rootUri, secureNotesDir);
+const indexDirUri = vscode.Uri.joinPath(secureNootesUri, indexDirName);
+const filesDirUri = vscode.Uri.joinPath(secureNootesUri, filesDirName);
+const previousIndexIDUri = vscode.Uri.joinPath(secureNootesUri, previousIndexIDFilename);
+
+interface FileIndex {
+    originalFile: string;
+    encryptedFile: string;
+}
+
+// ワークスペースフォルダを取得
+function getRootUri(): vscode.Uri {
+    const workspaceUri = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri : undefined;
+    if (!workspaceUri) {
+        throw new Error("No workspace folder found.");
+    }
+    return workspaceUri;
+}
+
+export class LocalObjectManager {
+    /**
+     * ワークスペース内ファイルを暗号化し、.secureNotes に保存
+     */
+    public static async saveEncryptedObject(
+        localFiles: FileEntry[],
+        latestIndex: IndexFile,
+        options: LocalObjectManagerOptions
+    ): Promise<boolean> {
+        // リモートのファイルハッシュ値のセットを作成
+        const latestFileHashes = new Set(latestIndex.files.map((file) => file.hash));
+        let updated = false;
+        for (const file of localFiles) {
+            // ファイルがリモートインデックスに存在するか確認
+            if (latestFileHashes.has(file.hash)) {
+                continue; // 既に存在する場合、アップロードをスキップ
+            }
+            // ファイルを読み込み
+            const fileUri = vscode.Uri.joinPath(rootUri, file.path);
+            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+
+            // ファイルを暗号化
+            const encryptedContent = this.encryptContent(Buffer.from(fileContent), options.encryptionKey);
+
+            // objects directory に保存
+            const encryptedFileName = vscode.Uri.joinPath(filesDirUri, file.hash);
+            await vscode.workspace.fs.writeFile(encryptedFileName, encryptedContent);
+            logMessage(`save file:${file.path}, to:${encryptedFileName.path}`);
+            updated = true;
+        }
+        return updated;
+    }
+
+    /**
+     * ローカル .secureNotes/indexes にあるすべての index-<UUID>.json のパス一覧
+     */
+    public static async listLocalIndexFiles(): Promise<string[]> {
+        // .secureNotes/indexes ディレクトリが存在しない場合は空配列を返す
+        try {
+            await vscode.workspace.fs.stat(indexDirUri);
+        } catch (error) {
+            return [];
+        }
+        const dirs = await vscode.workspace.fs.readDirectory(indexDirUri);
+        return dirs.filter(
+            (f) => f[1] === vscode.FileType.File
+                && f[0].startsWith("index-")
+                && f[0].endsWith(".json")
+        ).map((f) => f[0]);
+    }
+
+    /**
+     * ローカルにあるうち、もっとも新しいインデックスファイルを読み込む
+     */
+    public static async loadLatestLocalIndex(options: LocalObjectManagerOptions): Promise<IndexFile> {
+        const indexFiles = await this.listLocalIndexFiles();
+        if (indexFiles.length === 0) {
+            // インデックスファイルが存在しない場合は新規作成
+            return {
+                uuid: uuidv7(),
+                parentUuid: "",
+                environmentId: options.environmentId,
+                files: [],
+                timestamp: 0,
+            };
+        }
+
+        // 1) ファイル名（basename）を抽出してソート（降順）
+        //    "index-017f8d3f-e23c-7aa6-85f8-fc1855b36328.json" の比較で、
+        //    UUIDv7部分を含む文字列を比較する
+        indexFiles.sort((a, b) => {
+            // 降順なのでB→Aの順で返す
+            if (a < b) { return 1; }
+            if (a > b) { return -1; }
+            return 0;
+        });
+
+        // 2) 先頭(最も新しい=一番大きいUUIDv7)を読み込む
+        const latestFilePath = indexFiles[0];
+        const latestIndexFileUri = vscode.Uri.joinPath(indexDirUri, latestFilePath);
+        const content = await vscode.workspace.fs.readFile(latestIndexFileUri);
+        return JSON.parse(content.toString()) as IndexFile;
+    }
+
+    // 前回のインデックスファイルを読み込む関数
+    public static async loadPreviousIndex(options: LocalObjectManagerOptions): Promise<IndexFile> {
+        try {
+            const indexContent = await vscode.workspace.fs.readFile(previousIndexIDUri);
+            const index = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(indexDirUri, indexContent.toString()));
+            return JSON.parse(index.toString());
+        } catch (error) {
+            // ファイルが存在しない場合や読み込みエラーの場合は新規作成
+            return {
+                uuid: uuidv7(),
+                parentUuid: "",
+                environmentId: options.environmentId,
+                files: [],
+                timestamp: 0,
+            };
+        }
+    }
+
+    /**
+     * 新しい index-<UUID>.json を作成し保存
+     */
+    public static createNewIndexFile(localIndex: IndexFile, previousIndex: IndexFile): IndexFile {
+        const newUUID = uuidv7();
+        const newIndexFile: IndexFile = {
+            uuid: newUUID,
+            parentUuid: previousIndex.uuid,
+            environmentId: localIndex.environmentId,
+            files: localIndex.files,
+            timestamp: Date.now(),
+        };
+
+        return newIndexFile;
+    }
+    /*
+        vscode.workspace.fs.createDirectory(filesDirUri);
+        const fileUri = vscode.Uri.joinPath(indexDirUri, `index-${newUUID}.json`);
+        const encryptedIndex = this.encryptContent(Buffer.from(JSON.stringify(newIndex, null, 2)), options.encryptionKey);
+        vscode.workspace.fs.writeFile(fileUri, encryptedIndex);
+        */
+
+
+
+    /**
+     * AES-256-CBC で暗号化
+     */
+    private static encryptContent(content: Buffer, key: string): Buffer {
+        const iv = crypto.randomBytes(16);
+        const keyBuffer = Buffer.from(key, "hex");
+        const cipher = crypto.createCipheriv("aes-256-cbc", keyBuffer, iv);
+        const encrypted = Buffer.concat([cipher.update(content), cipher.final()]);
+        return Buffer.concat([iv, encrypted]);
+    }
+
+    /**
+     * AES-256-CBC で復号
+     */
+    private static decryptContent(encryptedContent: Buffer, key: string): Buffer {
+        const iv = encryptedContent.subarray(0, 16);
+        const encryptedText = encryptedContent.subarray(16);
+        const keyBuffer = Buffer.from(key, "hex");
+        const decipher = crypto.createDecipheriv("aes-256-cbc", keyBuffer, iv);
+        return Buffer.concat([decipher.update(encryptedText), decipher.final()]);
+    }
+
+    // 復号化した内容を返す共通関数
+    private static async decryptFileFromLocalObject(fileHash: string, options: LocalObjectManagerOptions): Promise<Uint8Array> {
+        const filePath = vscode.Uri.joinPath(filesDirUri, fileHash);
+        const content = await vscode.workspace.fs.readFile(filePath);
+        try {
+            return this.decryptContent(Buffer.from(content), options.encryptionKey);
+        } catch (error: any) {
+            logMessage(`Failed to fetch or decrypt file: ${fileHash}.Error: ${error.message} `);
+            throw error;
+        }
+    }
+    // オブジェクトディレクトリからファイルを取得し、ワークスペースに保存する共通関数
+    private static async fetchDecryptAndSaveFile(
+        filePath: string,
+        fileHash: string,
+        options: LocalObjectManagerOptions,
+        conflictFileName?: string,
+    ): Promise<void> {
+        try {
+            const decryptedContent = await this.decryptFileFromLocalObject(fileHash, options);
+            const savePath = conflictFileName ? conflictFileName : filePath;
+
+            // ローカルファイルパスを取得
+            const localUri = vscode.Uri.joinPath(vscode.Uri.file(rootUri.fsPath), savePath);
+
+            // ローカルファイルに保存
+            await vscode.workspace.fs.writeFile(localUri, decryptedContent);
+            logMessage(`Saved remote file to local path: ${savePath} `);
+        } catch (error: any) {
+            logMessage(`Failed to save remote file to local path: ${filePath}.Error: ${error.message} `);
+            throw error;
+        }
+    }
+    // リモートのファイルでローカルを上書き
+    private static async overwriteLocalFileWithRemote(
+        filePath: string,
+        fileHash: string,
+        options: LocalObjectManagerOptions,
+    ): Promise<void> {
+        await this.fetchDecryptAndSaveFile(filePath, fileHash, options);
+        logMessage(`Overwrote local file with remote content: ${filePath} `);
+    }
+    // リモートのファイルを別名で保存
+    public static async saveRemoteFileAsConflict(
+        filePath: string,
+        fileHash: string,
+        options: LocalObjectManagerOptions
+    ): Promise<void> {
+        // コンフリクト用のファイル名を生成（例: conflict-YYYYMMDD-HHmmss-ファイル名.ext）
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-").replace("T", "_").split("Z")[0];
+        const conflictFileName = `conflict - ${timestamp} -${filePath} `;
+        await this.fetchDecryptAndSaveFile(filePath, fileHash, options, conflictFileName);
+        logMessage(`Saved remote file as conflict file: ${conflictFileName} `);
+    }
+
+    // 検出された競合をユーザーに通知し、解決します。
+    public static async resolveConflicts(
+        conflicts: Conflict[],
+        options: LocalObjectManagerOptions
+    ): Promise<boolean> {
+        for (const conflict of conflicts) {
+            if (conflict.localHash.length === 0) {
+                logMessage(`Remote only file: ${conflict.filePath} `);
+                await this.fetchDecryptAndSaveFile(conflict.filePath, conflict.remoteHash, options);
+                continue;
+            }
+            const choice = await vscode.window.showQuickPick(
+                ["Keep Local Version", "Keep Remote Version", "Save Remote as Conflict File", "Abort Sync"],
+                {
+                    placeHolder: `Conflict detected in file: ${conflict.filePath} `,
+                }
+            );
+
+            if (choice === "Keep Local Version") {
+                // ローカルの変更を適用（何もしない）
+                continue;
+            } else if (choice === "Keep Remote Version") {
+                // リモートのファイルでローカルを上書き
+                await this.overwriteLocalFileWithRemote(conflict.filePath, conflict.remoteHash, options);
+            } else if (choice === "Save Remote as Conflict File") {
+                // リモートのファイルを別名で保存
+                await this.saveRemoteFileAsConflict(conflict.filePath, conflict.remoteHash, options);
+            } else if (choice === "Abort Sync" || !choice) {
+                // 同期を中止
+                return false;
+            }
+        }
+        return true;
+    }
+    // ローカルとリモートのインデックスファイルを比較し、競合を検出します。
+    public static detectConflicts(localIndex: IndexFile, remoteIndex: IndexFile): Conflict[] {
+        const conflicts: Conflict[] = [];
+
+        // リモートのインデックス UUID とローカルの parentUuid を比較
+        if (remoteIndex.uuid === localIndex.parentUuid) {
+            // リモートに変更がないため、競合なし
+            return conflicts;
+        }
+
+        // リモートに変更がある場合のみ競合を検出
+        const remoteFileMap = new Map<string, FileEntry>();
+        for (const file of remoteIndex.files) {
+            remoteFileMap.set(file.path, file);
+        }
+
+        for (const localFile of localIndex.files) {
+            const remoteFile = remoteFileMap.get(localFile.path);
+            if (remoteFile) {
+                if (localFile.hash !== remoteFile.hash) {
+                    // ハッシュ値が異なる場合、競合と判断
+                    conflicts.push({
+                        filePath: localFile.path,
+                        localHash: localFile.hash,
+                        remoteHash: remoteFile.hash,
+                        localTimestamp: localFile.timestamp,
+                        remoteTimestamp: remoteFile.timestamp,
+                    });
+                }
+                // 比較後に削除
+                remoteFileMap.delete(localFile.path);
+            }
+        }
+
+        // ローカルに存在せず、リモートに存在するファイルも考慮
+        for (const remoteFile of remoteFileMap.values()) {
+            conflicts.push({
+                filePath: remoteFile.path,
+                localHash: "",
+                remoteHash: remoteFile.hash,
+                localTimestamp: 0,
+                remoteTimestamp: remoteFile.timestamp,
+            });
+        }
+
+        return conflicts;
+    }
+    // ローカルのワークスペースからファイルリスト、ハッシュ値、タイムスタンプを取得し、インデックスファイルを生成します。
+    static async generateLocalIndexFile(previousIndex: IndexFile, options: LocalObjectManagerOptions): Promise<IndexFile> {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            throw new Error("No workspace folders found.");
+        }
+
+        const files: FileEntry[] = [];
+        const previousFileMap = new Map<string, FileEntry>();
+        if (previousIndex) {
+            // ファイルパスをキーにしてマップに保存
+            for (const file of previousIndex.files) {
+                previousFileMap.set(file.path, file);
+            }
+        }
+
+        for (const folder of workspaceFolders) {
+            const filesInFolder = await vscode.workspace.findFiles(
+                new vscode.RelativePattern(folder, "**/*"),
+                `{**/node_modules/**,${secureNotesDir}/**}`
+            );
+
+            for (const fileUri of filesInFolder) {
+                const stat = await vscode.workspace.fs.stat(fileUri);
+                const relativePath = vscode.workspace.asRelativePath(fileUri, false);
+
+                // 前回のインデックスに同じファイルがあるか確認
+                const previousFileEntry = previousFileMap.get(relativePath);
+
+                if (previousFileEntry && previousFileEntry.timestamp === stat.mtime) {
+                    // タイムスタンプが同じ場合、ハッシュ値を再利用
+                    files.push({
+                        path: relativePath,
+                        hash: previousFileEntry.hash,
+                        timestamp: stat.mtime,
+                    });
+                } else {
+                    // タイムスタンプが異なる場合、ハッシュ値を再計算
+                    const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                    const hash = crypto.createHash("sha256").update(fileContent).digest("hex");
+
+                    files.push({
+                        path: relativePath,
+                        hash: hash,
+                        timestamp: stat.mtime,
+                    });
+                }
+            }
+        }
+
+        const indexFile: IndexFile = {
+            uuid: uuidv7(),
+            parentUuid: previousIndex.uuid, // ここでリモートのインデックス UUID を設定
+            environmentId: options.environmentId,
+            files: files,
+            timestamp: Date.now(),
+        };
+
+
+        return indexFile;
+    }
+    // 新しいインデックスファイルをローカルに保存する関数
+    public static async saveLocalIndexFile(indexFile: IndexFile): Promise<void> {
+        await vscode.workspace.fs.createDirectory(indexDirUri);
+        const indexContent = Buffer.from(JSON.stringify(indexFile, null, 2), "utf-8");
+        const indexFileName = `index-${indexFile.uuid}.json`;
+        const indexFilePath = vscode.Uri.joinPath(indexDirUri, indexFileName);
+        await vscode.workspace.fs.writeFile(indexFilePath, indexContent);
+        await vscode.workspace.fs.writeFile(previousIndexIDUri, Buffer.from(indexFileName));
+    }
+}
+
+### End of src/storage/LocalObjectManager.ts ###
+

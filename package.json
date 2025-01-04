@@ -14,32 +14,37 @@
   "contributes": {
     "configuration": {
       "type": "object",
-      "title": "secureNotesSync Configuration",
+      "title": "Secure Notes Sync",
       "properties": {
-        "secureNotesSync.awsAccessKeyId": {
+        "SecureNotesSync.awsAccessKeyId": {
           "type": "string",
           "description": "AWS Access Key ID for S3",
           "default": ""
         },
-        "secureNotesSync.s3Bucket": {
+        "SecureNotesSync.s3Bucket": {
           "type": "string",
           "description": "S3 Bucket Name",
           "default": ""
         },
-        "secureNotesSync.s3Region": {
+        "SecureNotesSync.s3Region": {
           "type": "string",
           "description": "S3 Region",
           "default": ""
         },
-        "secureNotesSync.s3Endpoint": {
+        "SecureNotesSync.s3Endpoint": {
           "type": "string",
           "description": "S3 Custom Endpoint (optional)",
           "default": ""
         },
-        "secureNotesSync.s3PrefixPath": {
+        "SecureNotesSync.s3PrefixPath": {
           "type": "string",
           "description": "S3 Prefix Path (optional)",
           "default": ""
+        },
+        "SecureNotesSync.gitRemoteUrl": {
+          "type": "string",
+          "description": "GitHub repository URL for syncing the object directory. (ex: git@github.com:user/repo.git)",
+          "default": "git@github.com:user/repo.git"
         }
       }
     },
@@ -59,6 +64,10 @@
       {
         "command": "extension.syncNotes",
         "title": "Sync Notes"
+      },
+      {
+        "command": "extension.syncWithGitHub",
+        "title": "Sync with GitHub"
       }
     ]
   },
@@ -77,6 +86,7 @@
     "@types/mocha": "^10.0.8",
     "@types/node": "20.x",
     "@types/vscode": "^1.94.0",
+    "@types/which": "^3.0.4",
     "@typescript-eslint/eslint-plugin": "^8.7.0",
     "@typescript-eslint/parser": "^8.7.0",
     "@vscode/test-cli": "^0.0.10",
@@ -90,6 +100,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.668.0",
-    "uuid": "^11.0.3"
+    "uuid": "^11.0.3",
+    "which": "^5.0.0"
   }
 }

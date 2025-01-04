@@ -1,9 +1,10 @@
 // VSCode Extension Skeleton for Note-Taking App with S3 Integration
 import * as vscode from "vscode";
+import * as os from "os";
 import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
 import { setSecret } from "./secretManager";
 import { LocalObjectManager } from "./storage/LocalObjectManager";
-import { getOrCreateEnvironmentId } from "./envUtils";
+import { GitHubSyncProvider } from "./storage/GithubProvider";
 import * as crypto from "crypto";
 
 
@@ -70,25 +71,8 @@ export async function activate(context: vscode.ExtensionContext) {
         showError("AES Key not set");
         return false;
       }
-      const config = vscode.workspace.getConfiguration("encryptSync");
-      const options = { environmentId, encryptionKey: encryptKey };
-      // const awsAccessKeyId = config.get<string>("awsAccessKeyId");
-      // const awsSecretAccessKey = await context.secrets.get("awsSecretAccessKey");
-      // const s3Bucket = config.get<string>("s3Bucket");
-      // const s3Region = config.get<string>("s3Region");
-      // if (!awsAccessKeyId || !awsSecretAccessKey || !s3Bucket || !s3Region) {
-      //   showError("S3 config incomplete");
-      //   return;
-      // }
-
-      // TODO: 2. S3 とローカルを同期する
-      // const s3Client = new S3Client({ region: s3Region, credentials: { accessKeyId: awsAccessKeyId, secretAccessKey: awsSecretAccessKey } });
-      // const provider: IStorageProvider = new S3StorageProvider(s3Client, s3Bucket, "files");
-      // await provider.sync();
-      // showInfo("Rsync-like sync completed.");
-
-      // 3. インデックスファイルを更新したい場合 (例):
-      //    例として「ローカルにある最新Indexに変更があれば、新しいindex-xxx.jsonを作る」
+      const config = vscode.workspace.getConfiguration(appName);
+      const options = { environmentId: environmentId, encryptionKey: encryptKey };
       const latestIndex = await LocalObjectManager.loadLatestLocalIndex(options);
       const previousIndex = await LocalObjectManager.loadPreviousIndex(options);
       const localIndex = await LocalObjectManager.generateLocalIndexFile(previousIndex, options);
@@ -112,17 +96,43 @@ export async function activate(context: vscode.ExtensionContext) {
       // 8. ローカルインデックスファイルを更新
       const newIndex = LocalObjectManager.createNewIndexFile(localIndex, previousIndex);
       showInfo("New local index file created.");
-      LocalObjectManager.saveLocalIndexFile(newIndex);
+      LocalObjectManager.saveLocalIndexFile(newIndex, options);
     } catch (error: any) {
       showError(`Sync failed: ${error.message}`);
     }
     return true;
   });
 
-  context.subscriptions.push(syncCommand, setAESKeyCommand, generateAESKeyCommand);
+  let syncWithGitHubCommand = vscode.commands.registerCommand("extension.syncWithGitHub", async () => {
+    try {
+      const gitRemoteUrl = vscode.workspace.getConfiguration(appName).get<string>('gitRemoteUrl');
+      if (!gitRemoteUrl) {
+        showError("設定でGitHubリポジトリURLを設定してください。");
+        return;
+      }
+      const cloudStorageProvider = new GitHubSyncProvider(gitRemoteUrl);
+      cloudStorageProvider.sync();
+    } catch (error: any) {
+      showError(`Cloud sync failed: ${error.message}`);
+    }
+  });
+
+  context.subscriptions.push(syncCommand, setAESKeyCommand, generateAESKeyCommand, syncWithGitHubCommand);
   outputChannel.show(true);
 }
 
 export function deactivate() {
   logMessage(`${appName} Extension Deactivated.`);
+}
+
+
+const ENV_ID_KEY = "encryptSyncEnvironmentId";
+async function getOrCreateEnvironmentId(context: vscode.ExtensionContext): Promise<string> {
+  let envId = context.globalState.get<string>(ENV_ID_KEY);
+  if (!envId) {
+    const hostname = os.hostname();
+    envId = `${hostname}-${crypto.randomUUID()}`;
+    await context.globalState.update(ENV_ID_KEY, envId);
+  }
+  return envId;
 }
