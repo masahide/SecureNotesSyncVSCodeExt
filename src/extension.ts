@@ -1,4 +1,3 @@
-// VSCode Extension Skeleton for Note-Taking App with S3 Integration
 import * as vscode from "vscode";
 import * as os from "os";
 import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
@@ -6,7 +5,6 @@ import { setSecret } from "./secretManager";
 import { LocalObjectManager } from "./storage/LocalObjectManager";
 import { GitHubSyncProvider } from "./storage/GithubProvider";
 import * as crypto from "crypto";
-import { log } from "console";
 
 
 const aesEncryptionKey = "aesEncryptionKey";
@@ -32,6 +30,7 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  /*
   // Command to Set AWS Credentials
   let setAWSSecretCommand = vscode.commands.registerCommand("extension.setAWSSecretCommand", async () => {
     const awsAccessKeyId = await vscode.window.showInputBox({
@@ -51,6 +50,7 @@ export async function activate(context: vscode.ExtensionContext) {
       showError("Both AWS Access Key ID and Secret Access Key are required.");
     }
   });
+  */
 
   // Command to Generate 32-Byte Encrypted Text
   let generateAESKeyCommand = vscode.commands.registerCommand("extension.generateAESKey", async () => {
@@ -66,7 +66,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
   let syncCommand = vscode.commands.registerCommand("extension.syncNotes", async () => {
     try {
-      // 1. S3クライアント準備
       const encryptKey = await context.secrets.get(aesEncryptionKey);
       if (!encryptKey) {
         showError("AES Key not set");
@@ -87,15 +86,12 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       }
 
-      // 7. 新規または変更されたファイルを S3 にアップロード
       const updated = await LocalObjectManager.saveEncryptedObject(localIndex.files, latestIndex, options);
-
       if (!updated) {
         showInfo("There are no update files.");
         return;
       }
 
-      // 8. ローカルインデックスファイルを更新
       const newIndex = LocalObjectManager.createNewIndexFile(localIndex, previousIndex);
       showInfo("New local index file created.");
       LocalObjectManager.saveLocalIndexFile(newIndex, options);

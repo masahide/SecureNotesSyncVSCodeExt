@@ -6,7 +6,6 @@ import { showError, logMessage } from '../logger';
 import * as cp from 'child_process';
 import which from 'which';
 import * as fs from 'fs';
-import { log } from "console";
 
 export class GitHubSyncProvider implements IStorageProvider {
     private gitRemoteUrl: string;
@@ -37,7 +36,7 @@ export class GitHubSyncProvider implements IStorageProvider {
                 } else {
                     // 強制的にオブジェクトディレクトリとマージ
                     await this.execCmd(this.gitPath, ['branch', '-M', 'backup'], objectDir);
-                    await this.execCmd(this.gitPath, ['pull', 'origin', 'main'], objectDir);
+                    await this.execCmd(this.gitPath, ['fetch', 'origin', 'main'], objectDir);
                     await this.execCmd(this.gitPath, ['checkout', 'main'], objectDir);
                     // 強制マージ
                     await this.execCmd(this.gitPath, ['merge', 'backup', '--allow-unrelated-histories', '-X', 'ours', '-m', 'merge'], objectDir);

@@ -4,7 +4,6 @@ import * as crypto from "crypto";
 import { logMessage } from "../logger";
 import { IndexFile, FileEntry, Conflict, LocalObjectManagerOptions } from "../types";
 import { v7 as uuidv7 } from 'uuid';
-import { log } from "console";
 
 const secureNotesDir = ".secureNotes";
 const objectDirName = "objects";
