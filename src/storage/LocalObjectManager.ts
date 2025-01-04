@@ -4,6 +4,7 @@ import * as crypto from "crypto";
 import { logMessage } from "../logger";
 import { IndexFile, FileEntry, Conflict, LocalObjectManagerOptions } from "../types";
 import { v7 as uuidv7 } from 'uuid';
+import { log } from "console";
 
 const secureNotesDir = ".secureNotes";
 const objectDirName = "objects";
@@ -64,29 +65,58 @@ export class LocalObjectManager {
         return updated;
     }
 
+    private static getUUIDPathParts(uuid: string): { dirName: string; fileName: string } {
+        const dirName = uuid.substring(0, 6);
+        const fileName = uuid.substring(6);
+        return { dirName, fileName };
+    }
+
     /**
-     * ローカル .secureNotes/indexes にあるすべての <UUID> のパス一覧
+     * uri にあるすべての fileのパス一覧
      */
-    public static async listLocalIndexFiles(): Promise<string[]> {
+    private static async listFiles(uri: vscode.Uri): Promise<string[]> {
         // .secureNotes/indexes ディレクトリが存在しない場合は空配列を返す
         try {
-            await vscode.workspace.fs.stat(indexDirUri);
+            await vscode.workspace.fs.stat(uri);
         } catch (error) {
             return [];
         }
-        const dirs = await vscode.workspace.fs.readDirectory(indexDirUri);
+        const dirs = await vscode.workspace.fs.readDirectory(uri);
         return dirs.filter((f) => f[1] === vscode.FileType.File).map((f) => f[0]);
     }
+    /**
+     * uri にあるすべてのdirのパス一覧
+     */
+    private static async listDirs(uri: vscode.Uri): Promise<string[]> {
+        // .secureNotes/indexes ディレクトリが存在しない場合は空配列を返す
+        try {
+            await vscode.workspace.fs.stat(uri);
+        } catch (error) {
+            return [];
+        }
+        const dirs = await vscode.workspace.fs.readDirectory(uri);
+        return dirs.filter((f) => f[1] === vscode.FileType.Directory).map((f) => f[0]);
+    }
 
+
+    public static latestString(strings: string[]): string {
+        if (strings.length === 0) { return ""; }
+        return strings.reduce((a, b) => (a > b ? a : b));
+    }
     /**
      * ローカルにあるうち、もっとも新しいインデックスファイルを読み込む
      */
     public static async loadLatestLocalIndex(options: LocalObjectManagerOptions): Promise<IndexFile> {
-        const indexFiles = await this.listLocalIndexFiles();
-        if (indexFiles.length === 0) {
+        const latestDir = this.latestString(await this.listDirs(indexDirUri));
+        const dir = vscode.Uri.joinPath(indexDirUri, latestDir);
+        const latestFilePath = this.latestString(await this.listFiles(dir));
+        const latestIndexFileUri = vscode.Uri.joinPath(indexDirUri, latestDir, latestFilePath);
+        if (latestFilePath.length === 0) {
             // インデックスファイルが存在しない場合は新規作成
+            const uuid = uuidv7();
+            logMessage(`Latest index file not found. Creating new index UUID: ${uuid}`);
             return {
-                uuid: uuidv7(),
+                uuid: uuid,
                 parentUuid: "",
                 environmentId: options.environmentId,
                 files: [],
@@ -97,16 +127,7 @@ export class LocalObjectManager {
         // 1) ファイル名（basename）を抽出してソート（降順）
         //    "017f8d3f-e23c-7aa6-85f8-fc1855b36328" の比較で、
         //    UUIDv7部分を含む文字列を比較する
-        indexFiles.sort((a, b) => {
-            // 降順なのでB→Aの順で返す
-            if (a < b) { return 1; }
-            if (a > b) { return -1; }
-            return 0;
-        });
-
-        // 2) 先頭(最も新しい=一番大きいUUIDv7)を読み込む
-        const latestFilePath = indexFiles[0];
-        const latestIndexFileUri = vscode.Uri.joinPath(indexDirUri, latestFilePath);
+        //indexFiles.sort((a, b) => { if (a < b) { return 1; }; if (a > b) { return -1; } return 0; });
         const encryptContent = await vscode.workspace.fs.readFile(latestIndexFileUri);
         const content = this.decryptContent(Buffer.from(encryptContent), options.encryptionKey);
         return JSON.parse(content.toString()) as IndexFile;
@@ -116,13 +137,16 @@ export class LocalObjectManager {
     public static async loadPreviousIndex(options: LocalObjectManagerOptions): Promise<IndexFile> {
         try {
             const indexContent = await vscode.workspace.fs.readFile(previousIndexIDUri);
-            const encryptedIndex = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(indexDirUri, indexContent.toString()));
+            const uuidparts = this.getUUIDPathParts(indexContent.toString());
+            const encryptedIndex = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(indexDirUri, uuidparts.dirName, uuidparts.fileName));
             const index = this.decryptContent(Buffer.from(encryptedIndex), options.encryptionKey);
             return JSON.parse(index.toString());
         } catch (error) {
             // ファイルが存在しない場合や読み込みエラーの場合は新規作成
+            const uuid = uuidv7();
+            logMessage(`Previous index file not found or error reading file. Creating new index UUID: ${uuid}`);
             return {
-                uuid: uuidv7(),
+                uuid: uuid,
                 parentUuid: "",
                 environmentId: options.environmentId,
                 files: [],
@@ -368,10 +392,12 @@ export class LocalObjectManager {
     }
     // 新しいインデックスファイルをローカルに保存する関数
     public static async saveLocalIndexFile(indexFile: IndexFile, options: LocalObjectManagerOptions): Promise<void> {
-        await vscode.workspace.fs.createDirectory(indexDirUri);
+        const { dirName, fileName } = this.getUUIDPathParts(indexFile.uuid);
+        const dirPath = vscode.Uri.joinPath(indexDirUri, dirName);
+        await vscode.workspace.fs.createDirectory(dirPath);
         const indexContent = Buffer.from(JSON.stringify(indexFile, null, 2), "utf-8");
         const indexFileName = indexFile.uuid;
-        const indexFilePath = vscode.Uri.joinPath(indexDirUri, indexFileName);
+        const indexFilePath = vscode.Uri.joinPath(indexDirUri, dirName, fileName);
         const encryptedIndex = this.encryptContent(indexContent, options.encryptionKey);
         await vscode.workspace.fs.writeFile(indexFilePath, encryptedIndex);
         await vscode.workspace.fs.writeFile(previousIndexIDUri, Buffer.from(indexFileName));

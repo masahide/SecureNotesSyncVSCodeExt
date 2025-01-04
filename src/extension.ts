@@ -6,6 +6,7 @@ import { setSecret } from "./secretManager";
 import { LocalObjectManager } from "./storage/LocalObjectManager";
 import { GitHubSyncProvider } from "./storage/GithubProvider";
 import * as crypto from "crypto";
+import { log } from "console";
 
 
 const aesEncryptionKey = "aesEncryptionKey";
@@ -75,6 +76,7 @@ export async function activate(context: vscode.ExtensionContext) {
       const options = { environmentId: environmentId, encryptionKey: encryptKey };
       const latestIndex = await LocalObjectManager.loadLatestLocalIndex(options);
       const previousIndex = await LocalObjectManager.loadPreviousIndex(options);
+      logMessage(`Loaded latest index file: ${latestIndex.uuid}\n previous index file: ${previousIndex.uuid}`);
       const localIndex = await LocalObjectManager.generateLocalIndexFile(previousIndex, options);
       const conflicts = LocalObjectManager.detectConflicts(localIndex, latestIndex);
       if (conflicts.length > 0) {
