@@ -57,7 +57,8 @@ export class LocalObjectManager {
             const encryptedContent = this.encryptContent(Buffer.from(fileContent), options.encryptionKey);
 
             // objects directory に保存
-            const encryptedFileName = vscode.Uri.joinPath(filesDirUri, file.hash);
+            const { dirName, fileName } = this.getHashPathParts(file.hash);
+            const encryptedFileName = vscode.Uri.joinPath(filesDirUri, dirName, fileName);
             await vscode.workspace.fs.writeFile(encryptedFileName, encryptedContent);
             logMessage(`save file:${file.path}, to:${encryptedFileName.path}`);
             updated = true;
@@ -68,6 +69,11 @@ export class LocalObjectManager {
     private static getUUIDPathParts(uuid: string): { dirName: string; fileName: string } {
         const dirName = uuid.substring(0, 6);
         const fileName = uuid.substring(6);
+        return { dirName, fileName };
+    }
+    private static getHashPathParts(uuid: string): { dirName: string; fileName: string } {
+        const dirName = uuid.substring(0, 2);
+        const fileName = uuid.substring(2);
         return { dirName, fileName };
     }
 
@@ -124,10 +130,6 @@ export class LocalObjectManager {
             };
         }
 
-        // 1) ファイル名（basename）を抽出してソート（降順）
-        //    "017f8d3f-e23c-7aa6-85f8-fc1855b36328" の比較で、
-        //    UUIDv7部分を含む文字列を比較する
-        //indexFiles.sort((a, b) => { if (a < b) { return 1; }; if (a > b) { return -1; } return 0; });
         const encryptContent = await vscode.workspace.fs.readFile(latestIndexFileUri);
         const content = this.decryptContent(Buffer.from(encryptContent), options.encryptionKey);
         return JSON.parse(content.toString()) as IndexFile;
@@ -195,7 +197,8 @@ export class LocalObjectManager {
 
     // 復号化した内容を返す共通関数
     private static async decryptFileFromLocalObject(fileHash: string, options: LocalObjectManagerOptions): Promise<Uint8Array> {
-        const filePath = vscode.Uri.joinPath(filesDirUri, fileHash);
+        const { dirName, fileName } = this.getHashPathParts(fileHash);
+        const filePath = vscode.Uri.joinPath(filesDirUri, dirName, fileName);
         const content = await vscode.workspace.fs.readFile(filePath);
         try {
             return this.decryptContent(Buffer.from(content), options.encryptionKey);
