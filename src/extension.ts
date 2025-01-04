@@ -30,28 +30,6 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  /*
-  // Command to Set AWS Credentials
-  let setAWSSecretCommand = vscode.commands.registerCommand("extension.setAWSSecretCommand", async () => {
-    const awsAccessKeyId = await vscode.window.showInputBox({
-      prompt: "Enter AWS Access Key ID",
-    });
-    const awsSecretAccessKey = await vscode.window.showInputBox({
-      prompt: "Enter AWS Secret Access Key",
-      password: true,
-    });
-
-    if (awsAccessKeyId && awsSecretAccessKey) {
-      const config = vscode.workspace.getConfiguration(appName);
-      await config.update("awsAccessKeyId", awsAccessKeyId, vscode.ConfigurationTarget.Global);
-      await context.secrets.store("awsSecretAccessKey", awsSecretAccessKey);
-      showInfo("AWS Credentials saved successfully.");
-    } else {
-      showError("Both AWS Access Key ID and Secret Access Key are required.");
-    }
-  });
-  */
-
   // Command to Generate 32-Byte Encrypted Text
   let generateAESKeyCommand = vscode.commands.registerCommand("extension.generateAESKey", async () => {
     logMessage("Generating 32-byte AES encryption key...");
