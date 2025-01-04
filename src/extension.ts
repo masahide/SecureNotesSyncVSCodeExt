@@ -10,6 +10,43 @@ import * as crypto from "crypto";
 const aesEncryptionKey = "aesEncryptionKey";
 const appName = "SecureNotesSync";
 
+// タイムアウトIDを保持する変数
+let inactivityTimeout: NodeJS.Timeout | undefined;
+
+// 非アクティブタイマーをリセットする関数
+function resetInactivityTimer() {
+  if (inactivityTimeout) {
+    clearTimeout(inactivityTimeout);
+  }
+  const inactivityTimeoutSec = vscode.workspace.getConfiguration(appName).get<number>('inactivityTimeoutSec');
+  if (inactivityTimeoutSec === undefined) {
+    return;
+  }
+  inactivityTimeout = setTimeout(() => {
+    // 非アクティブ期間が経過したら同期コマンドを実行
+    vscode.commands.executeCommand("extension.syncNotes");
+    vscode.commands.executeCommand("extension.syncWithGitHub");
+    logMessage("非アクティブ状態が続いたため、同期コマンドを実行しました。");
+  }, inactivityTimeoutSec * 1000);
+}
+
+// 設定を確認し、タイマーを開始または停止する関数
+function manageInactivityTimer() {
+  const isAutoSyncEnabled = vscode.workspace.getConfiguration(appName).get<boolean>("enableAutoSync", false);
+  if (isAutoSyncEnabled) {
+    // 設定が有効な場合、タイマーをリセット
+    resetInactivityTimer();
+    logMessage("自動同期が有効です。非アクティブタイマーを開始します。");
+  } else {
+    // 設定が無効な場合、タイマーをクリア
+    if (inactivityTimeout) {
+      clearTimeout(inactivityTimeout);
+      inactivityTimeout = undefined;
+      //logMessage("自動同期が無効です。非アクティブタイマーを停止します。");
+    }
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   // Create output channel
   const outputChannel = vscode.window.createOutputChannel(appName);
@@ -93,11 +130,46 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   });
 
-  context.subscriptions.push(syncCommand, setAESKeyCommand, generateAESKeyCommand, syncWithGitHubCommand);
+  // ユーザーアクティビティのイベントハンドラーを登録
+  const userActivityEvents = [
+    vscode.window.onDidChangeActiveTextEditor,
+    vscode.workspace.onDidChangeTextDocument,
+    vscode.workspace.onDidSaveTextDocument,
+    vscode.window.onDidChangeVisibleTextEditors,
+    vscode.window.onDidChangeActiveNotebookEditor,
+    vscode.window.onDidChangeActiveTerminal,
+    vscode.window.onDidChangeWindowState,
+  ];
+
+  // イベントを監視し、アクティビティがあったらタイマーをリセット
+  const disposables = userActivityEvents.map(event => event(() => {
+    if (vscode.workspace.getConfiguration(appName).get<boolean>("enableAutoSync", false)) {
+      resetInactivityTimer();
+    }
+  }));
+
+  // 設定変更を監視するイベントハンドラー
+  const configChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration(`${appName}.enableAutoSync`)) {
+      manageInactivityTimer();
+    }
+  });
+
+  // 初期状態でタイマーを管理
+  manageInactivityTimer();
+
+  context.subscriptions.push(
+    syncCommand, setAESKeyCommand, generateAESKeyCommand, syncWithGitHubCommand,
+    configChangeDisposable,
+    ...disposables
+  );
   outputChannel.show(true);
 }
 
 export function deactivate() {
+  if (inactivityTimeout) {
+    clearTimeout(inactivityTimeout);
+  }
   logMessage(`${appName} Extension Deactivated.`);
 }
 

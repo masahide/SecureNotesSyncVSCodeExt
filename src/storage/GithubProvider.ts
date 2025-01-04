@@ -70,7 +70,7 @@ export class GitHubSyncProvider implements IStorageProvider {
                     reject(new Error(`execFile error: ${cwd}> ${cmd} ${args.join(' ')}\nstdout:'${stdout}', stderr:'${stderr}'`));
                 } else {
                     logMessage(`execFile: ${cwd}> ${cmd} ${args.join(' ')}`);
-                    if (stdout !== '') { logMessage(`${stdout}`); }
+                    //if (stdout !== '') { logMessage(`${stdout}`); }
                     if (stderr !== '') { logMessage(`Err:${stderr}`); }
                     resolve({ stdout, stderr });
                 }

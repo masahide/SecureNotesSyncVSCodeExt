@@ -1,7 +1,5 @@
-以下のコードはvscode拡張のコードです。
-この拡張はvscodeワークスペースにあるファイルを暗号化しindexファイルを作成してオブジェクトっディレクトリに保存します。
-オブジェクトディレクトリをgitコマンドでgithubのリポジトリに同期する機能を追加してください。
-
+以下のコードはvscode拡張のコードです。extension.syncNotesコマンドは追加したファイルは問題なくオブジェクトディレクトリに保存されるが、ファイルを削除した際の情報は保存されていない気がするのですが、
+どうでしょうか？
 ### Start of webpack.config.js ###
 //@ts-check
 
@@ -53,38 +51,175 @@ const extensionConfig = {
 module.exports = [ extensionConfig ];
 ### End of webpack.config.js ###
 
-### Start of src/envUtils.ts ###
-// src/envUtils.ts
-import * as vscode from "vscode";
-import * as os from "os";
-import * as crypto from "crypto";
-
-const ENV_ID_KEY = "encryptSyncEnvironmentId";
-
-export async function getOrCreateEnvironmentId(context: vscode.ExtensionContext): Promise<string> {
-    let envId = context.globalState.get<string>(ENV_ID_KEY);
-    if (!envId) {
-        const hostname = os.hostname();
-        envId = `${hostname}-${crypto.randomUUID()}`;
-        await context.globalState.update(ENV_ID_KEY, envId);
-    }
-    return envId;
+### Start of package.json ###
+{
+  "name": "secure-notes-sync",
+  "displayName": "Secure Notes Sync",
+  "description": "A VS Code extension for securely syncing notes with AWS S3 using AES encryption.",
+  "version": "0.0.1",
+  "publisher": "your-publisher-name",
+  "engines": {
+    "vscode": "^1.50.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "type": "object",
+      "title": "Secure Notes Sync",
+      "properties": {
+        "SecureNotesSync.awsAccessKeyId": {
+          "type": "string",
+          "description": "AWS Access Key ID for S3",
+          "default": ""
+        },
+        "SecureNotesSync.s3Bucket": {
+          "type": "string",
+          "description": "S3 Bucket Name",
+          "default": ""
+        },
+        "SecureNotesSync.s3Region": {
+          "type": "string",
+          "description": "S3 Region",
+          "default": ""
+        },
+        "SecureNotesSync.s3Endpoint": {
+          "type": "string",
+          "description": "S3 Custom Endpoint (optional)",
+          "default": ""
+        },
+        "SecureNotesSync.s3PrefixPath": {
+          "type": "string",
+          "description": "S3 Prefix Path (optional)",
+          "default": ""
+        },
+        "SecureNotesSync.gitRemoteUrl": {
+          "type": "string",
+          "description": "GitHub repository URL for syncing the object directory. (ex: git@github.com:user/repo.git)",
+          "default": "git@github.com:user/repo.git"
+        },
+        "SecureNotesSync.enableAutoSync": {
+          "type": "boolean",
+          "description": "Enable auto sync on save",
+          "default": false
+        },
+        "SecureNotesSync.inactivityTimeoutSec": {
+          "type": "number",
+          "description": "Inactivity timeout in seconds for auto sync",
+          "default": 60
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "extension.setAWSSecret",
+        "title": "Set AWS secret access key"
+      },
+      {
+        "command": "extension.setAESKey",
+        "title": "Set AES encryption Key"
+      },
+      {
+        "command": "extension.generateAESKey",
+        "title": "Generate AES Key"
+      },
+      {
+        "command": "extension.syncNotes",
+        "title": "Sync Notes"
+      },
+      {
+        "command": "extension.syncWithGitHub",
+        "title": "Sync with GitHub"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.8",
+    "@types/node": "20.x",
+    "@types/vscode": "^1.94.0",
+    "@types/which": "^3.0.4",
+    "@typescript-eslint/eslint-plugin": "^8.7.0",
+    "@typescript-eslint/parser": "^8.7.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "aws-sdk": "^2.1691.0",
+    "eslint": "^9.11.1",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.6.2",
+    "webpack": "^5.95.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.668.0",
+    "uuid": "^11.0.3",
+    "which": "^5.0.0"
+  }
 }
 
-### End of src/envUtils.ts ###
+### End of package.json ###
 
 ### Start of src/extension.ts ###
-// VSCode Extension Skeleton for Note-Taking App with S3 Integration
 import * as vscode from "vscode";
+import * as os from "os";
 import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
 import { setSecret } from "./secretManager";
 import { LocalObjectManager } from "./storage/LocalObjectManager";
-import { getOrCreateEnvironmentId } from "./envUtils";
+import { GitHubSyncProvider } from "./storage/GithubProvider";
 import * as crypto from "crypto";
 
 
 const aesEncryptionKey = "aesEncryptionKey";
 const appName = "SecureNotesSync";
+
+// タイムアウトIDを保持する変数
+let inactivityTimeout: NodeJS.Timeout | undefined;
+
+// 非アクティブタイマーをリセットする関数
+function resetInactivityTimer() {
+  if (inactivityTimeout) {
+    clearTimeout(inactivityTimeout);
+  }
+  const inactivityTimeoutSec = vscode.workspace.getConfiguration(appName).get<number>('inactivityTimeoutSec');
+  if (inactivityTimeoutSec === undefined) {
+    return;
+  }
+  inactivityTimeout = setTimeout(() => {
+    // 非アクティブ期間が経過したら同期コマンドを実行
+    vscode.commands.executeCommand("extension.syncNotes");
+    vscode.commands.executeCommand("extension.syncWithGitHub");
+    logMessage("非アクティブ状態が続いたため、同期コマンドを実行しました。");
+  }, inactivityTimeoutSec * 1000);
+}
+
+// 設定を確認し、タイマーを開始または停止する関数
+function manageInactivityTimer() {
+  const isAutoSyncEnabled = vscode.workspace.getConfiguration(appName).get<boolean>("enableAutoSync", false);
+  if (isAutoSyncEnabled) {
+    // 設定が有効な場合、タイマーをリセット
+    resetInactivityTimer();
+    logMessage("自動同期が有効です。非アクティブタイマーを開始します。");
+  } else {
+    // 設定が無効な場合、タイマーをクリア
+    if (inactivityTimeout) {
+      clearTimeout(inactivityTimeout);
+      inactivityTimeout = undefined;
+      //logMessage("自動同期が無効です。非アクティブタイマーを停止します。");
+    }
+  }
+}
 
 export async function activate(context: vscode.ExtensionContext) {
   // Create output channel
@@ -106,26 +241,6 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  // Command to Set AWS Credentials
-  let setAWSSecretCommand = vscode.commands.registerCommand("extension.setAWSSecretCommand", async () => {
-    const awsAccessKeyId = await vscode.window.showInputBox({
-      prompt: "Enter AWS Access Key ID",
-    });
-    const awsSecretAccessKey = await vscode.window.showInputBox({
-      prompt: "Enter AWS Secret Access Key",
-      password: true,
-    });
-
-    if (awsAccessKeyId && awsSecretAccessKey) {
-      const config = vscode.workspace.getConfiguration(appName);
-      await config.update("awsAccessKeyId", awsAccessKeyId, vscode.ConfigurationTarget.Global);
-      await context.secrets.store("awsSecretAccessKey", awsSecretAccessKey);
-      showInfo("AWS Credentials saved successfully.");
-    } else {
-      showError("Both AWS Access Key ID and Secret Access Key are required.");
-    }
-  });
-
   // Command to Generate 32-Byte Encrypted Text
   let generateAESKeyCommand = vscode.commands.registerCommand("extension.generateAESKey", async () => {
     logMessage("Generating 32-byte AES encryption key...");
@@ -140,33 +255,16 @@ export async function activate(context: vscode.ExtensionContext) {
 
   let syncCommand = vscode.commands.registerCommand("extension.syncNotes", async () => {
     try {
-      // 1. S3クライアント準備
       const encryptKey = await context.secrets.get(aesEncryptionKey);
       if (!encryptKey) {
         showError("AES Key not set");
         return false;
       }
-      const config = vscode.workspace.getConfiguration("encryptSync");
-      const options = { environmentId, encryptionKey: encryptKey };
-      // const awsAccessKeyId = config.get<string>("awsAccessKeyId");
-      // const awsSecretAccessKey = await context.secrets.get("awsSecretAccessKey");
-      // const s3Bucket = config.get<string>("s3Bucket");
-      // const s3Region = config.get<string>("s3Region");
-      // if (!awsAccessKeyId || !awsSecretAccessKey || !s3Bucket || !s3Region) {
-      //   showError("S3 config incomplete");
-      //   return;
-      // }
-
-      // TODO: 2. S3 とローカルを同期する
-      // const s3Client = new S3Client({ region: s3Region, credentials: { accessKeyId: awsAccessKeyId, secretAccessKey: awsSecretAccessKey } });
-      // const provider: IStorageProvider = new S3StorageProvider(s3Client, s3Bucket, "files");
-      // await provider.sync();
-      // showInfo("Rsync-like sync completed.");
-
-      // 3. インデックスファイルを更新したい場合 (例):
-      //    例として「ローカルにある最新Indexに変更があれば、新しいindex-xxx.jsonを作る」
+      const config = vscode.workspace.getConfiguration(appName);
+      const options = { environmentId: environmentId, encryptionKey: encryptKey };
       const latestIndex = await LocalObjectManager.loadLatestLocalIndex(options);
       const previousIndex = await LocalObjectManager.loadPreviousIndex(options);
+      logMessage(`Loaded latest index file: ${latestIndex.uuid}\n previous index file: ${previousIndex.uuid}`);
       const localIndex = await LocalObjectManager.generateLocalIndexFile(previousIndex, options);
       const conflicts = LocalObjectManager.detectConflicts(localIndex, latestIndex);
       if (conflicts.length > 0) {
@@ -177,31 +275,90 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       }
 
-      // 7. 新規または変更されたファイルを S3 にアップロード
       const updated = await LocalObjectManager.saveEncryptedObject(localIndex.files, latestIndex, options);
-
       if (!updated) {
         showInfo("There are no update files.");
         return;
       }
 
-      // 8. ローカルインデックスファイルを更新
       const newIndex = LocalObjectManager.createNewIndexFile(localIndex, previousIndex);
       showInfo("New local index file created.");
-      LocalObjectManager.saveLocalIndexFile(newIndex);
+      LocalObjectManager.saveLocalIndexFile(newIndex, options);
     } catch (error: any) {
       showError(`Sync failed: ${error.message}`);
     }
     return true;
   });
 
-  context.subscriptions.push(syncCommand, setAESKeyCommand, generateAESKeyCommand);
+  let syncWithGitHubCommand = vscode.commands.registerCommand("extension.syncWithGitHub", async () => {
+    try {
+      const gitRemoteUrl = vscode.workspace.getConfiguration(appName).get<string>('gitRemoteUrl');
+      if (!gitRemoteUrl) {
+        showError("設定でGitHubリポジトリURLを設定してください。");
+        return;
+      }
+      const cloudStorageProvider = new GitHubSyncProvider(gitRemoteUrl);
+      cloudStorageProvider.sync();
+    } catch (error: any) {
+      showError(`Cloud sync failed: ${error.message}`);
+    }
+  });
+
+  // ユーザーアクティビティのイベントハンドラーを登録
+  const userActivityEvents = [
+    vscode.window.onDidChangeActiveTextEditor,
+    vscode.workspace.onDidChangeTextDocument,
+    vscode.workspace.onDidSaveTextDocument,
+    vscode.window.onDidChangeVisibleTextEditors,
+    vscode.window.onDidChangeActiveNotebookEditor,
+    vscode.window.onDidChangeActiveTerminal,
+    vscode.window.onDidChangeWindowState,
+  ];
+
+  // イベントを監視し、アクティビティがあったらタイマーをリセット
+  const disposables = userActivityEvents.map(event => event(() => {
+    if (vscode.workspace.getConfiguration(appName).get<boolean>("enableAutoSync", false)) {
+      resetInactivityTimer();
+    }
+  }));
+
+  // 設定変更を監視するイベントハンドラー
+  const configChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration(`${appName}.enableAutoSync`)) {
+      manageInactivityTimer();
+    }
+  });
+
+  // 初期状態でタイマーを管理
+  manageInactivityTimer();
+
+  context.subscriptions.push(
+    syncCommand, setAESKeyCommand, generateAESKeyCommand, syncWithGitHubCommand,
+    configChangeDisposable,
+    ...disposables
+  );
   outputChannel.show(true);
 }
 
 export function deactivate() {
+  if (inactivityTimeout) {
+    clearTimeout(inactivityTimeout);
+  }
   logMessage(`${appName} Extension Deactivated.`);
 }
+
+
+const ENV_ID_KEY = "encryptSyncEnvironmentId";
+async function getOrCreateEnvironmentId(context: vscode.ExtensionContext): Promise<string> {
+  let envId = context.globalState.get<string>(ENV_ID_KEY);
+  if (!envId) {
+    const hostname = os.hostname();
+    envId = `${hostname}-${crypto.randomUUID()}`;
+    await context.globalState.update(ENV_ID_KEY, envId);
+  }
+  return envId;
+}
+
 ### End of src/extension.ts ###
 
 ### Start of src/logger.ts ###
@@ -301,6 +458,151 @@ export type LocalObjectManagerOptions = {
 };
 ### End of src/types.ts ###
 
+### Start of src/storage/GithubProvider.ts ###
+// storage/providers/GitHubSyncProvider.ts
+import * as vscode from "vscode";
+import { IStorageProvider } from './IStorageProvider';
+import { objectDirUri } from './LocalObjectManager';
+import { showError, logMessage } from '../logger';
+import * as cp from 'child_process';
+import which from 'which';
+import * as fs from 'fs';
+
+export class GitHubSyncProvider implements IStorageProvider {
+    private gitRemoteUrl: string;
+    private gitPath: string;
+
+    constructor(gitRemoteUrl: string) {
+        this.gitRemoteUrl = gitRemoteUrl;
+        this.gitPath = findGitExecutable();
+    }
+
+    public async sync(): Promise<void> {
+        logMessage(`gitPath: ${this.gitPath}`);
+        try {
+            const objectDir = objectDirUri.fsPath;
+            // ディレクトリがGitリポジトリかどうかを確認
+            const isGitRepo = await this.isGitRepository(objectDir);
+            if (!isGitRepo) {
+                // Gitリポジトリを初期化
+                await this.execCmd(this.gitPath, ['init'], objectDir);
+                await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], objectDir);
+                await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
+                // Check if 'main' branch exists on remote
+                const checkMainBranch = await this.execCmd(this.gitPath, ['ls-remote', '--heads', 'origin', 'main'], objectDir);
+                await this.execCmd(this.gitPath, ['add', '.'], objectDir);
+                await this.execCmd(this.gitPath, ['commit', '-m', 'add'], objectDir);
+                if (checkMainBranch.stdout.trim() === '') {
+                    await this.execCmd(this.gitPath, ['branch', '-M', 'main'], objectDir);
+                } else {
+                    // 強制的にオブジェクトディレクトリとマージ
+                    await this.execCmd(this.gitPath, ['branch', '-M', 'backup'], objectDir);
+                    await this.execCmd(this.gitPath, ['fetch', 'origin', 'main'], objectDir);
+                    await this.execCmd(this.gitPath, ['checkout', 'main'], objectDir);
+                    // 強制マージ
+                    await this.execCmd(this.gitPath, ['merge', 'backup', '--allow-unrelated-histories', '-X', 'ours', '-m', 'merge'], objectDir);
+                    await this.execCmd(this.gitPath, ['branch', '-D', 'backup'], objectDir);
+                    logMessage("オブジェクトディレクトリをGitHubと強制マージしました");
+                }
+                await this.execCmd(this.gitPath, ['push', '-u', 'origin', 'main'], objectDir);
+                logMessage("オブジェクトディレクトリをGitHubと同期しました。");
+                return;
+            }
+            // すべての変更をコミット
+            await this.execCmd(this.gitPath, ['add', '.'], objectDir);
+            const diff = (await this.execCmd(this.gitPath, ['diff', '--cached'], objectDir)).stdout;
+            if (diff.trim() === '') {
+                logMessage("変更がありません。");
+                return;
+            }
+            await this.execCmd(this.gitPath, ['commit', '-m', 'sync'], objectDir);
+            await this.execCmd(this.gitPath, ['push', 'origin', 'main'], objectDir);
+            logMessage("オブジェクトディレクトリをGitHubと同期しました。");
+        } catch (error) {
+            showError(`sync GitHub error:${(error as Error).message}`);
+        }
+    }
+
+    // Gitコマンドを実行するヘルパー関数
+    private async execCmd(cmd: string, args: string[], cwd: string): Promise<{ stdout: string, stderr: string }> {
+        return new Promise((resolve, reject) => {
+            cp.execFile(cmd, args, { cwd: cwd }, (error, stdout, stderr) => {
+                if (error) {
+                    reject(new Error(`execFile error: ${cwd}> ${cmd} ${args.join(' ')}\nstdout:'${stdout}', stderr:'${stderr}'`));
+                } else {
+                    logMessage(`execFile: ${cwd}> ${cmd} ${args.join(' ')}`);
+                    //if (stdout !== '') { logMessage(`${stdout}`); }
+                    if (stderr !== '') { logMessage(`Err:${stderr}`); }
+                    resolve({ stdout, stderr });
+                }
+            });
+        });
+    }
+
+    // Check if a directory is a git repository
+    private async isGitRepository(dir: string): Promise<boolean> {
+        try {
+            await this.execCmd(this.gitPath, ['rev-parse', '--is-inside-work-tree'], dir);
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+}
+
+function findGitExecutable(): string {
+    let gitPath: string;
+
+    // First, search for Git in PATH
+    try {
+        gitPath = which.sync('git');
+        return gitPath;
+    } catch (e) {
+        // Git not found in PATH
+    }
+
+    // Define predefined paths based on platform
+    const platform = process.platform;
+    let predefinedPaths: string[];
+
+    switch (platform) {
+        case 'win32': // Windows
+            predefinedPaths = [
+                'C:\\Program Files\\Git\\bin\\git.exe',
+                'C:\\Git\\bin\\git.exe',
+                'C:\\Windows\\System32\\git.exe'
+            ];
+            break;
+        case 'darwin': // macOS
+            predefinedPaths = [
+                '/usr/local/bin/git',
+                '/usr/bin/git'
+            ];
+            break;
+        case 'linux': // Linux
+            predefinedPaths = [
+                '/usr/local/bin/git',
+                '/usr/bin/git',
+                '/bin/git'
+            ];
+            break;
+        default:
+            throw new Error(`Unsupported platform: ${platform}`);
+    }
+
+    // Search predefined paths
+    for (const p of predefinedPaths) {
+        if (fs.existsSync(p)) {
+            gitPath = p;
+            return gitPath;
+        }
+    }
+
+    // If Git is not found, throw an error
+    throw new Error('Git executable not found.');
+}
+### End of src/storage/GithubProvider.ts ###
+
 ### Start of src/storage/IStorageProvider.ts ###
 // src/IStorageProvider.ts
 export interface IStorageProvider {
@@ -323,14 +625,16 @@ import { IndexFile, FileEntry, Conflict, LocalObjectManagerOptions } from "../ty
 import { v7 as uuidv7 } from 'uuid';
 
 const secureNotesDir = ".secureNotes";
+const objectDirName = "objects";
 const indexDirName = "indexes";
 const filesDirName = "files";
 const previousIndexIDFilename = "index";
 const rootUri = getRootUri();
-const secureNootesUri = vscode.Uri.joinPath(rootUri, secureNotesDir);
-const indexDirUri = vscode.Uri.joinPath(secureNootesUri, indexDirName);
-const filesDirUri = vscode.Uri.joinPath(secureNootesUri, filesDirName);
+export const secureNootesUri = vscode.Uri.joinPath(rootUri, secureNotesDir);
+export const objectDirUri = vscode.Uri.joinPath(secureNootesUri, objectDirName);
 const previousIndexIDUri = vscode.Uri.joinPath(secureNootesUri, previousIndexIDFilename);
+const indexDirUri = vscode.Uri.joinPath(objectDirUri, indexDirName);
+const filesDirUri = vscode.Uri.joinPath(objectDirUri, filesDirName);
 
 interface FileIndex {
     originalFile: string;
@@ -371,7 +675,8 @@ export class LocalObjectManager {
             const encryptedContent = this.encryptContent(Buffer.from(fileContent), options.encryptionKey);
 
             // objects directory に保存
-            const encryptedFileName = vscode.Uri.joinPath(filesDirUri, file.hash);
+            const { dirName, fileName } = this.getHashPathParts(file.hash);
+            const encryptedFileName = vscode.Uri.joinPath(filesDirUri, dirName, fileName);
             await vscode.workspace.fs.writeFile(encryptedFileName, encryptedContent);
             logMessage(`save file:${file.path}, to:${encryptedFileName.path}`);
             updated = true;
@@ -379,33 +684,63 @@ export class LocalObjectManager {
         return updated;
     }
 
+    private static getUUIDPathParts(uuid: string): { dirName: string; fileName: string } {
+        const dirName = uuid.substring(0, 6);
+        const fileName = uuid.substring(6);
+        return { dirName, fileName };
+    }
+    private static getHashPathParts(uuid: string): { dirName: string; fileName: string } {
+        const dirName = uuid.substring(0, 2);
+        const fileName = uuid.substring(2);
+        return { dirName, fileName };
+    }
+
     /**
-     * ローカル .secureNotes/indexes にあるすべての index-<UUID>.json のパス一覧
+     * uri にあるすべての fileのパス一覧
      */
-    public static async listLocalIndexFiles(): Promise<string[]> {
+    private static async listFiles(uri: vscode.Uri): Promise<string[]> {
         // .secureNotes/indexes ディレクトリが存在しない場合は空配列を返す
         try {
-            await vscode.workspace.fs.stat(indexDirUri);
+            await vscode.workspace.fs.stat(uri);
         } catch (error) {
             return [];
         }
-        const dirs = await vscode.workspace.fs.readDirectory(indexDirUri);
-        return dirs.filter(
-            (f) => f[1] === vscode.FileType.File
-                && f[0].startsWith("index-")
-                && f[0].endsWith(".json")
-        ).map((f) => f[0]);
+        const dirs = await vscode.workspace.fs.readDirectory(uri);
+        return dirs.filter((f) => f[1] === vscode.FileType.File).map((f) => f[0]);
+    }
+    /**
+     * uri にあるすべてのdirのパス一覧
+     */
+    private static async listDirs(uri: vscode.Uri): Promise<string[]> {
+        // .secureNotes/indexes ディレクトリが存在しない場合は空配列を返す
+        try {
+            await vscode.workspace.fs.stat(uri);
+        } catch (error) {
+            return [];
+        }
+        const dirs = await vscode.workspace.fs.readDirectory(uri);
+        return dirs.filter((f) => f[1] === vscode.FileType.Directory).map((f) => f[0]);
     }
 
+
+    public static latestString(strings: string[]): string {
+        if (strings.length === 0) { return ""; }
+        return strings.reduce((a, b) => (a > b ? a : b));
+    }
     /**
      * ローカルにあるうち、もっとも新しいインデックスファイルを読み込む
      */
     public static async loadLatestLocalIndex(options: LocalObjectManagerOptions): Promise<IndexFile> {
-        const indexFiles = await this.listLocalIndexFiles();
-        if (indexFiles.length === 0) {
+        const latestDir = this.latestString(await this.listDirs(indexDirUri));
+        const dir = vscode.Uri.joinPath(indexDirUri, latestDir);
+        const latestFilePath = this.latestString(await this.listFiles(dir));
+        const latestIndexFileUri = vscode.Uri.joinPath(indexDirUri, latestDir, latestFilePath);
+        if (latestFilePath.length === 0) {
             // インデックスファイルが存在しない場合は新規作成
+            const uuid = uuidv7();
+            logMessage(`Latest index file not found. Creating new index UUID: ${uuid}`);
             return {
-                uuid: uuidv7(),
+                uuid: uuid,
                 parentUuid: "",
                 environmentId: options.environmentId,
                 files: [],
@@ -413,20 +748,8 @@ export class LocalObjectManager {
             };
         }
 
-        // 1) ファイル名（basename）を抽出してソート（降順）
-        //    "index-017f8d3f-e23c-7aa6-85f8-fc1855b36328.json" の比較で、
-        //    UUIDv7部分を含む文字列を比較する
-        indexFiles.sort((a, b) => {
-            // 降順なのでB→Aの順で返す
-            if (a < b) { return 1; }
-            if (a > b) { return -1; }
-            return 0;
-        });
-
-        // 2) 先頭(最も新しい=一番大きいUUIDv7)を読み込む
-        const latestFilePath = indexFiles[0];
-        const latestIndexFileUri = vscode.Uri.joinPath(indexDirUri, latestFilePath);
-        const content = await vscode.workspace.fs.readFile(latestIndexFileUri);
+        const encryptContent = await vscode.workspace.fs.readFile(latestIndexFileUri);
+        const content = this.decryptContent(Buffer.from(encryptContent), options.encryptionKey);
         return JSON.parse(content.toString()) as IndexFile;
     }
 
@@ -434,12 +757,16 @@ export class LocalObjectManager {
     public static async loadPreviousIndex(options: LocalObjectManagerOptions): Promise<IndexFile> {
         try {
             const indexContent = await vscode.workspace.fs.readFile(previousIndexIDUri);
-            const index = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(indexDirUri, indexContent.toString()));
+            const uuidparts = this.getUUIDPathParts(indexContent.toString());
+            const encryptedIndex = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(indexDirUri, uuidparts.dirName, uuidparts.fileName));
+            const index = this.decryptContent(Buffer.from(encryptedIndex), options.encryptionKey);
             return JSON.parse(index.toString());
         } catch (error) {
             // ファイルが存在しない場合や読み込みエラーの場合は新規作成
+            const uuid = uuidv7();
+            logMessage(`Previous index file not found or error reading file. Creating new index UUID: ${uuid}`);
             return {
-                uuid: uuidv7(),
+                uuid: uuid,
                 parentUuid: "",
                 environmentId: options.environmentId,
                 files: [],
@@ -449,7 +776,7 @@ export class LocalObjectManager {
     }
 
     /**
-     * 新しい index-<UUID>.json を作成し保存
+     * 新しい <UUID> を作成し保存
      */
     public static createNewIndexFile(localIndex: IndexFile, previousIndex: IndexFile): IndexFile {
         const newUUID = uuidv7();
@@ -463,14 +790,6 @@ export class LocalObjectManager {
 
         return newIndexFile;
     }
-    /*
-        vscode.workspace.fs.createDirectory(filesDirUri);
-        const fileUri = vscode.Uri.joinPath(indexDirUri, `index-${newUUID}.json`);
-        const encryptedIndex = this.encryptContent(Buffer.from(JSON.stringify(newIndex, null, 2)), options.encryptionKey);
-        vscode.workspace.fs.writeFile(fileUri, encryptedIndex);
-        */
-
-
 
     /**
      * AES-256-CBC で暗号化
@@ -496,7 +815,8 @@ export class LocalObjectManager {
 
     // 復号化した内容を返す共通関数
     private static async decryptFileFromLocalObject(fileHash: string, options: LocalObjectManagerOptions): Promise<Uint8Array> {
-        const filePath = vscode.Uri.joinPath(filesDirUri, fileHash);
+        const { dirName, fileName } = this.getHashPathParts(fileHash);
+        const filePath = vscode.Uri.joinPath(filesDirUri, dirName, fileName);
         const content = await vscode.workspace.fs.readFile(filePath);
         try {
             return this.decryptContent(Buffer.from(content), options.encryptionKey);
@@ -692,12 +1012,15 @@ export class LocalObjectManager {
         return indexFile;
     }
     // 新しいインデックスファイルをローカルに保存する関数
-    public static async saveLocalIndexFile(indexFile: IndexFile): Promise<void> {
-        await vscode.workspace.fs.createDirectory(indexDirUri);
+    public static async saveLocalIndexFile(indexFile: IndexFile, options: LocalObjectManagerOptions): Promise<void> {
+        const { dirName, fileName } = this.getUUIDPathParts(indexFile.uuid);
+        const dirPath = vscode.Uri.joinPath(indexDirUri, dirName);
+        await vscode.workspace.fs.createDirectory(dirPath);
         const indexContent = Buffer.from(JSON.stringify(indexFile, null, 2), "utf-8");
-        const indexFileName = `index-${indexFile.uuid}.json`;
-        const indexFilePath = vscode.Uri.joinPath(indexDirUri, indexFileName);
-        await vscode.workspace.fs.writeFile(indexFilePath, indexContent);
+        const indexFileName = indexFile.uuid;
+        const indexFilePath = vscode.Uri.joinPath(indexDirUri, dirName, fileName);
+        const encryptedIndex = this.encryptContent(indexContent, options.encryptionKey);
+        await vscode.workspace.fs.writeFile(indexFilePath, encryptedIndex);
         await vscode.workspace.fs.writeFile(previousIndexIDUri, Buffer.from(indexFileName));
     }
 }

@@ -45,6 +45,16 @@
           "type": "string",
           "description": "GitHub repository URL for syncing the object directory. (ex: git@github.com:user/repo.git)",
           "default": "git@github.com:user/repo.git"
+        },
+        "SecureNotesSync.enableAutoSync": {
+          "type": "boolean",
+          "description": "Enable auto sync on save",
+          "default": false
+        },
+        "SecureNotesSync.inactivityTimeoutSec": {
+          "type": "number",
+          "description": "Inactivity timeout in seconds for auto sync",
+          "default": 60
         }
       }
     },

@@ -3,6 +3,7 @@ export interface FileEntry {
     path: string; // ファイルの相対パス
     hash: string; // ファイルのSHA-256ハッシュ値（暗号化前のデータに対して計算）
     timestamp: number; // ファイルの最終更新タイムスタンプ
+    deleted?: boolean; // ファイルが削除されたかどうか
 }
 
 // インデックスファイルの構造
