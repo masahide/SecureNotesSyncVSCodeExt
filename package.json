@@ -1,9 +1,9 @@
 {
   "name": "secure-notes-sync",
   "displayName": "Secure Notes Sync",
-  "description": "",
-  "version": "0.0.1",
-  "publisher": "Masahide YAMASAKI",
+  "description": "A VSCode extension for securely syncing notes with a GitHub repository.",
+  "version": "0.0.3",
+  "publisher": "MasahideYAMASAKI",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -85,6 +85,10 @@
       {
         "command": "extension.syncWithGitHub",
         "title": "Sync with GitHub"
+      },
+      {
+        "command": "extension.copyAESKeyToClipboard",
+        "title": "Copy AES Key to Clipboard"
       }
     ]
   },

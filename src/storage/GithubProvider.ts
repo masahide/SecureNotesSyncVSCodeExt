@@ -49,6 +49,7 @@ export class GitHubSyncProvider implements IStorageProvider {
                 logMessage("オブジェクトディレクトリをGitHubと同期しました。");
                 return;
             }
+            await this.execCmd(this.gitPath, ['pull', 'origin', 'main'], objectDir);
             // すべての変更をコミット
             await this.execCmd(this.gitPath, ['add', '.'], objectDir);
             try {

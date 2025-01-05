@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import * as os from "os";
 import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
-import { setSecret } from "./secretManager";
 import { LocalObjectManager } from "./storage/LocalObjectManager";
 import { GitHubSyncProvider } from "./storage/GithubProvider";
 import * as crypto from "crypto";
@@ -58,21 +57,26 @@ export async function activate(context: vscode.ExtensionContext) {
   logMessage(`Current Environment ID: ${environmentId}`);
 
   // Command to Set AES Key
-  let setAESKeyCommand = vscode.commands.registerCommand("extension.setAESKey", () =>
-    setSecret(context,
-      aesEncryptionKey,
-      "Enter AES Encryption Key (64 hex characters representing 32 bytes)",
-      true,
-      (value) => value.length === 64 ? null : "AES Key must be 64 hex characters long"
-    )
-  );
+  let setAESKeyCommand = vscode.commands.registerCommand("extension.setAESKey", async () => {
+    const secretValue = await vscode.window.showInputBox({
+      prompt: "Enter AES Encryption Key (64 hex characters representing 32 bytes)",
+      password: true,
+      validateInput: (value) => value.length === 64 ? null : "AES Key must be 64 hex characters long"
+    });
+    if (secretValue) {
+      await context.secrets.store(aesEncryptionKey, secretValue);
+      showInfo(`${aesEncryptionKey} saved successfully.`);
+    } else {
+      showError(`${aesEncryptionKey} is required.`);
+    }
+  });
 
   // Command to Generate 32-Byte Encrypted Text
   let generateAESKeyCommand = vscode.commands.registerCommand("extension.generateAESKey", async () => {
     logMessage("Generating 32-byte AES encryption key...");
     const key = crypto.randomBytes(32).toString("hex"); // 32 bytes
     try {
-      await context.secrets.store("aesEncryptionKey", key);
+      await context.secrets.store(aesEncryptionKey, key);
       showInfo(`Generated and stored AES key: ${key}`);
     } catch (error: any) {
       showError(`Error generating encrypted text: ${error instanceof Error ? error.message : String(error)}`);
@@ -130,6 +134,26 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   });
 
+  // AESキーをクリップボードにコピーするコマンド
+  let copyAESKeyCommand = vscode.commands.registerCommand('extension.copyAESKeyToClipboard', async () => {
+    try {
+      // AESキーを取得
+      const aesKey = await context.secrets.get(aesEncryptionKey);
+      if (!aesKey) {
+        vscode.window.showErrorMessage('AES Key is not set. Please set the AES key first.');
+        return;
+      }
+
+      // クリップボードにコピー
+      await vscode.env.clipboard.writeText(aesKey);
+
+      // ユーザーに通知
+      vscode.window.showInformationMessage('AES Key copied to clipboard!');
+    } catch (error: any) {
+      vscode.window.showErrorMessage(`Failed to copy AES Key: ${error.message}`);
+    }
+  });
+
   // ユーザーアクティビティのイベントハンドラーを登録
   const userActivityEvents = [
     vscode.window.onDidChangeActiveTextEditor,
@@ -161,6 +185,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     syncCommand, setAESKeyCommand, generateAESKeyCommand, syncWithGitHubCommand,
     configChangeDisposable,
+    copyAESKeyCommand,
     ...disposables
   );
   outputChannel.show(true);
