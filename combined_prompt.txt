@@ -1,55 +1,11 @@
-
-### Start of webpack.config.js ###
-//@ts-check
-
-'use strict';
-
-const path = require('path');
-
-//@ts-check
-/** @typedef {import('webpack').Configuration} WebpackConfig **/
-
-/** @type WebpackConfig */
-const extensionConfig = {
-  target: 'node', // VS Code extensions run in a Node.js-context 📖 -> https://webpack.js.org/configuration/node/
-	mode: 'none', // this leaves the source code as close as possible to the original (when packaging we set this to 'production')
-
-  entry: './src/extension.ts', // the entry point of this extension, 📖 -> https://webpack.js.org/configuration/entry-context/
-  output: {
-    // the bundle is stored in the 'dist' folder (check package.json), 📖 -> https://webpack.js.org/configuration/output/
-    path: path.resolve(__dirname, 'dist'),
-    filename: 'extension.js',
-    libraryTarget: 'commonjs2'
-  },
-  externals: {
-    vscode: 'commonjs vscode' // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
-    // modules added here also need to be added in the .vscodeignore file
-  },
-  resolve: {
-    // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
-    extensions: ['.ts', '.js']
-  },
-  module: {
-    rules: [
-      {
-        test: /\.ts$/,
-        exclude: /node_modules/,
-        use: [
-          {
-            loader: 'ts-loader'
-          }
-        ]
-      }
-    ]
-  },
-  devtool: 'nosources-source-map',
-  infrastructureLogging: {
-    level: "log", // enables logging required for problem matchers
-  },
-};
-module.exports = [ extensionConfig ];
-### End of webpack.config.js ###
-
+以下はvscode拡張のコードです。　
+- loadLatestLocalIndex関数で最終更新のindexを取得しています(これはリモートのindexを含むすべてのindexの最終更新版
+です)
+- loadPreviousIndexで前回ローカルで保存したindexを取得しています
+- detectConflicts関数で上記２つを比較しコンフリクトを解消する処理を行っているのですが、loadLatestLocalIndexで最終が必ずしもリモートの最終版であるわけでもなくうまくコンフリクトを検出できません。
+loadLatestLocalIndexi関数を修正し、index内のenvironmentIdとparentUuids情報を駆使して
+直近10件のindexファイルで枝分かれしてしまっている箇所を見つけだして、それをresolveConflicts関数で競合解消するように修正できますか？
+もし解決のために足らない情報があるばあいは質問してください。
 ### Start of package.json ###
 {
   "name": "secure-notes-sync",
@@ -274,7 +230,6 @@ export async function activate(context: vscode.ExtensionContext) {
         showError("AES Key not set");
         return false;
       }
-      const config = vscode.workspace.getConfiguration(appName);
       const options = { environmentId: environmentId, encryptionKey: encryptKey };
       const latestIndex = await LocalObjectManager.loadLatestLocalIndex(options);
       const previousIndex = await LocalObjectManager.loadPreviousIndex(options);
@@ -738,10 +693,9 @@ export class LocalObjectManager {
         const latestIndexFileUri = vscode.Uri.joinPath(indexDirUri, latestDir, latestFilePath);
         if (latestFilePath.length === 0) {
             // インデックスファイルが存在しない場合は新規作成
-            const uuid = uuidv7();
-            logMessage(`Latest index file not found. Creating new index UUID: ${uuid}`);
+            logMessage(`Latest index file not found. Creating new index`);
             return {
-                uuid: uuid,
+                uuid: "",
                 parentUuids: [],
                 environmentId: options.environmentId,
                 files: [],
@@ -763,11 +717,9 @@ export class LocalObjectManager {
             const index = this.decryptContent(Buffer.from(encryptedIndex), options.encryptionKey);
             return JSON.parse(index.toString());
         } catch (error) {
-            // ファイルが存在しない場合や読み込みエラーの場合は新規作成
-            const uuid = uuidv7();
-            logMessage(`Previous index file not found or error reading file. Creating new index UUID: ${uuid}`);
+            logMessage(`Previous index file not found. Creating new index`);
             return {
-                uuid: uuid,
+                uuid: "",
                 parentUuids: [],
                 environmentId: options.environmentId,
                 files: [],
@@ -1001,9 +953,10 @@ export class LocalObjectManager {
             }
         }
 
+        const parentUuids = (previousIndex.uuid !== "") ? [previousIndex.uuid] : [];
         const indexFile: IndexFile = {
             uuid: uuidv7(),
-            parentUuids: [previousIndex.uuid], // ここでリモートのインデックス UUID を設定
+            parentUuids: parentUuids, // ここでリモートのインデックス UUID を設定
             environmentId: options.environmentId,
             files: files,
             timestamp: Date.now(),
