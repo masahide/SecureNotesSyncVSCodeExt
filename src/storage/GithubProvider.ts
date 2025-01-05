@@ -24,6 +24,8 @@ export class GitHubSyncProvider implements IStorageProvider {
             const isGitRepo = await this.isGitRepository(objectDir);
             if (!isGitRepo) {
                 // Gitリポジトリを初期化
+                const gitattributesUri = vscode.Uri.joinPath(objectDirUri, '.gitattributes');
+                await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
                 await this.execCmd(this.gitPath, ['init'], objectDir);
                 await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], objectDir);
                 await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
@@ -49,11 +51,11 @@ export class GitHubSyncProvider implements IStorageProvider {
             }
             // すべての変更をコミット
             await this.execCmd(this.gitPath, ['add', '.'], objectDir);
-            const diff = (await this.execCmd(this.gitPath, ['diff', '--cached'], objectDir)).stdout;
-            if (diff.trim() === '') {
+            try {
+                await this.execCmd(this.gitPath, ['diff', '--cached', '--quiet'], objectDir);
                 logMessage("変更がありません。");
                 return;
-            }
+            } catch { }
             await this.execCmd(this.gitPath, ['commit', '-m', 'sync'], objectDir);
             await this.execCmd(this.gitPath, ['push', 'origin', 'main'], objectDir);
             logMessage("オブジェクトディレクトリをGitHubと同期しました。");
@@ -70,7 +72,7 @@ export class GitHubSyncProvider implements IStorageProvider {
                     reject(new Error(`execFile error: ${cwd}> ${cmd} ${args.join(' ')}\nstdout:'${stdout}', stderr:'${stderr}'`));
                 } else {
                     logMessage(`execFile: ${cwd}> ${cmd} ${args.join(' ')}`);
-                    //if (stdout !== '') { logMessage(`${stdout}`); }
+                    if (stdout !== '') { logMessage(`${stdout}`); }
                     if (stderr !== '') { logMessage(`Err:${stderr}`); }
                     resolve({ stdout, stderr });
                 }

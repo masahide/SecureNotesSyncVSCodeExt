@@ -1,81 +1,100 @@
-# Secure Notes Sync VS Code Extension
+# Secure Notes Sync
 
-## Overview
-
-The **Secure Notes Sync** extension allows users to sync notes between their local VS Code workspace and various cloud storage providers. This includes encrypting the notes with AES encryption before uploading them to the cloud, as well as downloading and decrypting them for local use. It is ideal for anyone who needs a simple, secure way to back up and retrieve notes or any text documents using their preferred cloud storage.
+A VSCode extension for securely syncing notes with a GitHub repository. Future plans include secure syncing with AWS S3 using AES-256 encryption.
 
 ## Features
 
-- **Set Cloud Credentials and AES Key**: Store your cloud storage credentials and AES encryption key securely using VS Code's SecretStorage feature.
-- **Sync Notes with Cloud Storage**: Encrypt and upload your workspace notes to your chosen cloud storage provider for secure storage.
-- **Download and Decrypt Notes**: Retrieve and decrypt notes from cloud storage back into your workspace.
+- **GitHub Sync**: Securely sync notes with a GitHub repository.
+- **Future Feature**: Secure sync with AWS S3 using AES-256 encryption (not yet implemented).
+- **Auto Sync**: Automatically sync notes with GitHub on save with a customizable inactivity timeout.
+- **Conflict Resolution**: Detect and resolve conflicts between local and remote files.
 
-## Supported Cloud Storage Providers
+## Installation
 
-- AWS S3 (Currently supported)
-- Additional providers (Planned for future updates)
+1. **From VS Code Marketplace**:
 
-## Prerequisites
+   - Open VS Code.
+   - Click on the extensions icon in the sidebar or press `Ctrl+Shift+X` (`Cmd+Shift+X` on macOS).
+   - Search for "Secure Notes Sync" and click install.
 
-- **Cloud Account**: You need an active account for your chosen cloud storage provider.
-- **VS Code Version**: Ensure you are using VS Code version `^1.50.0` or later.
+2. **From Source**:
+   - Clone the repository:
+     ```bash
+     git clone https://github.com/masahide/SecureNotesSyncVSCodeExt.git
+     ```
+   - Open the folder in VS Code.
+   - Use the command palette (`Ctrl+Shift+P` or `Cmd+Shift+P`) and select "Extensions: Install Extension from VSIX..." then choose the `.vsix` package from the `dist` folder after building the project.
 
-## Setup
+## Configuration
 
-1. **Install Dependencies**: Run `npm install` in the project root to install all required dependencies.
-2. **Cloud Credentials**: Before you can sync your notes, you need to configure your cloud storage credentials and AES encryption key using the `Set Cloud Credentials and AES Key` command.
+Configure the extension settings in your VS Code settings (`.vscode/settings.json` or through the settings UI):
 
-## Commands
-
-This extension provides the following commands that can be accessed through the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`):
-
-1. **Set Cloud Credentials and AES Key** (`extension.setCredentials`)
-
-   - Prompts you to enter cloud storage credentials and a 32-character AES Encryption Key.
-   - These are securely stored using VS Code's SecretStorage.
-
-2. **Sync Notes with Cloud Storage** (`extension.syncNotes`)
-
-   - Encrypts all files in the current workspace and uploads them to your cloud storage.
-   - AES encryption ensures that your data remains private.
-
-3. **Download and Decrypt Notes** (`extension.downloadNotes`)
-
-   - Downloads encrypted files from your cloud storage, decrypts them, and stores them in the workspace.
+```json
+{
+  "SecureNotesSync": {
+    "awsAccessKeyId": "YOUR_AWS_ACCESS_KEY_ID", // Placeholder for future S3 integration
+    "s3Bucket": "YOUR_S3_BUCKET_NAME", // Placeholder for future S3 integration
+    "s3Region": "YOUR_S3_REGION", // Placeholder for future S3 integration
+    "s3Endpoint": "YOUR_S3_ENDPOINT", // Placeholder for future S3 integration
+    "s3PrefixPath": "YOUR_S3_PREFIX_PATH", // Placeholder for future S3 integration
+    "gitRemoteUrl": "git@github.com:user/repo.git", // For GitHub sync
+    "enableAutoSync": true,
+    "inactivityTimeoutSec": 60
+  }
+}
+```
 
 ## Usage
 
-1. Open the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`).
-2. Run the command `Set Cloud Credentials and AES Key` to configure your cloud credentials and AES encryption key.
-3. Use `Sync Notes with Cloud Storage` to upload your workspace notes to your chosen cloud storage with AES encryption.
-4. Use `Download and Decrypt Notes` to retrieve and decrypt your notes from cloud storage.
+### Commands
 
-## Security
+- **Set AES Key**:
 
-- **AES Encryption**: Notes are encrypted using AES-256-CBC encryption. You need to provide a 32-character encryption key.
-- **SecretStorage**: Cloud credentials and the AES encryption key are stored securely using VS Code's SecretStorage feature.
+  - Command: `extension.setAESKey`
+  - Prompts for your AES encryption key (64 hexadecimal characters).
 
-## Development
+- **Generate AES Key**:
 
-To build and run the extension locally:
+  - Command: `extension.generateAESKey`
+  - Generates a random 32-byte AES key and stores it securely.
 
-1. Clone the repository.
-2. Run `npm install` to install dependencies.
-3. Use the `F5` key in VS Code to open a new VS Code window with the extension loaded.
+- **Sync Notes**:
 
-## Troubleshooting
+  - Command: `extension.syncNotes`
+  - Encrypts local workspace files and saves them to the `.secureNotes` directory.
 
-- Ensure your **cloud credentials** and **AES encryption key** are set correctly using the `Set Cloud Credentials and AES Key` command.
-- If syncing or downloading fails, check the **permissions** for your cloud storage account to ensure you have sufficient privileges.
+- **Sync with GitHub**:
+  - Command: `extension.syncWithGitHub`
+  - Synchronizes the encrypted files in the `.secureNotes` directory with the specified GitHub repository.
 
-## Contribution
+### Auto Sync
 
-Feel free to submit pull requests or report issues. Contributions are welcome to enhance the extension and make it more efficient.
+- When `enableAutoSync` is set to `true`, the extension will automatically sync your notes with GitHub after a period of inactivity defined by `inactivityTimeoutSec`.
+
+## Known Issues and Limitations
+
+- S3 sync functionality is not implemented yet.
+- AWS configuration settings are placeholders and not used currently.
+- Current sync functionality is only with GitHub repositories.
+
+## Future Work
+
+- Implement S3 sync functionality.
+- Enhance security and performance.
+
+## Contributing
+
+- Contributions are welcome, especially for implementing S3 sync.
+- Fork the repository and create a pull request for your changes.
 
 ## License
 
-This project is licensed under the MIT License.
+This extension is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ## Contact
 
-For support or suggestions, please open an issue on the project's GitHub repository.
+For questions or support, please open an issue on the [GitHub repository](https://github.com/masahide/SecureNotesSyncVSCodeExt).
+
+---
+
+**Note**: Ensure you have the necessary GitHub permissions configured correctly. AWS settings are placeholders and not used at this time.
