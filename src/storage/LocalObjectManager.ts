@@ -118,11 +118,10 @@ export class LocalObjectManager {
         const latestIndexFileUri = vscode.Uri.joinPath(indexDirUri, latestDir, latestFilePath);
         if (latestFilePath.length === 0) {
             // インデックスファイルが存在しない場合は新規作成
-            const uuid = uuidv7();
-            logMessage(`Latest index file not found. Creating new index UUID: ${uuid}`);
+            logMessage(`Latest index file not found. Creating new index`);
             return {
-                uuid: uuid,
-                parentUuid: "",
+                uuid: "",
+                parentUuids: [],
                 environmentId: options.environmentId,
                 files: [],
                 timestamp: 0,
@@ -143,12 +142,10 @@ export class LocalObjectManager {
             const index = this.decryptContent(Buffer.from(encryptedIndex), options.encryptionKey);
             return JSON.parse(index.toString());
         } catch (error) {
-            // ファイルが存在しない場合や読み込みエラーの場合は新規作成
-            const uuid = uuidv7();
-            logMessage(`Previous index file not found or error reading file. Creating new index UUID: ${uuid}`);
+            logMessage(`Previous index file not found. Creating new index`);
             return {
-                uuid: uuid,
-                parentUuid: "",
+                uuid: "",
+                parentUuids: [],
                 environmentId: options.environmentId,
                 files: [],
                 timestamp: 0,
@@ -159,11 +156,11 @@ export class LocalObjectManager {
     /**
      * 新しい <UUID> を作成し保存
      */
-    public static createNewIndexFile(localIndex: IndexFile, previousIndex: IndexFile): IndexFile {
+    public static createNewIndexFile(localIndex: IndexFile, parentIndexes: IndexFile[]): IndexFile {
         const newUUID = uuidv7();
         const newIndexFile: IndexFile = {
             uuid: newUUID,
-            parentUuid: previousIndex.uuid,
+            parentUuids: parentIndexes.map((index) => index.uuid),
             environmentId: localIndex.environmentId,
             files: localIndex.files,
             timestamp: Date.now(),
@@ -289,9 +286,9 @@ export class LocalObjectManager {
         const conflicts: Conflict[] = [];
 
         // リモートのインデックス UUID とローカルの parentUuid を比較
-        if (remoteIndex.uuid === localIndex.parentUuid) {
+        if (localIndex.parentUuids.includes(remoteIndex.uuid)) {
             // リモートに変更がないため、競合なし
-            return conflicts;
+            return [];
         }
 
         // リモートに変更がある場合のみ競合を検出
@@ -381,9 +378,10 @@ export class LocalObjectManager {
             }
         }
 
+        const parentUuids = (previousIndex.uuid !== "") ? [previousIndex.uuid] : [];
         const indexFile: IndexFile = {
             uuid: uuidv7(),
-            parentUuid: previousIndex.uuid, // ここでリモートのインデックス UUID を設定
+            parentUuids: parentUuids, // ここでリモートのインデックス UUID を設定
             environmentId: options.environmentId,
             files: files,
             timestamp: Date.now(),

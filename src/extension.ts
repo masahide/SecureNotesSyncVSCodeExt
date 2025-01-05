@@ -90,7 +90,6 @@ export async function activate(context: vscode.ExtensionContext) {
         showError("AES Key not set");
         return false;
       }
-      const config = vscode.workspace.getConfiguration(appName);
       const options = { environmentId: environmentId, encryptionKey: encryptKey };
       const latestIndex = await LocalObjectManager.loadLatestLocalIndex(options);
       const previousIndex = await LocalObjectManager.loadPreviousIndex(options);
@@ -111,7 +110,7 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      const newIndex = LocalObjectManager.createNewIndexFile(localIndex, previousIndex);
+      const newIndex = LocalObjectManager.createNewIndexFile(localIndex, [previousIndex]);
       showInfo("New local index file created.");
       LocalObjectManager.saveLocalIndexFile(newIndex, options);
     } catch (error: any) {

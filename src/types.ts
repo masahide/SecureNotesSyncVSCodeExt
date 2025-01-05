@@ -10,7 +10,7 @@ export interface FileEntry {
 export interface IndexFile {
     uuid: string; // インデックスファイルのUUID（Version 7）
     environmentId: string; // 追加
-    parentUuid: string; // 親インデックスファイルのUUID
+    parentUuids: string[]; // 親インデックスファイルのUUID
     files: FileEntry[]; // ファイル情報のリスト
     timestamp: number; // インデックスファイルの作成タイムスタンプ
 }

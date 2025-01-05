@@ -1,3 +1,4 @@
+
 ### Start of webpack.config.js ###
 //@ts-check
 
@@ -53,9 +54,9 @@ module.exports = [ extensionConfig ];
 {
   "name": "secure-notes-sync",
   "displayName": "Secure Notes Sync",
-  "description": "A VS Code extension for securely syncing notes with AWS S3 using AES encryption.",
-  "version": "0.0.1",
-  "publisher": "Masahide YAMASAKI",
+  "description": "A VSCode extension for securely syncing notes with a GitHub repository.",
+  "version": "0.0.4",
+  "publisher": "MasahideYAMASAKI",
   "engines": {
     "vscode": "^1.96.0"
   },
@@ -137,6 +138,10 @@ module.exports = [ extensionConfig ];
       {
         "command": "extension.syncWithGitHub",
         "title": "Sync with GitHub"
+      },
+      {
+        "command": "extension.copyAESKeyToClipboard",
+        "title": "Copy AES Key to Clipboard"
       }
     ]
   },
@@ -180,7 +185,6 @@ module.exports = [ extensionConfig ];
 import * as vscode from "vscode";
 import * as os from "os";
 import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
-import { setSecret } from "./secretManager";
 import { LocalObjectManager } from "./storage/LocalObjectManager";
 import { GitHubSyncProvider } from "./storage/GithubProvider";
 import * as crypto from "crypto";
@@ -237,21 +241,26 @@ export async function activate(context: vscode.ExtensionContext) {
   logMessage(`Current Environment ID: ${environmentId}`);
 
   // Command to Set AES Key
-  let setAESKeyCommand = vscode.commands.registerCommand("extension.setAESKey", () =>
-    setSecret(context,
-      aesEncryptionKey,
-      "Enter AES Encryption Key (64 hex characters representing 32 bytes)",
-      true,
-      (value) => value.length === 64 ? null : "AES Key must be 64 hex characters long"
-    )
-  );
+  let setAESKeyCommand = vscode.commands.registerCommand("extension.setAESKey", async () => {
+    const secretValue = await vscode.window.showInputBox({
+      prompt: "Enter AES Encryption Key (64 hex characters representing 32 bytes)",
+      password: true,
+      validateInput: (value) => value.length === 64 ? null : "AES Key must be 64 hex characters long"
+    });
+    if (secretValue) {
+      await context.secrets.store(aesEncryptionKey, secretValue);
+      showInfo(`${aesEncryptionKey} saved successfully.`);
+    } else {
+      showError(`${aesEncryptionKey} is required.`);
+    }
+  });
 
   // Command to Generate 32-Byte Encrypted Text
   let generateAESKeyCommand = vscode.commands.registerCommand("extension.generateAESKey", async () => {
     logMessage("Generating 32-byte AES encryption key...");
     const key = crypto.randomBytes(32).toString("hex"); // 32 bytes
     try {
-      await context.secrets.store("aesEncryptionKey", key);
+      await context.secrets.store(aesEncryptionKey, key);
       showInfo(`Generated and stored AES key: ${key}`);
     } catch (error: any) {
       showError(`Error generating encrypted text: ${error instanceof Error ? error.message : String(error)}`);
@@ -286,7 +295,7 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      const newIndex = LocalObjectManager.createNewIndexFile(localIndex, previousIndex);
+      const newIndex = LocalObjectManager.createNewIndexFile(localIndex, [previousIndex]);
       showInfo("New local index file created.");
       LocalObjectManager.saveLocalIndexFile(newIndex, options);
     } catch (error: any) {
@@ -306,6 +315,26 @@ export async function activate(context: vscode.ExtensionContext) {
       cloudStorageProvider.sync();
     } catch (error: any) {
       showError(`Cloud sync failed: ${error.message}`);
+    }
+  });
+
+  // AESキーをクリップボードにコピーするコマンド
+  let copyAESKeyCommand = vscode.commands.registerCommand('extension.copyAESKeyToClipboard', async () => {
+    try {
+      // AESキーを取得
+      const aesKey = await context.secrets.get(aesEncryptionKey);
+      if (!aesKey) {
+        vscode.window.showErrorMessage('AES Key is not set. Please set the AES key first.');
+        return;
+      }
+
+      // クリップボードにコピー
+      await vscode.env.clipboard.writeText(aesKey);
+
+      // ユーザーに通知
+      vscode.window.showInformationMessage('AES Key copied to clipboard!');
+    } catch (error: any) {
+      vscode.window.showErrorMessage(`Failed to copy AES Key: ${error.message}`);
     }
   });
 
@@ -340,6 +369,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     syncCommand, setAESKeyCommand, generateAESKeyCommand, syncWithGitHubCommand,
     configChangeDisposable,
+    copyAESKeyCommand,
     ...disposables
   );
   outputChannel.show(true);
@@ -394,44 +424,6 @@ export function showInfo(message: string) {
 
 ### End of src/logger.ts ###
 
-### Start of src/secretManager.ts ###
-import * as vscode from "vscode";
-import { showInfo, showError } from "./logger";
-
-// Command to set secrets (AES Key or AWS Secret Access Key)
-export async function setSecret(
-  context: vscode.ExtensionContext,
-  secretName: string,
-  prompt: string,
-  password: boolean = false,
-  validate?: (value: string) => string | null
-) {
-  const secretValue = await vscode.window.showInputBox({
-    prompt,
-    password,
-    validateInput: validate,
-  });
-
-  if (secretValue) {
-    await context.secrets.store(secretName, secretValue);
-    showInfo(`${secretName} saved successfully.`);
-  } else {
-    showError(`${secretName} is required.`);
-  }
-}
-
-export async function getSecret(
-  context: vscode.ExtensionContext,
-  secretName: string
-): Promise<string> {
-  const aesEncryptionKey = (await context.secrets.get("aesEncryptionKey"))!;
-  if (!aesEncryptionKey) {
-    throw new Error("AES key not set. Please set the AES key first.");
-  }
-  return aesEncryptionKey;
-}
-### End of src/secretManager.ts ###
-
 ### Start of src/types.ts ###
 // ファイル情報を保持するインターフェース
 export interface FileEntry {
@@ -445,7 +437,7 @@ export interface FileEntry {
 export interface IndexFile {
     uuid: string; // インデックスファイルのUUID（Version 7）
     environmentId: string; // 追加
-    parentUuid: string; // 親インデックスファイルのUUID
+    parentUuids: string[]; // 親インデックスファイルのUUID
     files: FileEntry[]; // ファイル情報のリスト
     timestamp: number; // インデックスファイルの作成タイムスタンプ
 }
@@ -516,6 +508,7 @@ export class GitHubSyncProvider implements IStorageProvider {
                 logMessage("オブジェクトディレクトリをGitHubと同期しました。");
                 return;
             }
+            await this.execCmd(this.gitPath, ['pull', 'origin', 'main'], objectDir);
             // すべての変更をコミット
             await this.execCmd(this.gitPath, ['add', '.'], objectDir);
             try {
@@ -749,7 +742,7 @@ export class LocalObjectManager {
             logMessage(`Latest index file not found. Creating new index UUID: ${uuid}`);
             return {
                 uuid: uuid,
-                parentUuid: "",
+                parentUuids: [],
                 environmentId: options.environmentId,
                 files: [],
                 timestamp: 0,
@@ -775,7 +768,7 @@ export class LocalObjectManager {
             logMessage(`Previous index file not found or error reading file. Creating new index UUID: ${uuid}`);
             return {
                 uuid: uuid,
-                parentUuid: "",
+                parentUuids: [],
                 environmentId: options.environmentId,
                 files: [],
                 timestamp: 0,
@@ -786,11 +779,11 @@ export class LocalObjectManager {
     /**
      * 新しい <UUID> を作成し保存
      */
-    public static createNewIndexFile(localIndex: IndexFile, previousIndex: IndexFile): IndexFile {
+    public static createNewIndexFile(localIndex: IndexFile, parentIndexes: IndexFile[]): IndexFile {
         const newUUID = uuidv7();
         const newIndexFile: IndexFile = {
             uuid: newUUID,
-            parentUuid: previousIndex.uuid,
+            parentUuids: parentIndexes.map((index) => index.uuid),
             environmentId: localIndex.environmentId,
             files: localIndex.files,
             timestamp: Date.now(),
@@ -916,9 +909,9 @@ export class LocalObjectManager {
         const conflicts: Conflict[] = [];
 
         // リモートのインデックス UUID とローカルの parentUuid を比較
-        if (remoteIndex.uuid === localIndex.parentUuid) {
+        if (localIndex.parentUuids.includes(remoteIndex.uuid)) {
             // リモートに変更がないため、競合なし
-            return conflicts;
+            return [];
         }
 
         // リモートに変更がある場合のみ競合を検出
@@ -1010,7 +1003,7 @@ export class LocalObjectManager {
 
         const indexFile: IndexFile = {
             uuid: uuidv7(),
-            parentUuid: previousIndex.uuid, // ここでリモートのインデックス UUID を設定
+            parentUuids: [previousIndex.uuid], // ここでリモートのインデックス UUID を設定
             environmentId: options.environmentId,
             files: files,
             timestamp: Date.now(),
