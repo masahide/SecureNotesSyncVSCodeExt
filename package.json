@@ -89,8 +89,24 @@
       {
         "command": "extension.copyAESKeyToClipboard",
         "title": "Copy AES Key to Clipboard"
+      },
+      {
+        "command": "extension.exportIndexHistory",
+        "title": "Export Index History"
+      },
+      {
+        "command": "extension.showIndexHistoryTreeView",
+        "title": "Show Index History in TreeView"
       }
-    ]
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "indexHistoryView",
+          "name": "Index History"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

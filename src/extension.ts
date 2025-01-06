@@ -4,6 +4,8 @@ import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
 import { LocalObjectManager } from "./storage/LocalObjectManager";
 import { GitHubSyncProvider } from "./storage/GithubProvider";
 import * as crypto from "crypto";
+import { IndexHistoryTreeProvider } from "./IndexHistoryTreeProvider";
+
 
 
 const aesEncryptionKey = "aesEncryptionKey";
@@ -172,6 +174,35 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   });
 
+  // IndexHistory用のTreeViewを登録
+  const indexHistoryProvider = new IndexHistoryTreeProvider();
+  vscode.window.registerTreeDataProvider("indexHistoryView", indexHistoryProvider);
+
+  // 履歴ツリー表示のコマンド
+  const showIndexHistoryTreeViewCommand = vscode.commands.registerCommand(
+    "extension.showIndexHistoryTreeView",
+    async () => {
+      try {
+        const encryptKey = await context.secrets.get("aesEncryptionKey");
+        if (!encryptKey) {
+          showError("AES Key not set");
+          return;
+        }
+        // environmentIdはgetOrCreateEnvironmentIdなどで取得して使ってください
+        const environmentId = await getOrCreateEnvironmentId(context);
+        // 履歴を読み込んで描画
+        await indexHistoryProvider.loadIndexHistory(encryptKey, environmentId);
+        showInfo("Index history tree loaded");
+        // コマンド実行時にサイドバーを表示したい場合は
+        // vscode.commands.executeCommand("workbench.view.explorer"); 
+        // などを呼び出してもOK
+      } catch (error: any) {
+        showError(`Error showing index history: ${error.message}`);
+      }
+    }
+  );
+
+
   // ユーザーアクティビティのイベントハンドラーを登録
   const userActivityEvents = [
     vscode.window.onDidChangeActiveTextEditor,
@@ -205,6 +236,7 @@ export async function activate(context: vscode.ExtensionContext) {
     configChangeDisposable,
     copyAESKeyCommand,
     exportIndexHistoryCommand,
+    showIndexHistoryTreeViewCommand,
     ...disposables
   );
   outputChannel.show(true);
