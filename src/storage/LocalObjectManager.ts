@@ -402,4 +402,185 @@ export class LocalObjectManager {
         await vscode.workspace.fs.writeFile(indexFilePath, encryptedIndex);
         await vscode.workspace.fs.writeFile(previousIndexIDUri, Buffer.from(indexFileName));
     }
+
+    /**
+   * すべてのインデックスファイルを走査して、変更履歴ツリーを1つのテキストファイルに出力する
+   */
+    public static async exportIndexHistory(options: LocalObjectManagerOptions): Promise<void> {
+        // 1) .secureNotes/objects/indexes配下のディレクトリ + ファイルをすべて取得し、名前ソート
+        const indexFiles = await this.loadAllIndexFiles(options);
+
+        // 2) 得られた indexFiles を使って、親UUID からツリー構造を作り、テキスト化
+        const textTree = this.buildIndexTreeText(indexFiles);
+
+        // 3) テキストを .secureNotes/ChangeHistory.txt に書き出し
+        const changeHistoryUri = vscode.Uri.joinPath(secureNootesUri, "ChangeHistory.txt");
+        await vscode.workspace.fs.writeFile(changeHistoryUri, Buffer.from(textTree, "utf-8"));
+
+        logMessage("Exported index history.");
+    }
+
+    /**
+     * .secureNotes/objects/indexes配下のインデックスファイルをすべて読み込み、UUIDと時系列順に返す
+     *  - ディレクトリ名 + ファイル名が 16進timestamp のため、文字列ソートだけで時系列順が得られる
+     */
+    private static async loadAllIndexFiles(options: LocalObjectManagerOptions): Promise<IndexFile[]> {
+        const allIndexFiles: IndexFile[] = [];
+        try {
+            // indexDirUri (.secureNotes/objects/indexes)
+            // まずサブディレクトリ一覧を取得
+            const dirs = await vscode.workspace.fs.readDirectory(indexDirUri);
+            // ディレクトリだけフィルタ
+            const dirNames = dirs
+                .filter(([_, fileType]) => fileType === vscode.FileType.Directory)
+                .map(([name]) => name)
+                .sort(); // 文字列昇順
+
+            for (const dirName of dirNames) {
+                const dirUri = vscode.Uri.joinPath(indexDirUri, dirName);
+                const files = await vscode.workspace.fs.readDirectory(dirUri);
+                // ファイルだけを取り出してソート
+                const fileNames = files
+                    .filter(([_, fileType]) => fileType === vscode.FileType.File)
+                    .map(([name]) => name)
+                    .sort();
+
+                // ディレクトリ名 + ファイル名の昇順に読み込む
+                for (const fileName of fileNames) {
+                    // indexファイルを複合 & JSONパース
+                    const indexUri = vscode.Uri.joinPath(dirUri, fileName);
+                    const indexFile = await this.decryptIndexFile(indexUri, options.encryptionKey);
+                    if (indexFile) {
+                        allIndexFiles.push(indexFile);
+                    }
+                }
+            }
+        } catch (err) {
+            // 存在しないなどのエラーは無視
+            logMessage(`loadAllIndexFiles error: ${String(err)}`);
+        }
+
+        // 文字列ソートに基づく読み込み順が既に時系列順になっている想定だが、
+        // 念のため「IndexFile.timestamp」の昇順でも並べ替えておきたい場合は以下を使用
+        // allIndexFiles.sort((a, b) => a.timestamp - b.timestamp);
+
+        return allIndexFiles;
+    }
+
+    /**
+     * 個別の index ファイルを読み込み、複合して IndexFile オブジェクトを返す
+     */
+    private static async decryptIndexFile(indexUri: vscode.Uri, encryptionKey: string): Promise<IndexFile | null> {
+        try {
+            const encryptedContent = await vscode.workspace.fs.readFile(indexUri);
+            const content = this.decryptContent(Buffer.from(encryptedContent), encryptionKey);
+            const index = JSON.parse(content.toString()) as IndexFile;
+            return index;
+        } catch (error: any) {
+            logMessage(`Failed to decrypt index file '${indexUri.path}': ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * 親UUIDを辿って履歴ツリーを構築し、テキストとして整形する
+     *  - 同じUUIDが複数のインデックスで参照される場合があるため、DAG構造の簡易的なテキスト表示を行う
+     *  - 例として各IndexFileを「UUID, parentUuids, timestamp」などをインデント付きで表示する
+     */
+    private static buildIndexTreeText(indexFiles: IndexFile[]): string {
+        // uuid -> IndexFile へのマップ
+        const mapByUuid = new Map<string, IndexFile>();
+        for (const idxFile of indexFiles) {
+            mapByUuid.set(idxFile.uuid, idxFile);
+        }
+
+        // まず子リストを作っておく (uuid -> children[])
+        const childrenMap = new Map<string, string[]>();
+        for (const idxFile of indexFiles) {
+            // 親リストの中に自分(idxFile.uuid) を child として登録
+            for (const parentUuid of idxFile.parentUuids) {
+                if (!childrenMap.has(parentUuid)) {
+                    childrenMap.set(parentUuid, []);
+                }
+                childrenMap.get(parentUuid)!.push(idxFile.uuid);
+            }
+        }
+
+        // ルート（ = 親を持たない = parentUuids.length === 0）のもの、もしくは親UUIDが見つからないものを探す
+        // ただしインデックスが分岐マージしている場合、複数ルートがある可能性もある
+        const rootUuids: string[] = [];
+        for (const idxFile of indexFiles) {
+            if (idxFile.parentUuids.length === 0) {
+                // 親が無い
+                rootUuids.push(idxFile.uuid);
+            } else {
+                // 親がある場合でも、「古いインデックスファイルが無くなってしまった」ケースで
+                // parentUuid が mapByUuid に無い場合はここをルート扱いにする
+                let allParentsExist = true;
+                for (const p of idxFile.parentUuids) {
+                    if (!mapByUuid.has(p)) {
+                        allParentsExist = false;
+                        break;
+                    }
+                }
+                if (!allParentsExist) {
+                    rootUuids.push(idxFile.uuid);
+                }
+            }
+        }
+
+        // 重複排除しておく
+        const uniqueRoots = Array.from(new Set(rootUuids));
+
+        // ツリー表示を DFS で構築
+        const lines: string[] = [];
+        for (const rootUuid of uniqueRoots) {
+            this.dfsIndexTree(rootUuid, mapByUuid, childrenMap, 0, lines);
+        }
+
+        // lines を結合して返す
+        return lines.join("\n");
+    }
+
+    /**
+     * DFS しながら適当にインデントを付けて文字列を整形
+     */
+    private static dfsIndexTree(
+        currentUuid: string,
+        mapByUuid: Map<string, IndexFile>,
+        childrenMap: Map<string, string[]>,
+        depth: number,
+        lines: string[],
+        visited = new Set<string>()
+    ) {
+        // 再訪問によるループを防止
+        if (visited.has(currentUuid)) {
+            lines.push(`${"  ".repeat(depth)}* ${currentUuid} (already shown above)`);
+            return;
+        }
+        visited.add(currentUuid);
+
+        const idxFile = mapByUuid.get(currentUuid);
+        if (!idxFile) {
+            // 万一マップに無ければ情報なし
+            lines.push(`${"  ".repeat(depth)}* ${currentUuid} (missing)`);
+            return;
+        }
+
+        // 表示内容を組み立て（最低限、UUIDとtimestamp、親の列くらい）
+        // 必要に応じて environmentId やファイル数などを表示してもOK
+        const indent = "  ".repeat(depth);
+        lines.push(`${indent}* UUID: ${idxFile.uuid}`);
+        lines.push(`${indent}  Parents: ${idxFile.parentUuids.join(", ") || "(none)"}`);
+        lines.push(`${indent}  Environment: ${idxFile.environmentId}`);
+        lines.push(`${indent}  Timestamp: ${new Date(idxFile.timestamp).toISOString()}`);
+        lines.push(`${indent}  Files: ${idxFile.files.length} file(s)`);
+        lines.push(`${indent}  ------`);
+
+        // 子に進む
+        const children = childrenMap.get(currentUuid) || [];
+        for (const childUuid of children) {
+            this.dfsIndexTree(childUuid, mapByUuid, childrenMap, depth + 1, lines, visited);
+        }
+    }
 }

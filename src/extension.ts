@@ -153,6 +153,25 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   });
 
+  // Export Index History コマンド
+  const exportIndexHistoryCommand = vscode.commands.registerCommand("extension.exportIndexHistory", async () => {
+    try {
+      const encryptKey = await context.secrets.get(aesEncryptionKey);
+      if (!encryptKey) {
+        showError("AES Key not set");
+        return;
+      }
+      // すべてのインデックスファイルを読み込み、時系列順に整列 → ツリーを作ってテキスト化 → ファイル出力
+      await LocalObjectManager.exportIndexHistory({
+        environmentId: environmentId,
+        encryptionKey: encryptKey,
+      });
+      showInfo("Exported index history to .secureNotes/ChangeHistory.txt");
+    } catch (error: any) {
+      showError(`Export index history failed: ${error.message}`);
+    }
+  });
+
   // ユーザーアクティビティのイベントハンドラーを登録
   const userActivityEvents = [
     vscode.window.onDidChangeActiveTextEditor,
@@ -185,6 +204,7 @@ export async function activate(context: vscode.ExtensionContext) {
     syncCommand, setAESKeyCommand, generateAESKeyCommand, syncWithGitHubCommand,
     configChangeDisposable,
     copyAESKeyCommand,
+    exportIndexHistoryCommand,
     ...disposables
   );
   outputChannel.show(true);
