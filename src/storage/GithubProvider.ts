@@ -1,7 +1,7 @@
 // storage/providers/GitHubSyncProvider.ts
 import * as vscode from "vscode";
 import { IStorageProvider } from './IStorageProvider';
-import { objectDirUri } from './LocalObjectManager';
+import { remotesDirUri } from './LocalObjectManager';
 import { showError, logMessage } from '../logger';
 import * as cp from 'child_process';
 import which from 'which';
@@ -16,53 +16,96 @@ export class GitHubSyncProvider implements IStorageProvider {
         this.gitPath = findGitExecutable();
     }
 
-    public async sync(): Promise<void> {
+    // pull する
+    // リモート側が更新されていない場合は false を返す
+    // リモート側が更新されている場合は、強制的にlocalとマージして true を返す
+    public async download(): Promise<boolean> {
         logMessage(`gitPath: ${this.gitPath}`);
-        try {
-            const objectDir = objectDirUri.fsPath;
-            // ディレクトリがGitリポジトリかどうかを確認
-            const isGitRepo = await this.isGitRepository(objectDir);
-            if (!isGitRepo) {
-                // Gitリポジトリを初期化
-                const gitattributesUri = vscode.Uri.joinPath(objectDirUri, '.gitattributes');
-                await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
-                await this.execCmd(this.gitPath, ['init'], objectDir);
-                await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], objectDir);
-                await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
-                // Check if 'main' branch exists on remote
-                const checkMainBranch = await this.execCmd(this.gitPath, ['ls-remote', '--heads', 'origin', 'main'], objectDir);
-                await this.execCmd(this.gitPath, ['add', '.'], objectDir);
-                await this.execCmd(this.gitPath, ['commit', '-m', 'add'], objectDir);
-                if (checkMainBranch.stdout.trim() === '') {
-                    await this.execCmd(this.gitPath, ['branch', '-M', 'main'], objectDir);
-                } else {
-                    // 強制的にオブジェクトディレクトリとマージ
-                    await this.execCmd(this.gitPath, ['branch', '-M', 'backup'], objectDir);
-                    await this.execCmd(this.gitPath, ['fetch', 'origin', 'main'], objectDir);
-                    await this.execCmd(this.gitPath, ['checkout', 'main'], objectDir);
-                    // 強制マージ
-                    await this.execCmd(this.gitPath, ['merge', 'backup', '--allow-unrelated-histories', '-X', 'ours', '-m', 'merge'], objectDir);
-                    await this.execCmd(this.gitPath, ['branch', '-D', 'backup'], objectDir);
-                    logMessage("オブジェクトディレクトリをGitHubと強制マージしました");
-                }
-                await this.execCmd(this.gitPath, ['push', '-u', 'origin', 'main'], objectDir);
-                logMessage("オブジェクトディレクトリをGitHubと同期しました。");
-                return;
-            }
-            await this.execCmd(this.gitPath, ['pull', 'origin', 'main'], objectDir);
-            // すべての変更をコミット
+        const objectDir = remotesDirUri.fsPath;
+        // ディレクトリがGitリポジトリかどうかを確認
+        const isGitRepo = await this.isGitRepository(objectDir);
+        if (!isGitRepo) {
+            // Gitリポジトリを初期化
+            const gitattributesUri = vscode.Uri.joinPath(remotesDirUri, '.gitattributes');
+            await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
+            await this.execCmd(this.gitPath, ['init'], objectDir);
+            await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], objectDir);
+            await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
+            // Check if 'main' local exists on remote
+            const checkMainBranch = await this.execCmd(this.gitPath, ['ls-remote', '--heads', 'origin', 'main'], objectDir);
             await this.execCmd(this.gitPath, ['add', '.'], objectDir);
-            try {
-                await this.execCmd(this.gitPath, ['diff', '--cached', '--quiet'], objectDir);
-                logMessage("変更がありません。");
-                return;
-            } catch { }
-            await this.execCmd(this.gitPath, ['commit', '-m', 'sync'], objectDir);
-            await this.execCmd(this.gitPath, ['push', 'origin', 'main'], objectDir);
-            logMessage("オブジェクトディレクトリをGitHubと同期しました。");
-        } catch (error) {
-            showError(`sync GitHub error:${(error as Error).message}`);
+            await this.execCmd(this.gitPath, ['commit', '-m', 'add'], objectDir);
+            if (checkMainBranch.stdout.trim() === '') { // remoteが空の場合はpush
+                await this.execCmd(this.gitPath, ['branch', '-M', 'main'], objectDir);
+                await this.execCmd(this.gitPath, ['push', 'origin', 'main'], objectDir);
+                await this.execCmd(this.gitPath, ['checkout', '-b', 'local'], objectDir);
+                return false;
+            }
+            // 強制的にオブジェクトディレクトリとマージ
+            await this.execCmd(this.gitPath, ['branch', '-M', 'backup'], objectDir);
+            await this.execCmd(this.gitPath, ['fetch', 'origin', 'main'], objectDir);
+            await this.execCmd(this.gitPath, ['checkout', 'main'], objectDir);
+            // 強制マージ
+            // -X ours でmain(リモート側)を優先
+            await this.execCmd(this.gitPath, ['merge', 'backup', '--allow-unrelated-histories', '-X', 'ours', '-m', 'force merge'], objectDir);
+            await this.execCmd(this.gitPath, ['branch', '-D', 'backup'], objectDir);
+            await this.execCmd(this.gitPath, ['checkout', '-b', 'local'], objectDir);
+            logMessage("オブジェクトディレクトリをGitHubと強制マージしました");
+            return true;
         }
+        await this.execCmd(this.gitPath, ['checkout', 'main'], objectDir);
+        const orgHash = await this.execCmd(this.gitPath, ['rev-parse', 'main'], objectDir);
+        await this.execCmd(this.gitPath, ['pull', 'origin', 'main'], objectDir);
+        const newHash = await this.execCmd(this.gitPath, ['rev-parse', 'main'], objectDir);
+        if (orgHash.stdout.trim() === newHash.stdout.trim()) {
+            logMessage("変更がありません。");
+            await this.execCmd(this.gitPath, ['checkout', 'local'], objectDir);
+            return false;
+        }
+        await this.execCmd(this.gitPath, ['merge', 'local', '-X', 'ours', '-m', 'merge local'], objectDir);
+        await this.execCmd(this.gitPath, ['branch', '-D', 'local'], objectDir);
+        await this.execCmd(this.gitPath, ['checkout', '-b', 'local'], objectDir);
+        return true;
+    }
+    // push する
+    // ローカル側が更新されていない場合は false を返す
+    // ローカル側が更新されている場合はpushして true を返す
+    public async upload(): Promise<boolean> {
+        logMessage(`gitPath: ${this.gitPath}`);
+        const objectDir = remotesDirUri.fsPath;
+        const branch = await this.execCmd(this.gitPath, ['branch', '--show-current'], objectDir);
+        if (branch.stdout.trim() !== 'local') {
+            await this.execCmd(this.gitPath, ['checkout', 'local'], objectDir);
+        }
+        await this.execCmd(this.gitPath, ['add', '.'], objectDir);
+        try {
+            await this.execCmd(this.gitPath, ['diff', '--cached', '--quiet'], objectDir);
+            logMessage("変更がありません。");
+            return false;
+        } catch { }
+        try {
+            await this.execCmd(this.gitPath, ['commit', '-m', 'commit'], objectDir);
+        } catch {
+            logMessage("commitに失敗しました。");
+            await this.execCmd(this.gitPath, ['reset', '--soft', 'HEAD'], objectDir);
+            return false;
+        }
+        await this.execCmd(this.gitPath, ['checkout', 'main'], objectDir);
+        const orgHash = await this.execCmd(this.gitPath, ['rev-parse', 'main'], objectDir);
+        try {
+            // ローカルの変更をmainにマージしてリモートにpush
+            await this.execCmd(this.gitPath, ['merge', 'local'], objectDir);
+            await this.execCmd(this.gitPath, ['push', 'origin', 'main'], objectDir);
+        } catch {
+            logMessage("オブジェクトディレクトリの同期に失敗しました。");
+            await this.execCmd(this.gitPath, ['reset', '--hard', orgHash.stdout.trim()], objectDir);
+            await this.execCmd(this.gitPath, ['checkout', 'local'], objectDir);
+            return false;
+        }
+        await this.execCmd(this.gitPath, ['branch', '-D', 'local'], objectDir);
+        await this.execCmd(this.gitPath, ['checkout', '-b', 'local'], objectDir);
+        logMessage("オブジェクトディレクトリをGitHubと同期しました。");
+        return true;
     }
 
     // Gitコマンドを実行するヘルパー関数

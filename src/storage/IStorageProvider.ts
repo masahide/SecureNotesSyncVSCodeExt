@@ -5,5 +5,6 @@ export interface IStorageProvider {
      *  - ローカルの .enc ファイルをクラウドへ
      *  - クラウドにしかない .enc ファイルをローカルへ
      */
-    sync(): Promise<void>;
+    download(): Promise<boolean>;
+    upload(): Promise<boolean>;
 }

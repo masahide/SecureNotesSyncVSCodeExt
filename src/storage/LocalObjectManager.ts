@@ -7,15 +7,22 @@ import { v7 as uuidv7 } from 'uuid';
 
 const secureNotesDir = ".secureNotes";
 const objectDirName = "objects";
+const remotesDirName = "remotes";
 const indexDirName = "indexes";
 const filesDirName = "files";
-const previousIndexIDFilename = "index";
+const refsDirName = "refs";
+const branchName = "main";
+const wsIndexFilename = "wsIndex.json";
 const rootUri = getRootUri();
 export const secureNootesUri = vscode.Uri.joinPath(rootUri, secureNotesDir);
-export const objectDirUri = vscode.Uri.joinPath(secureNootesUri, objectDirName);
-const previousIndexIDUri = vscode.Uri.joinPath(secureNootesUri, previousIndexIDFilename);
-const indexDirUri = vscode.Uri.joinPath(objectDirUri, indexDirName);
-const filesDirUri = vscode.Uri.joinPath(objectDirUri, filesDirName);
+export const remotesDirUri = vscode.Uri.joinPath(secureNootesUri, remotesDirName);
+//export const objectDirUri = vscode.Uri.joinPath(secureNootesUri, objectDirName);
+export const remoteRefsDirUri = vscode.Uri.joinPath(remotesDirUri, refsDirName);
+export const remoteRefBranchUri = vscode.Uri.joinPath(remoteRefsDirUri, branchName);
+const wsIndexUri = vscode.Uri.joinPath(secureNootesUri, wsIndexFilename);
+
+const indexDirUri = vscode.Uri.joinPath(remotesDirUri, indexDirName);
+const filesDirUri = vscode.Uri.joinPath(remotesDirUri, filesDirName);
 
 interface FileIndex {
     originalFile: string;
@@ -35,11 +42,12 @@ export class LocalObjectManager {
     /**
      * ワークスペース内ファイルを暗号化し、.secureNotes に保存
      */
-    public static async saveEncryptedObject(
+    public static async saveEncryptedObjects(
         localFiles: FileEntry[],
         latestIndex: IndexFile,
         options: LocalObjectManagerOptions
     ): Promise<boolean> {
+        logMessage("Saving encrypted files...");
         // リモートのファイルハッシュ値のセットを作成
         const latestFileHashes = new Set(latestIndex.files.map((file) => file.hash));
         let updated = false;
@@ -56,10 +64,11 @@ export class LocalObjectManager {
             const encryptedContent = this.encryptContent(Buffer.from(fileContent), options.encryptionKey);
 
             // objects directory に保存
-            const { dirName, fileName } = this.getHashPathParts(file.hash);
-            const encryptedFileName = vscode.Uri.joinPath(filesDirUri, dirName, fileName);
-            await vscode.workspace.fs.writeFile(encryptedFileName, encryptedContent);
-            logMessage(`save file:${file.path}, to:${encryptedFileName.path}`);
+            //const { dirName, fileName } = this.getHashPathParts(file.hash);
+            //const encryptedFileName = vscode.Uri.joinPath(filesDirUri, dirName, fileName);
+            const encryptedFileUri = this.getHashFilePathUri(file.hash);
+            await vscode.workspace.fs.writeFile(encryptedFileUri, encryptedContent);
+            logMessage(`save file:${file.path}, to:${encryptedFileUri.path}`);
             updated = true;
         }
         return updated;
@@ -76,48 +85,19 @@ export class LocalObjectManager {
         return { dirName, fileName };
     }
 
-    /**
-     * uri にあるすべての fileのパス一覧
-     */
-    private static async listFiles(uri: vscode.Uri): Promise<string[]> {
-        // .secureNotes/indexes ディレクトリが存在しない場合は空配列を返す
-        try {
-            await vscode.workspace.fs.stat(uri);
-        } catch (error) {
-            return [];
-        }
-        const dirs = await vscode.workspace.fs.readDirectory(uri);
-        return dirs.filter((f) => f[1] === vscode.FileType.File).map((f) => f[0]);
-    }
-    /**
-     * uri にあるすべてのdirのパス一覧
-     */
-    private static async listDirs(uri: vscode.Uri): Promise<string[]> {
-        // .secureNotes/indexes ディレクトリが存在しない場合は空配列を返す
-        try {
-            await vscode.workspace.fs.stat(uri);
-        } catch (error) {
-            return [];
-        }
-        const dirs = await vscode.workspace.fs.readDirectory(uri);
-        return dirs.filter((f) => f[1] === vscode.FileType.Directory).map((f) => f[0]);
+    private static getHashFilePathUri(hash: string): vscode.Uri {
+        const { dirName, fileName } = this.getHashPathParts(hash);
+        return vscode.Uri.joinPath(filesDirUri, dirName, fileName);
     }
 
-
-    public static latestString(strings: string[]): string {
-        if (strings.length === 0) { return ""; }
-        return strings.reduce((a, b) => (a > b ? a : b));
-    }
     /**
-     * ローカルにあるうち、もっとも新しいインデックスファイルを読み込む
+     * wsIndexを読み込む関数
      */
-    public static async loadLatestLocalIndex(options: LocalObjectManagerOptions): Promise<IndexFile> {
-        const latestDir = this.latestString(await this.listDirs(indexDirUri));
-        const dir = vscode.Uri.joinPath(indexDirUri, latestDir);
-        const latestFilePath = this.latestString(await this.listFiles(dir));
-        const latestIndexFileUri = vscode.Uri.joinPath(indexDirUri, latestDir, latestFilePath);
-        if (latestFilePath.length === 0) {
-            // インデックスファイルが存在しない場合は新規作成
+    public static async loadWsIndex(options: LocalObjectManagerOptions): Promise<IndexFile> {
+        try {
+            const content = await vscode.workspace.fs.readFile(wsIndexUri);
+            return JSON.parse(content.toString()) as IndexFile;
+        } catch (error) {
             logMessage(`Latest index file not found. Creating new index`);
             return {
                 uuid: "",
@@ -127,22 +107,16 @@ export class LocalObjectManager {
                 timestamp: 0,
             };
         }
-
-        const encryptContent = await vscode.workspace.fs.readFile(latestIndexFileUri);
-        const content = this.decryptContent(Buffer.from(encryptContent), options.encryptionKey);
-        return JSON.parse(content.toString()) as IndexFile;
     }
 
-    // 前回のインデックスファイルを読み込む関数
-    public static async loadPreviousIndex(options: LocalObjectManagerOptions): Promise<IndexFile> {
+    // リモートインデックスファイルを読み込む関数
+    public static async loadRemoteIndex(options: LocalObjectManagerOptions): Promise<IndexFile> {
         try {
-            const indexContent = await vscode.workspace.fs.readFile(previousIndexIDUri);
-            const uuidparts = this.getUUIDPathParts(indexContent.toString());
-            const encryptedIndex = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(indexDirUri, uuidparts.dirName, uuidparts.fileName));
-            const index = this.decryptContent(Buffer.from(encryptedIndex), options.encryptionKey);
-            return JSON.parse(index.toString());
+            const encrypedUuid = await vscode.workspace.fs.readFile(remoteRefBranchUri);
+            const uuid = this.decryptContent(Buffer.from(encrypedUuid), options.encryptionKey);
+            return this.loadIndex(uuid.toString(), options);
         } catch (error) {
-            logMessage(`Previous index file not found. Creating new index`);
+            logMessage(`Remote index file not found. Creating new index`);
             return {
                 uuid: "",
                 parentUuids: [],
@@ -151,6 +125,14 @@ export class LocalObjectManager {
                 timestamp: 0,
             };
         }
+
+    }
+    // インデックスファイルを読み込む関数
+    public static async loadIndex(uuid: string, options: LocalObjectManagerOptions): Promise<IndexFile> {
+        const uuidparts = this.getUUIDPathParts(uuid);
+        const encryptedIndex = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(indexDirUri, uuidparts.dirName, uuidparts.fileName));
+        const index = this.decryptContent(Buffer.from(encryptedIndex), options.encryptionKey);
+        return JSON.parse(index.toString());
     }
 
     /**
@@ -390,197 +372,112 @@ export class LocalObjectManager {
 
         return indexFile;
     }
-    // 新しいインデックスファイルをローカルに保存する関数
-    public static async saveLocalIndexFile(indexFile: IndexFile, options: LocalObjectManagerOptions): Promise<void> {
+    //wsIndexに保存する関数
+    public static async saveWsIndexFile(indexFile: IndexFile, options: LocalObjectManagerOptions): Promise<void> {
+        const indexContent = Buffer.from(JSON.stringify(indexFile, null, 2), "utf-8");
+        await vscode.workspace.fs.writeFile(wsIndexUri, indexContent);
+    }
+
+    // 新しいインデックスファイルをgit:localブランチに保存する関数
+    public static async saveIndexFile(indexFile: IndexFile, options: LocalObjectManagerOptions): Promise<void> {
         const { dirName, fileName } = this.getUUIDPathParts(indexFile.uuid);
         const dirPath = vscode.Uri.joinPath(indexDirUri, dirName);
         await vscode.workspace.fs.createDirectory(dirPath);
         const indexContent = Buffer.from(JSON.stringify(indexFile, null, 2), "utf-8");
-        const indexFileName = indexFile.uuid;
         const indexFilePath = vscode.Uri.joinPath(indexDirUri, dirName, fileName);
         const encryptedIndex = this.encryptContent(indexContent, options.encryptionKey);
         await vscode.workspace.fs.writeFile(indexFilePath, encryptedIndex);
-        await vscode.workspace.fs.writeFile(previousIndexIDUri, Buffer.from(indexFileName));
+        const encryptedUuid = this.encryptContent(Buffer.from(indexFile.uuid), options.encryptionKey);
+        await vscode.workspace.fs.writeFile(remoteRefBranchUri, encryptedUuid);
     }
 
-    /**
-   * すべてのインデックスファイルを走査して、変更履歴ツリーを1つのテキストファイルに出力する
-   */
-    public static async exportIndexHistory(options: LocalObjectManagerOptions): Promise<void> {
-        // 1) .secureNotes/objects/indexes配下のディレクトリ + ファイルをすべて取得し、名前ソート
-        const indexFiles = await this.loadAllIndexFiles(options);
+    public static mergeIndexes(localIndex: IndexFile, remoteIndex: IndexFile): IndexFile {
+        // 新しいUUIDを作成
+        const newUUID = uuidv7();
+        // ファイルを一括管理する Map (key=ファイルパス, value=FileEntry)
+        const mergedFileMap = new Map<string, FileEntry>();
 
-        // 2) 得られた indexFiles を使って、親UUID からツリー構造を作り、テキスト化
-        const textTree = this.buildIndexTreeText(indexFiles);
-
-        // 3) テキストを .secureNotes/ChangeHistory.txt に書き出し
-        const changeHistoryUri = vscode.Uri.joinPath(secureNootesUri, "ChangeHistory.txt");
-        await vscode.workspace.fs.writeFile(changeHistoryUri, Buffer.from(textTree, "utf-8"));
-
-        logMessage("Exported index history.");
-    }
-
-    /**
-     * .secureNotes/objects/indexes配下のインデックスファイルをすべて読み込み、UUIDと時系列順に返す
-     *  - ディレクトリ名 + ファイル名が 16進timestamp のため、文字列ソートだけで時系列順が得られる
-     */
-    private static async loadAllIndexFiles(options: LocalObjectManagerOptions): Promise<IndexFile[]> {
-        const allIndexFiles: IndexFile[] = [];
-        try {
-            // indexDirUri (.secureNotes/objects/indexes)
-            // まずサブディレクトリ一覧を取得
-            const dirs = await vscode.workspace.fs.readDirectory(indexDirUri);
-            // ディレクトリだけフィルタ
-            const dirNames = dirs
-                .filter(([_, fileType]) => fileType === vscode.FileType.Directory)
-                .map(([name]) => name)
-                .sort(); // 文字列昇順
-
-            for (const dirName of dirNames) {
-                const dirUri = vscode.Uri.joinPath(indexDirUri, dirName);
-                const files = await vscode.workspace.fs.readDirectory(dirUri);
-                // ファイルだけを取り出してソート
-                const fileNames = files
-                    .filter(([_, fileType]) => fileType === vscode.FileType.File)
-                    .map(([name]) => name)
-                    .sort();
-
-                // ディレクトリ名 + ファイル名の昇順に読み込む
-                for (const fileName of fileNames) {
-                    // indexファイルを複合 & JSONパース
-                    const indexUri = vscode.Uri.joinPath(dirUri, fileName);
-                    const indexFile = await this.decryptIndexFile(indexUri, options.encryptionKey);
-                    if (indexFile) {
-                        allIndexFiles.push(indexFile);
-                    }
-                }
-            }
-        } catch (err) {
-            // 存在しないなどのエラーは無視
-            logMessage(`loadAllIndexFiles error: ${String(err)}`);
+        // まずローカル側のファイルを登録
+        for (const lf of localIndex.files) {
+            mergedFileMap.set(lf.path, { ...lf });
         }
 
-        // 文字列ソートに基づく読み込み順が既に時系列順になっている想定だが、
-        // 念のため「IndexFile.timestamp」の昇順でも並べ替えておきたい場合は以下を使用
-        // allIndexFiles.sort((a, b) => a.timestamp - b.timestamp);
-
-        return allIndexFiles;
-    }
-
-    /**
-     * 個別の index ファイルを読み込み、複合して IndexFile オブジェクトを返す
-     */
-    private static async decryptIndexFile(indexUri: vscode.Uri, encryptionKey: string): Promise<IndexFile | null> {
-        try {
-            const encryptedContent = await vscode.workspace.fs.readFile(indexUri);
-            const content = this.decryptContent(Buffer.from(encryptedContent), encryptionKey);
-            const index = JSON.parse(content.toString()) as IndexFile;
-            return index;
-        } catch (error: any) {
-            logMessage(`Failed to decrypt index file '${indexUri.path}': ${error.message}`);
-            return null;
-        }
-    }
-
-    /**
-     * 親UUIDを辿って履歴ツリーを構築し、テキストとして整形する
-     *  - 同じUUIDが複数のインデックスで参照される場合があるため、DAG構造の簡易的なテキスト表示を行う
-     *  - 例として各IndexFileを「UUID, parentUuids, timestamp」などをインデント付きで表示する
-     */
-    private static buildIndexTreeText(indexFiles: IndexFile[]): string {
-        // uuid -> IndexFile へのマップ
-        const mapByUuid = new Map<string, IndexFile>();
-        for (const idxFile of indexFiles) {
-            mapByUuid.set(idxFile.uuid, idxFile);
-        }
-
-        // まず子リストを作っておく (uuid -> children[])
-        const childrenMap = new Map<string, string[]>();
-        for (const idxFile of indexFiles) {
-            // 親リストの中に自分(idxFile.uuid) を child として登録
-            for (const parentUuid of idxFile.parentUuids) {
-                if (!childrenMap.has(parentUuid)) {
-                    childrenMap.set(parentUuid, []);
-                }
-                childrenMap.get(parentUuid)!.push(idxFile.uuid);
-            }
-        }
-
-        // ルート（ = 親を持たない = parentUuids.length === 0）のもの、もしくは親UUIDが見つからないものを探す
-        // ただしインデックスが分岐マージしている場合、複数ルートがある可能性もある
-        const rootUuids: string[] = [];
-        for (const idxFile of indexFiles) {
-            if (idxFile.parentUuids.length === 0) {
-                // 親が無い
-                rootUuids.push(idxFile.uuid);
+        // 続いてリモート側のファイルをマージ
+        for (const rf of remoteIndex.files) {
+            const existing = mergedFileMap.get(rf.path);
+            if (!existing) {
+                // ローカルになければそのまま登録
+                mergedFileMap.set(rf.path, { ...rf });
             } else {
-                // 親がある場合でも、「古いインデックスファイルが無くなってしまった」ケースで
-                // parentUuid が mapByUuid に無い場合はここをルート扱いにする
-                let allParentsExist = true;
-                for (const p of idxFile.parentUuids) {
-                    if (!mapByUuid.has(p)) {
-                        allParentsExist = false;
-                        break;
-                    }
-                }
-                if (!allParentsExist) {
-                    rootUuids.push(idxFile.uuid);
+                // もし両方にあって、かつ timestamp が異なる場合は新しい方を優先
+                if (rf.timestamp > existing.timestamp) {
+                    mergedFileMap.set(rf.path, { ...rf });
                 }
             }
         }
 
-        // 重複排除しておく
-        const uniqueRoots = Array.from(new Set(rootUuids));
+        // マージ後のファイル一覧を生成
+        const mergedFiles = Array.from(mergedFileMap.values());
 
-        // ツリー表示を DFS で構築
-        const lines: string[] = [];
-        for (const rootUuid of uniqueRoots) {
-            this.dfsIndexTree(rootUuid, mapByUuid, childrenMap, 0, lines);
-        }
+        // 新インデックスを作成
+        const newIndex: IndexFile = {
+            uuid: newUUID,
+            environmentId: localIndex.environmentId,
+            // 両方のuuidをparentUuidsに入れておく
+            parentUuids: [localIndex.uuid, remoteIndex.uuid].filter((u) => u !== ""),
+            files: mergedFiles,
+            timestamp: Date.now(),
+        };
+        return newIndex;
 
-        // lines を結合して返す
-        return lines.join("\n");
     }
 
-    /**
-     * DFS しながら適当にインデントを付けて文字列を整形
-     */
-    private static dfsIndexTree(
-        currentUuid: string,
-        mapByUuid: Map<string, IndexFile>,
-        childrenMap: Map<string, string[]>,
-        depth: number,
-        lines: string[],
-        visited = new Set<string>()
-    ) {
-        // 再訪問によるループを防止
-        if (visited.has(currentUuid)) {
-            lines.push(`${"  ".repeat(depth)}* ${currentUuid} (already shown above)`);
-            return;
-        }
-        visited.add(currentUuid);
+    // 新旧インデックスを比較し、追加されたファイルをローカルへ復元、削除されたファイルをローカルから削除する
+    public static async reflectFileChanges(
+        oldIndex: IndexFile,
+        newIndex: IndexFile,
+        options: LocalObjectManagerOptions
+    ): Promise<void> {
+        const rootUri = getRootUri();
 
-        const idxFile = mapByUuid.get(currentUuid);
-        if (!idxFile) {
-            // 万一マップに無ければ情報なし
-            lines.push(`${"  ".repeat(depth)}* ${currentUuid} (missing)`);
-            return;
+        // oldIndex のファイルをMap化
+        const oldMap = new Map<string, FileEntry>();
+        for (const fileEntry of oldIndex.files) {
+            oldMap.set(fileEntry.path, fileEntry);
         }
 
-        // 表示内容を組み立て（最低限、UUIDとtimestamp、親の列くらい）
-        // 必要に応じて environmentId やファイル数などを表示してもOK
-        const indent = "  ".repeat(depth);
-        lines.push(`${indent}* UUID: ${idxFile.uuid}`);
-        lines.push(`${indent}  Parents: ${idxFile.parentUuids.join(", ") || "(none)"}`);
-        lines.push(`${indent}  Environment: ${idxFile.environmentId}`);
-        lines.push(`${indent}  Timestamp: ${new Date(idxFile.timestamp).toISOString()}`);
-        lines.push(`${indent}  Files: ${idxFile.files.length} file(s)`);
-        lines.push(`${indent}  ------`);
+        // newIndex のファイルをMap化
+        const newMap = new Map<string, FileEntry>();
+        for (const fileEntry of newIndex.files) {
+            newMap.set(fileEntry.path, fileEntry);
+        }
 
-        // 子に進む
-        const children = childrenMap.get(currentUuid) || [];
-        for (const childUuid of children) {
-            this.dfsIndexTree(childUuid, mapByUuid, childrenMap, depth + 1, lines, visited);
+        // 1) 追加 or 更新されたファイルの反映
+        //   「newIndex にはあるが oldIndex にはない」＝新規追加されたファイル
+        for (const [filePath, newFileEntry] of newMap.entries()) {
+            if (!oldMap.has(filePath)) {
+                // 新規ファイルをローカルへ復元
+                // まだローカルに実ファイルが無い場合、.secureNotes/remotes/... から復号して作成する
+                logMessage(`reflectFileChanges: File added -> ${filePath}`);
+                await LocalObjectManager.fetchDecryptAndSaveFile(filePath, newFileEntry.hash, options);
+            }
+        }
+
+        // 2) 削除されたファイルの反映
+        // oldIndex にはあるが newIndex にはない」＝削除されたファイル
+        for (const [filePath, oldFileEntry] of oldMap.entries()) {
+            if (!newMap.has(filePath)) {
+                // ローカルワークスペースから削除
+                logMessage(`reflectFileChanges: File removed -> ${filePath}`);
+                const localUri = vscode.Uri.joinPath(rootUri, filePath);
+                try {
+                    // VSCodeのworkspace.fs.deleteで削除実行
+                    await vscode.workspace.fs.delete(localUri, { recursive: false, useTrash: false });
+                } catch (error: any) {
+                    // 存在しない場合などは単にログ出力
+                    logMessage(`Error deleting file: ${filePath}. ${error.message}`);
+                }
+            }
         }
     }
 }

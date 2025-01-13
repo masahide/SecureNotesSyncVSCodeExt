@@ -8,7 +8,7 @@ export function setOutputChannel(channel: vscode.OutputChannel) {
 
 // Log message to output channel
 export function logMessage(message: string) {
-  outputChannel.appendLine(message);
+  outputChannel.appendLine(message.trimEnd());
 }
 
 // Show error message and log

@@ -16,38 +16,13 @@
   },
   "main": "./dist/extension.js",
   "activationEvents": [
-    "workspaceContains:.secureNotes/index"
+    "workspaceContains:.secureNotes/wsIndex.json"
   ],
   "contributes": {
     "configuration": {
       "type": "object",
       "title": "Secure Notes Sync",
       "properties": {
-        "SecureNotesSync.awsAccessKeyId": {
-          "type": "string",
-          "description": "AWS Access Key ID for S3",
-          "default": ""
-        },
-        "SecureNotesSync.s3Bucket": {
-          "type": "string",
-          "description": "S3 Bucket Name",
-          "default": ""
-        },
-        "SecureNotesSync.s3Region": {
-          "type": "string",
-          "description": "S3 Region",
-          "default": ""
-        },
-        "SecureNotesSync.s3Endpoint": {
-          "type": "string",
-          "description": "S3 Custom Endpoint (optional)",
-          "default": ""
-        },
-        "SecureNotesSync.s3PrefixPath": {
-          "type": "string",
-          "description": "S3 Prefix Path (optional)",
-          "default": ""
-        },
         "SecureNotesSync.gitRemoteUrl": {
           "type": "string",
           "description": "GitHub repository URL for syncing the object directory. (ex: git@github.com:user/repo.git)",
@@ -67,14 +42,6 @@
     },
     "commands": [
       {
-        "command": "extension.setAWSSecret",
-        "title": "Set AWS secret access key"
-      },
-      {
-        "command": "extension.setAESKey",
-        "title": "Set AES encryption Key"
-      },
-      {
         "command": "extension.generateAESKey",
         "title": "Generate AES Key"
       },
@@ -83,30 +50,14 @@
         "title": "Sync Notes"
       },
       {
-        "command": "extension.syncWithGitHub",
-        "title": "Sync with GitHub"
-      },
-      {
         "command": "extension.copyAESKeyToClipboard",
         "title": "Copy AES Key to Clipboard"
       },
       {
-        "command": "extension.exportIndexHistory",
-        "title": "Export Index History"
-      },
-      {
-        "command": "extension.showIndexHistoryTreeView",
-        "title": "Show Index History in TreeView"
+        "command": "extension.setAESKey",
+        "title": "Set AES Key"
       }
-    ],
-    "views": {
-      "explorer": [
-        {
-          "id": "indexHistoryView",
-          "name": "Index History"
-        }
-      ]
-    }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

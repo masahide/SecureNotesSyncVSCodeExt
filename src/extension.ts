@@ -4,7 +4,6 @@ import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
 import { LocalObjectManager } from "./storage/LocalObjectManager";
 import { GitHubSyncProvider } from "./storage/GithubProvider";
 import * as crypto from "crypto";
-import { IndexHistoryTreeProvider } from "./IndexHistoryTreeProvider";
 
 
 
@@ -26,7 +25,7 @@ function resetInactivityTimer() {
   inactivityTimeout = setTimeout(() => {
     // 非アクティブ期間が経過したら同期コマンドを実行
     vscode.commands.executeCommand("extension.syncNotes");
-    vscode.commands.executeCommand("extension.syncWithGitHub");
+    //vscode.commands.executeCommand("extension.syncWithGitHub");
     logMessage("非アクティブ状態が続いたため、同期コマンドを実行しました。");
   }, inactivityTimeoutSec * 1000);
 }
@@ -93,47 +92,57 @@ export async function activate(context: vscode.ExtensionContext) {
         return false;
       }
       const options = { environmentId: environmentId, encryptionKey: encryptKey };
-      const latestIndex = await LocalObjectManager.loadLatestLocalIndex(options);
-      const previousIndex = await LocalObjectManager.loadPreviousIndex(options);
-      logMessage(`Loaded latest index file: ${latestIndex.uuid}\n previous index file: ${previousIndex.uuid}`);
-      const localIndex = await LocalObjectManager.generateLocalIndexFile(previousIndex, options);
-      const conflicts = LocalObjectManager.detectConflicts(localIndex, latestIndex);
-      if (conflicts.length > 0) {
-        const conflictsResolved = await LocalObjectManager.resolveConflicts(conflicts, options);
-        if (!conflictsResolved) {
-          showInfo("Sync aborted due to unresolved conflicts.");
-          return true;
-        }
-      }
-
-      const updated = await LocalObjectManager.saveEncryptedObject(localIndex.files, latestIndex, options);
-      if (!updated) {
-        showInfo("There are no update files.");
-        return;
-      }
-
-      const newIndex = LocalObjectManager.createNewIndexFile(localIndex, [previousIndex]);
-      showInfo("New local index file created.");
-      LocalObjectManager.saveLocalIndexFile(newIndex, options);
-    } catch (error: any) {
-      showError(`Sync failed: ${error.message}`);
-    }
-    return true;
-  });
-
-  let syncWithGitHubCommand = vscode.commands.registerCommand("extension.syncWithGitHub", async () => {
-    try {
       const gitRemoteUrl = vscode.workspace.getConfiguration(appName).get<string>('gitRemoteUrl');
       if (!gitRemoteUrl) {
         showError("設定でGitHubリポジトリURLを設定してください。");
         return;
       }
+
+      const previousIndex = await LocalObjectManager.loadWsIndex(options);
+      logMessage(`Loaded previous index file: ${previousIndex.uuid}`);
+      let newLocalIndex = await LocalObjectManager.generateLocalIndexFile(previousIndex, options);
+      showInfo("New local index file created.");
       const cloudStorageProvider = new GitHubSyncProvider(gitRemoteUrl);
-      cloudStorageProvider.sync();
+      let updated = false;
+      if (await cloudStorageProvider.download()) {
+        // リモートに更新があった場合
+        const remoteIndex = await LocalObjectManager.loadRemoteIndex(options);
+        const conflicts = await LocalObjectManager.detectConflicts(newLocalIndex, remoteIndex);
+        if (conflicts.length > 0) {
+          const conflictsResolved = await LocalObjectManager.resolveConflicts(conflicts, options);
+          if (!conflictsResolved) {
+            showInfo("Sync aborted due to unresolved conflicts.");
+            return true;
+          }
+        }
+        // ローカルとリモートの変更をマージ
+        logMessage("Merging local and remote changes...");
+        newLocalIndex = await LocalObjectManager.generateLocalIndexFile(previousIndex, options);
+        updated = true;
+      }
+      // 2) マージ後のファイルを暗号化保存（ローカルに新規や更新があれば書き込み）
+      //   第二引数には「リモート(または直前の最新)のIndexFile」を渡すことで、すでにあるファイルを再アップしないようにする
+      updated = await LocalObjectManager.saveEncryptedObjects(newLocalIndex.files, previousIndex, options) || updated;
+
+      if (updated) {
+        // 3) 新しいインデックスを .secureNotes/objects/indexes/ に暗号化保存
+        await LocalObjectManager.saveIndexFile(newLocalIndex, options);
+        //   あわせて wsIndex.json も更新しておく
+        await LocalObjectManager.saveWsIndexFile(newLocalIndex, options);
+        // 追加・削除をローカルに反映
+        await LocalObjectManager.reflectFileChanges(previousIndex, newLocalIndex, options);
+
+        // 4) GitHub に push
+        await cloudStorageProvider.upload();
+        showInfo("Merge completed successfully.");
+        return true;
+      }
     } catch (error: any) {
-      showError(`Cloud sync failed: ${error.message}`);
+      showError(`Sync failed: ${error.message}`);
     }
+    return false;
   });
+
 
   // AESキーをクリップボードにコピーするコマンド
   let copyAESKeyCommand = vscode.commands.registerCommand('extension.copyAESKeyToClipboard', async () => {
@@ -154,53 +163,6 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.window.showErrorMessage(`Failed to copy AES Key: ${error.message}`);
     }
   });
-
-  // Export Index History コマンド
-  const exportIndexHistoryCommand = vscode.commands.registerCommand("extension.exportIndexHistory", async () => {
-    try {
-      const encryptKey = await context.secrets.get(aesEncryptionKey);
-      if (!encryptKey) {
-        showError("AES Key not set");
-        return;
-      }
-      // すべてのインデックスファイルを読み込み、時系列順に整列 → ツリーを作ってテキスト化 → ファイル出力
-      await LocalObjectManager.exportIndexHistory({
-        environmentId: environmentId,
-        encryptionKey: encryptKey,
-      });
-      showInfo("Exported index history to .secureNotes/ChangeHistory.txt");
-    } catch (error: any) {
-      showError(`Export index history failed: ${error.message}`);
-    }
-  });
-
-  // IndexHistory用のTreeViewを登録
-  const indexHistoryProvider = new IndexHistoryTreeProvider();
-  vscode.window.registerTreeDataProvider("indexHistoryView", indexHistoryProvider);
-
-  // 履歴ツリー表示のコマンド
-  const showIndexHistoryTreeViewCommand = vscode.commands.registerCommand(
-    "extension.showIndexHistoryTreeView",
-    async () => {
-      try {
-        const encryptKey = await context.secrets.get("aesEncryptionKey");
-        if (!encryptKey) {
-          showError("AES Key not set");
-          return;
-        }
-        // environmentIdはgetOrCreateEnvironmentIdなどで取得して使ってください
-        const environmentId = await getOrCreateEnvironmentId(context);
-        // 履歴を読み込んで描画
-        await indexHistoryProvider.loadIndexHistory(encryptKey, environmentId);
-        showInfo("Index history tree loaded");
-        // コマンド実行時にサイドバーを表示したい場合は
-        // vscode.commands.executeCommand("workbench.view.explorer"); 
-        // などを呼び出してもOK
-      } catch (error: any) {
-        showError(`Error showing index history: ${error.message}`);
-      }
-    }
-  );
 
 
   // ユーザーアクティビティのイベントハンドラーを登録
@@ -232,11 +194,9 @@ export async function activate(context: vscode.ExtensionContext) {
   manageInactivityTimer();
 
   context.subscriptions.push(
-    syncCommand, setAESKeyCommand, generateAESKeyCommand, syncWithGitHubCommand,
+    syncCommand, setAESKeyCommand, generateAESKeyCommand,
     configChangeDisposable,
     copyAESKeyCommand,
-    exportIndexHistoryCommand,
-    showIndexHistoryTreeViewCommand,
     ...disposables
   );
   outputChannel.show(true);
