@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as vscode from "vscode";
 import * as os from "os";
 import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
@@ -161,6 +160,45 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   });
 
+  // New command to refresh the AES key from 1Password
+  const refreshAESKeyCommand = vscode.commands.registerCommand("extension.refreshAESKey", async () => {
+    try {
+      // Invalidate the cached time
+      await context.secrets.store(aesEncryptionKeyFetchedTime, "0");
+      // Fetch the key again
+      const newKey = await getAESKey(context);
+      if (newKey) {
+        showInfo("AES key refreshed successfully.");
+      } else {
+        showError("Failed to refresh AES key.");
+      }
+    } catch (error: any) {
+      showError(`Error refreshing AES key: ${error.message}`);
+    }
+  });
+
+  // Inside the activate function
+  const insertCurrentTimeCommand = vscode.commands.registerCommand("extension.insertCurrentTime", async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showInformationMessage('No active text editor.');
+      return;
+    }
+
+    const date = new Date();
+    const pad = (n: number) => n < 10 ? '0' + n : n.toString();
+    const formatted = `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+
+    const editOperations: vscode.TextEdit[] = editor.selections.map(selection => {
+      return vscode.TextEdit.replace(selection, formatted);
+    });
+
+    await editor.edit(editBuilder => {
+      editOperations.forEach(edit => editBuilder.replace(edit.range, edit.newText));
+    });
+  });
+
+
   // ユーザーアクティビティのイベントハンドラーを登録
   const userActivityEvents = [
     vscode.window.onDidChangeActiveTextEditor,
@@ -193,6 +231,8 @@ export async function activate(context: vscode.ExtensionContext) {
     generateAESKeyCommand,
     configChangeDisposable,
     copyAESKeyCommand,
+    refreshAESKeyCommand,
+    insertCurrentTimeCommand,
     ...disposables
   );
   outputChannel.show(true);
@@ -239,8 +279,7 @@ async function getAESKey(context: vscode.ExtensionContext): Promise<string | und
   if (cachedKey && cachedTimeStr) {
     const cachedTime = parseInt(cachedTimeStr, 10);
     const now = Date.now();
-    // 86400000 ms = 24 hours
-    if (!isNaN(cachedTime) && (now - cachedTime) < 86400000) {
+    if (!isNaN(cachedTime) && (now - cachedTime) < 86400000 * 30) { // 30 days
       // まだキャッシュ有効
       return cachedKey;
     }
@@ -274,7 +313,10 @@ function getKeyFrom1PasswordCLI(opPath: string, account: string, opUri: string):
   return new Promise((resolve, reject) => {
     // コマンド例:
     //    op --account myAccount read "op://Private/githubmemo/password"
-    const args = ["--account", account, "read", opUri];
+    let args = ["--account", account, "read", opUri];
+    if (account.length === 0) {
+      args = ["read", opUri];
+    }
     execFile(opPath, args, (error, stdout, stderr) => {
       if (error) {
         reject(`Error running op CLI: ${error.message}, stderr: ${stderr}`);

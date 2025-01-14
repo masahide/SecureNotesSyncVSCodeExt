@@ -45,7 +45,7 @@
         },
         "SecureNotesSync.onePasswordAccount": {
           "type": "string",
-          "description": "The 1Password account name to use with the op CLI",
+          "description": "(Optional) The 1Password account name to use with the op CLI",
           "default": ""
         }
       }
@@ -66,6 +66,14 @@
       {
         "command": "extension.setAESKey",
         "title": "Set AES Key"
+      },
+      {
+        "command": "extension.refreshAESKey",
+        "title": "Refresh AES Key"
+      },
+      {
+        "command": "extension.insertCurrentTime",
+        "title": "Insert Current Time"
       }
     ]
   },

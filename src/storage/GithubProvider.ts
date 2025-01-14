@@ -43,7 +43,6 @@ export class GitHubSyncProvider implements IStorageProvider {
             }
             // 強制的にオブジェクトディレクトリとマージ
             await this.execCmd(this.gitPath, ['branch', '-M', 'backup'], objectDir);
-            await this.execCmd(this.gitPath, ['fetch', 'origin', 'main'], objectDir);
             await this.execCmd(this.gitPath, ['checkout', 'main'], objectDir);
             // 強制マージ
             // -X ours でmain(リモート側)を優先

@@ -47,7 +47,6 @@ export class LocalObjectManager {
         latestIndex: IndexFile,
         options: LocalObjectManagerOptions
     ): Promise<boolean> {
-        logMessage("Saving encrypted files...");
         // リモートのファイルハッシュ値のセットを作成
         const latestFileHashes = new Set(latestIndex.files.map((file) => file.hash));
         let updated = false;
