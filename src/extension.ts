@@ -1,273 +1,333 @@
-// VSCode Extension Skeleton for Note-Taking App with S3 Integration
 import * as vscode from "vscode";
-import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import * as os from "os";
+import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
+import { LocalObjectManager } from "./storage/LocalObjectManager";
+import { GitHubSyncProvider } from "./storage/GithubProvider";
 import * as crypto from "crypto";
+import { execFile } from "child_process";
+import which from "which";
 
-let outputChannel: vscode.OutputChannel;
+const aesEncryptionKey = "aesEncryptionKey";
+const aesEncryptionKeyFetchedTime = "aesEncryptionKeyFetchedTime";  // キャッシュ時刻を保存するキー
+const appName = "SecureNotesSync";
 
-// Log message to output channel
-function logMessage(message: string) {
-  outputChannel.appendLine(message);
+// タイムアウトIDを保持する変数
+let inactivityTimeout: NodeJS.Timeout | undefined;
+
+// 非アクティブタイマーをリセットする関数
+function resetInactivityTimer() {
+  if (inactivityTimeout) {
+    clearTimeout(inactivityTimeout);
+  }
+  const inactivityTimeoutSec = vscode.workspace.getConfiguration(appName).get<number>('inactivityTimeoutSec');
+  if (inactivityTimeoutSec === undefined) {
+    return;
+  }
+  inactivityTimeout = setTimeout(() => {
+    // 非アクティブ期間が経過したら同期コマンドを実行
+    vscode.commands.executeCommand("extension.syncNotes");
+    logMessage("非アクティブ状態が続いたため、同期コマンドを実行しました。");
+  }, inactivityTimeoutSec * 1000);
 }
 
-// Show error message and log
-function showError(message: string) {
-  vscode.window.showErrorMessage(message);
-  logMessage(message);
-}
-
-// Show info message and log
-function showInfo(message: string) {
-  vscode.window.showInformationMessage(message);
-  logMessage(message);
-}
-
-// Command to set secrets (AES Key or AWS Secret Access Key)
-async function setSecret(
-  context: vscode.ExtensionContext,
-  secretName: string,
-  prompt: string,
-  password: boolean = false,
-  validate?: (value: string) => string | null
-) {
-  const secretValue = await vscode.window.showInputBox({
-    prompt,
-    password,
-    validateInput: validate,
-  });
-
-  if (secretValue) {
-    await context.secrets.store(secretName, secretValue);
-    showInfo(`${secretName} saved successfully.`);
+// 設定を確認し、タイマーを開始または停止する関数
+function manageInactivityTimer() {
+  const isAutoSyncEnabled = vscode.workspace.getConfiguration(appName).get<boolean>("enableAutoSync", false);
+  if (isAutoSyncEnabled) {
+    resetInactivityTimer();
+    logMessage("自動同期が有効です。非アクティブタイマーを開始します。");
   } else {
-    showError(`${secretName} is required.`);
+    if (inactivityTimeout) {
+      clearTimeout(inactivityTimeout);
+      inactivityTimeout = undefined;
+    }
   }
 }
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   // Create output channel
-  outputChannel = vscode.window.createOutputChannel("secureNotesSync");
-  showInfo("secureNotesSync Extension Activated");
+  const outputChannel = vscode.window.createOutputChannel(appName);
+  setOutputChannel(outputChannel);
+  showInfo(`${appName} Extension Activated`);
 
-  // Command to Set AES Key
-  let setAESKeyCommand = vscode.commands.registerCommand("extension.setAESKeyCommand", () =>
-    setSecret(context, "aesEncryptionKey", "Enter AES Encryption Key (64 hex characters representing 32 bytes)", true, (value) =>
-      value.length === 64 ? null : "AES Key must be 64 hex characters long"
-    )
-  );
+  // 環境IDを生成or取得 (ホスト名 + UUID)
+  const environmentId = await getOrCreateEnvironmentId(context);
+  logMessage(`Current Environment ID: ${environmentId}`);
 
-  // Command to Set AWS Credentials
-  let setAWSSecretCommand = vscode.commands.registerCommand("extension.setAWSSecretCommand", async () => {
-    const awsAccessKeyId = await vscode.window.showInputBox({
-      prompt: "Enter AWS Access Key ID",
-    });
-    const awsSecretAccessKey = await vscode.window.showInputBox({
-      prompt: "Enter AWS Secret Access Key",
+  // AESキーを設定するコマンド
+  const setAESKeyCommand = vscode.commands.registerCommand("extension.setAESKey", async () => {
+    const secretValue = await vscode.window.showInputBox({
+      prompt: "Enter AES Encryption Key (64 hex characters representing 32 bytes)",
       password: true,
+      validateInput: (value) => value.length === 64 ? null : "AES Key must be 64 hex characters long"
     });
-
-    if (awsAccessKeyId && awsSecretAccessKey) {
-      const config = vscode.workspace.getConfiguration("secureNotesSync");
-      await config.update("awsAccessKeyId", awsAccessKeyId, vscode.ConfigurationTarget.Global);
-      await context.secrets.store("awsSecretAccessKey", awsSecretAccessKey);
-      showInfo("AWS Credentials saved successfully.");
+    if (secretValue) {
+      await context.secrets.store(aesEncryptionKey, secretValue);
+      // キャッシュ時刻もクリアしておく
+      await context.secrets.store(aesEncryptionKeyFetchedTime, "");
+      showInfo(`${aesEncryptionKey} saved successfully.`);
     } else {
-      showError("Both AWS Access Key ID and Secret Access Key are required.");
+      showError(`${aesEncryptionKey} is required.`);
     }
   });
 
-  // Command to Sync Notes with S3
-  let syncNotesCommand = vscode.commands.registerCommand("extension.syncNotes", async () => {
-    logMessage("Starting note sync with S3...");
+  // 新規AESキーを生成するコマンド
+  const generateAESKeyCommand = vscode.commands.registerCommand("extension.generateAESKey", async () => {
+    logMessage("Generating 32-byte AES encryption key...");
+    const key = crypto.randomBytes(32).toString("hex"); // 32 bytes
     try {
-      const { s3, s3Bucket, s3PrefixPath, aesEncryptionKey } = await initializeS3(context);
-
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (workspaceFolders) {
-        for (const folder of workspaceFolders) {
-          const files = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, "**/*"));
-          for (const file of files) {
-            const content = await vscode.workspace.fs.readFile(file);
-            const encryptedContent = encryptContent(content, aesEncryptionKey);
-            const relativeFilePath = vscode.workspace.asRelativePath(file, false);
-            const uploadParams = {
-              Bucket: s3Bucket,
-              Key: `${s3PrefixPath}/${relativeFilePath}`,
-              Body: encryptedContent,
-            };
-            await s3.send(new PutObjectCommand(uploadParams));
-            logMessage(`File ${relativeFilePath} synced to S3 successfully.`);
-          }
-        }
-      }
-
-      showInfo("Notes synced with S3 successfully.");
-    } catch (error: any) {
-      showError(`Error syncing notes: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  });
-
-  // Command to Download and Decrypt Notes from S3
-  let downloadNotesCommand = vscode.commands.registerCommand("extension.downloadNotes", async () => {
-    logMessage("Starting download and decryption of notes from S3...");
-    try {
-      const { s3, s3Bucket, s3PrefixPath, aesEncryptionKey } = await initializeS3(context);
-
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (workspaceFolders) {
-        for (const folder of workspaceFolders) {
-          await downloadAndDecryptFolder(folder, s3, aesEncryptionKey, s3Bucket, s3PrefixPath);
-        }
-      }
-
-      showInfo("Notes downloaded and decrypted from S3 successfully.");
-    } catch (error: any) {
-      showError(`Error downloading notes: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  });
-
-  // Command to Generate 32-Byte Encrypted Text
-  let generateEncryptedTextCommand = vscode.commands.registerCommand("extension.generateEncryptedText", async () => {
-    try {
-      logMessage("Generating 32-byte AES encryption key...");
-      const randomBytes = crypto.randomBytes(32); // 32 bytes
-      const encryptedText = randomBytes.toString("hex"); // 64 hex characters
-      await context.secrets.store("aesEncryptionKey", encryptedText);
-      showInfo(`Generated and stored AES key: ${encryptedText}`);
+      await context.secrets.store(aesEncryptionKey, key);
+      // キャッシュ時刻も上書き
+      await context.secrets.store(aesEncryptionKeyFetchedTime, Date.now().toString());
+      showInfo(`Generated and stored AES key: ${key}`);
     } catch (error: any) {
       showError(`Error generating encrypted text: ${error instanceof Error ? error.message : String(error)}`);
     }
   });
 
-  context.subscriptions.push(setAWSSecretCommand, setAESKeyCommand, syncNotesCommand, downloadNotesCommand, generateEncryptedTextCommand);
+  // ノートを同期するコマンド
+  const syncCommand = vscode.commands.registerCommand("extension.syncNotes", async () => {
+    try {
+      const encryptKey = await getAESKey(context);  // ← ポイント：ここで getAESKey() を使う
+      if (!encryptKey) {
+        showError("AES Key not set");
+        return false;
+      }
+      const options = { environmentId: environmentId, encryptionKey: encryptKey };
+      const gitRemoteUrl = vscode.workspace.getConfiguration(appName).get<string>('gitRemoteUrl');
+      if (!gitRemoteUrl) {
+        showError("設定でGitHubリポジトリURLを設定してください。");
+        return;
+      }
 
-  // Show the output channel when the extension is activated
+      const previousIndex = await LocalObjectManager.loadWsIndex(options);
+      logMessage(`Loaded previous index file: ${previousIndex.uuid}`);
+      let newLocalIndex = await LocalObjectManager.generateLocalIndexFile(previousIndex, options);
+      showInfo("New local index file created.");
+
+      const cloudStorageProvider = new GitHubSyncProvider(gitRemoteUrl);
+      let updated = false;
+      if (await cloudStorageProvider.download()) {
+        // リモートに更新があった場合
+        const remoteIndex = await LocalObjectManager.loadRemoteIndex(options);
+        const conflicts = await LocalObjectManager.detectConflicts(newLocalIndex, remoteIndex);
+        if (conflicts.length > 0) {
+          const conflictsResolved = await LocalObjectManager.resolveConflicts(conflicts, options);
+          if (!conflictsResolved) {
+            showInfo("Sync aborted due to unresolved conflicts.");
+            return true;
+          }
+        }
+        // ローカルとリモートの変更をマージ
+        logMessage("Merging local and remote changes...");
+        newLocalIndex = await LocalObjectManager.generateLocalIndexFile(previousIndex, options);
+        updated = true;
+      }
+
+      // 2) マージ後のファイルを暗号化保存
+      updated = await LocalObjectManager.saveEncryptedObjects(newLocalIndex.files, previousIndex, options) || updated;
+
+      if (updated) {
+        // 3) 新しいインデックスを保存
+        await LocalObjectManager.saveIndexFile(newLocalIndex, options);
+        await LocalObjectManager.saveWsIndexFile(newLocalIndex, options);
+        await LocalObjectManager.reflectFileChanges(previousIndex, newLocalIndex, options);
+
+        // 4) GitHub に push
+        await cloudStorageProvider.upload();
+        showInfo("Merge completed successfully.");
+        return true;
+      }
+    } catch (error: any) {
+      showError(`Sync failed: ${error.message}`);
+    }
+    return false;
+  });
+
+  // AESキーをクリップボードにコピー
+  const copyAESKeyCommand = vscode.commands.registerCommand('extension.copyAESKeyToClipboard', async () => {
+    try {
+      // 可能であれば、setAESKeyコマンドと同様に getAESKey(context) で取得してもOK
+      const aesKey = await context.secrets.get(aesEncryptionKey);
+      if (!aesKey) {
+        vscode.window.showErrorMessage('AES Key is not set. Please set the AES key first.');
+        return;
+      }
+      await vscode.env.clipboard.writeText(aesKey);
+      vscode.window.showInformationMessage('AES Key copied to clipboard!');
+    } catch (error: any) {
+      vscode.window.showErrorMessage(`Failed to copy AES Key: ${error.message}`);
+    }
+  });
+
+  // New command to refresh the AES key from 1Password
+  const refreshAESKeyCommand = vscode.commands.registerCommand("extension.refreshAESKey", async () => {
+    try {
+      // Invalidate the cached time
+      await context.secrets.store(aesEncryptionKeyFetchedTime, "0");
+      // Fetch the key again
+      const newKey = await getAESKey(context);
+      if (newKey) {
+        showInfo("AES key refreshed successfully.");
+      } else {
+        showError("Failed to refresh AES key.");
+      }
+    } catch (error: any) {
+      showError(`Error refreshing AES key: ${error.message}`);
+    }
+  });
+
+  // Inside the activate function
+  const insertCurrentTimeCommand = vscode.commands.registerCommand("extension.insertCurrentTime", async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showInformationMessage('No active text editor.');
+      return;
+    }
+
+    const date = new Date();
+    const pad = (n: number) => n < 10 ? '0' + n : n.toString();
+    const formatted = `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+
+    const editOperations: vscode.TextEdit[] = editor.selections.map(selection => {
+      return vscode.TextEdit.replace(selection, formatted);
+    });
+
+    await editor.edit(editBuilder => {
+      editOperations.forEach(edit => editBuilder.replace(edit.range, edit.newText));
+    });
+  });
+
+
+  // ユーザーアクティビティのイベントハンドラーを登録
+  const userActivityEvents = [
+    vscode.window.onDidChangeActiveTextEditor,
+    vscode.workspace.onDidChangeTextDocument,
+    vscode.workspace.onDidSaveTextDocument,
+    vscode.window.onDidChangeVisibleTextEditors,
+    vscode.window.onDidChangeActiveNotebookEditor,
+    vscode.window.onDidChangeActiveTerminal,
+    vscode.window.onDidChangeWindowState,
+  ];
+  const disposables = userActivityEvents.map(event => event(() => {
+    if (vscode.workspace.getConfiguration(appName).get<boolean>("enableAutoSync", false)) {
+      resetInactivityTimer();
+    }
+  }));
+
+  // 設定変更を監視するイベントハンドラー
+  const configChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
+    if (e.affectsConfiguration(`${appName}.enableAutoSync`)) {
+      manageInactivityTimer();
+    }
+  });
+
+  // 初期状態でタイマーを管理
+  manageInactivityTimer();
+
+  context.subscriptions.push(
+    syncCommand,
+    setAESKeyCommand,
+    generateAESKeyCommand,
+    configChangeDisposable,
+    copyAESKeyCommand,
+    refreshAESKeyCommand,
+    insertCurrentTimeCommand,
+    ...disposables
+  );
   outputChannel.show(true);
 }
 
-async function initializeS3(context: vscode.ExtensionContext) {
-  const config = vscode.workspace.getConfiguration("secureNotesSync");
-  const awsAccessKeyId = config.get<string>("awsAccessKeyId");
-  const awsSecretAccessKey = await context.secrets.get("awsSecretAccessKey");
-  const s3Bucket = config.get<string>("s3Bucket");
-  const s3Region = config.get<string>("s3Region");
-  const s3Endpoint = config.get<string>("s3Endpoint");
-  const s3PrefixPath = config.get<string>("s3PrefixPath") || "";
-  const aesEncryptionKey = (await context.secrets.get("aesEncryptionKey"))!;
-
-  if (!s3Bucket || !s3Region || !aesEncryptionKey) {
-    throw new Error("S3 bucket, region, or AES key not set. Please configure the extension settings and credentials.");
-  }
-
-  const s3 = new S3Client({
-    region: s3Region,
-    endpoint: s3Endpoint,
-    credentials:
-      awsAccessKeyId && awsSecretAccessKey
-        ? {
-          accessKeyId: awsAccessKeyId,
-          secretAccessKey: awsSecretAccessKey,
-        }
-        : undefined,
-  });
-
-  return { s3, s3Bucket, s3PrefixPath, aesEncryptionKey };
-}
-
-async function downloadAndDecryptFolder(
-  folder: vscode.WorkspaceFolder,
-  s3: S3Client,
-  aesEncryptionKey: string,
-  s3Bucket: string,
-  s3PrefixPath: string
-) {
-  const params = {
-    Bucket: s3Bucket,
-    Prefix: s3PrefixPath,
-  };
-  const data = await s3.send(new ListObjectsV2Command(params));
-  if (data.Contents) {
-    for (const item of data.Contents) {
-      await downloadAndDecryptItem(folder, item, s3, aesEncryptionKey, s3Bucket, s3PrefixPath);
-    }
-  }
-}
-
-async function downloadAndDecryptItem(
-  folder: vscode.WorkspaceFolder,
-  item: any,
-  s3: S3Client,
-  aesEncryptionKey: string,
-  s3Bucket: string,
-  s3PrefixPath: string
-) {
-  const getObjectParams = {
-    Bucket: s3Bucket,
-    Key: item.Key || "",
-  };
-  const objectData = await s3.send(new GetObjectCommand(getObjectParams));
-  if (objectData.Body) {
-    const bodyBuffer = await streamToBuffer(objectData.Body as NodeJS.ReadableStream);
-    const decryptedContent = decryptContent(bodyBuffer, aesEncryptionKey);
-
-    // Remove prefixPath from S3 key
-    const relativeFilePath = item.Key.replace(s3PrefixPath + "/", "");
-
-    // Create local file path
-    const localFilePath = vscode.Uri.joinPath(folder.uri, relativeFilePath);
-    await vscode.workspace.fs.writeFile(localFilePath, decryptedContent);
-    logMessage(`Downloaded and decrypted item: ${relativeFilePath}`);
-  }
-}
-
-// Convert stream to buffer
-async function streamToBuffer(stream: Blob | ReadableStream | NodeJS.ReadableStream): Promise<Buffer> {
-  if (stream instanceof ReadableStream) {
-    const reader = stream.getReader();
-    const chunks: Uint8Array[] = [];
-    let done = false;
-
-    while (!done) {
-      const { value, done: readerDone } = await reader.read();
-      if (readerDone) {
-        done = true;
-      } else if (value) {
-        chunks.push(value);
-      }
-    }
-
-    return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
-  } else if (stream instanceof Blob) {
-    return Buffer.from(await stream.arrayBuffer());
-  } else {
-    return new Promise<Buffer>((resolve, reject) => {
-      const chunks: any[] = [];
-      stream.on("data", (chunk) => chunks.push(chunk));
-      stream.on("end", () => resolve(Buffer.concat(chunks)));
-      stream.on("error", reject);
-    });
-  }
-}
-
-// Encrypt content using AES
-function encryptContent(content: Uint8Array, key: string): Buffer {
-  const iv = crypto.randomBytes(16);
-  const keyBuffer = Buffer.from(key, "hex");
-  const cipher = crypto.createCipheriv("aes-256-cbc", keyBuffer, iv);
-  const encrypted = Buffer.concat([cipher.update(content), cipher.final()]);
-  return Buffer.concat([iv, encrypted]); // Prepend IV for decryption
-}
-
-// Decrypt content using AES
-function decryptContent(encryptedContent: Buffer, key: string): Uint8Array {
-  const iv = encryptedContent.subarray(0, 16);
-  const encryptedText = encryptedContent.subarray(16);
-  const keyBuffer = Buffer.from(key, "hex");
-  const decipher = crypto.createDecipheriv("aes-256-cbc", keyBuffer, iv);
-  const decrypted = Buffer.concat([decipher.update(encryptedText), decipher.final()]);
-  return decrypted;
-}
-
 export function deactivate() {
-  logMessage("secureNotesSync Extension Deactivated.");
+  if (inactivityTimeout) {
+    clearTimeout(inactivityTimeout);
+  }
+  logMessage(`${appName} Extension Deactivated.`);
+}
+
+const ENV_ID_KEY = "encryptSyncEnvironmentId";
+async function getOrCreateEnvironmentId(context: vscode.ExtensionContext): Promise<string> {
+  let envId = context.globalState.get<string>(ENV_ID_KEY);
+  if (!envId) {
+    const hostname = os.hostname();
+    envId = `${hostname}-${crypto.randomUUID()}`;
+    await context.globalState.update(ENV_ID_KEY, envId);
+  }
+  return envId;
+}
+
+/**
+ * ユーザーの設定を確認しつつAESキーを取得する関数
+ *  - 1Passwordのop:// URIが設定されている場合は、1日以内にキャッシュされたキーがあればそれを使用し、
+ *    無ければ1Password CLIで取得してキャッシュする
+ */
+async function getAESKey(context: vscode.ExtensionContext): Promise<string | undefined> {
+  // 1) 設定をチェック
+  const config = vscode.workspace.getConfiguration(appName);
+  const opUri = config.get<string>("onePasswordUri") || "";
+  const opAccount = config.get<string>("onePasswordAccount") || "";
+
+  // 2) もし opUri に "op://" が含まれていなければ、従来通り secrets から取得
+  if (!opUri.startsWith("op://")) {
+    const existingKey = await context.secrets.get(aesEncryptionKey);
+    return existingKey || undefined;
+  }
+
+  // 3) "op://" の場合はキャッシュをチェック
+  const cachedKey = await context.secrets.get(aesEncryptionKey);
+  const cachedTimeStr = await context.secrets.get(aesEncryptionKeyFetchedTime);
+  if (cachedKey && cachedTimeStr) {
+    const cachedTime = parseInt(cachedTimeStr, 10);
+    const now = Date.now();
+    if (!isNaN(cachedTime) && (now - cachedTime) < 86400000 * 30) { // 30 days
+      // まだキャッシュ有効
+      return cachedKey;
+    }
+  }
+
+  // 4) キャッシュが無い or 期限切れ → op CLI で取得する
+  let keyFrom1Password: string | undefined;
+  try {
+    const opPath = which.sync("op");  // PATHからopを検索(見つからない場合はError)
+    keyFrom1Password = await getKeyFrom1PasswordCLI(opPath, opAccount, opUri);
+  } catch (err: any) {
+    logMessage(`Failed to get 1Password CLI path or retrieve key: ${String(err)}`);
+  }
+
+  if (!keyFrom1Password || keyFrom1Password.length !== 64) {
+    // 1Password から取得できなければ fallback
+    const fallback = await context.secrets.get(aesEncryptionKey);
+    return fallback || undefined;
+  }
+
+  // 5) 成功していればキャッシュに保存
+  await context.secrets.store(aesEncryptionKey, keyFrom1Password);
+  await context.secrets.store(aesEncryptionKeyFetchedTime, Date.now().toString());
+  return keyFrom1Password;
+}
+
+/**
+ * op CLI を使って 1Password からキーを取得する
+ */
+function getKeyFrom1PasswordCLI(opPath: string, account: string, opUri: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // コマンド例:
+    //    op --account myAccount read "op://Private/githubmemo/password"
+    let args = ["--account", account, "read", opUri];
+    if (account.length === 0) {
+      args = ["read", opUri];
+    }
+    execFile(opPath, args, (error, stdout, stderr) => {
+      if (error) {
+        reject(`Error running op CLI: ${error.message}, stderr: ${stderr}`);
+        return;
+      }
+      const key = stdout.trim();
+      if (!key) {
+        reject("op CLI returned empty string.");
+      } else {
+        resolve(key);
+      }
+    });
+  });
 }
