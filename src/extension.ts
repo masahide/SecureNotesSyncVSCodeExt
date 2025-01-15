@@ -13,36 +13,11 @@ const appName = "SecureNotesSync";
 
 // タイムアウトIDを保持する変数
 let inactivityTimeout: NodeJS.Timeout | undefined;
+let lastWindowActivationTime = 0;  // 前回ウィンドウがアクティブになった時刻を保存
+// ファイル保存後に5秒遅延してsyncするためのタイマー
+let saveSyncTimeout: NodeJS.Timeout | undefined;
 
-// 非アクティブタイマーをリセットする関数
-function resetInactivityTimer() {
-  if (inactivityTimeout) {
-    clearTimeout(inactivityTimeout);
-  }
-  const inactivityTimeoutSec = vscode.workspace.getConfiguration(appName).get<number>('inactivityTimeoutSec');
-  if (inactivityTimeoutSec === undefined) {
-    return;
-  }
-  inactivityTimeout = setTimeout(() => {
-    // 非アクティブ期間が経過したら同期コマンドを実行
-    vscode.commands.executeCommand("extension.syncNotes");
-    logMessage("非アクティブ状態が続いたため、同期コマンドを実行しました。");
-  }, inactivityTimeoutSec * 1000);
-}
 
-// 設定を確認し、タイマーを開始または停止する関数
-function manageInactivityTimer() {
-  const isAutoSyncEnabled = vscode.workspace.getConfiguration(appName).get<boolean>("enableAutoSync", false);
-  if (isAutoSyncEnabled) {
-    resetInactivityTimer();
-    logMessage("自動同期が有効です。非アクティブタイマーを開始します。");
-  } else {
-    if (inactivityTimeout) {
-      clearTimeout(inactivityTimeout);
-      inactivityTimeout = undefined;
-    }
-  }
-}
 
 export async function activate(context: vscode.ExtensionContext) {
   // Create output channel
@@ -198,49 +173,60 @@ export async function activate(context: vscode.ExtensionContext) {
     });
   });
 
-
-  // ユーザーアクティビティのイベントハンドラーを登録
-  const userActivityEvents = [
-    vscode.window.onDidChangeActiveTextEditor,
-    vscode.workspace.onDidChangeTextDocument,
-    vscode.workspace.onDidSaveTextDocument,
-    vscode.window.onDidChangeVisibleTextEditors,
-    vscode.window.onDidChangeActiveNotebookEditor,
-    vscode.window.onDidChangeActiveTerminal,
-    vscode.window.onDidChangeWindowState,
-  ];
-  const disposables = userActivityEvents.map(event => event(() => {
-    if (vscode.workspace.getConfiguration(appName).get<boolean>("enableAutoSync", false)) {
-      resetInactivityTimer();
+  // ウィンドウがアクティブになったとき → 前回アクティブから長時間経過している場合のみ sync 実行
+  vscode.window.onDidChangeWindowState((state) => {
+    const isAutoSyncEnabled = vscode.workspace.getConfiguration(appName).get<boolean>("enableAutoSync", false);
+    if (!isAutoSyncEnabled) {
+      return;
     }
-  }));
-
-  // 設定変更を監視するイベントハンドラー
-  const configChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
-    if (e.affectsConfiguration(`${appName}.enableAutoSync`)) {
-      manageInactivityTimer();
+    if (state.focused) {
+      const inactivityTimeoutSec = vscode.workspace.getConfiguration(appName).get<number>("inactivityTimeoutSec", 60);
+      const now = Date.now();
+      if (lastWindowActivationTime === 0) {
+        // 拡張起動後に初めてアクティブになった場合
+        lastWindowActivationTime = now;
+        return;
+      }
+      const diff = (now - lastWindowActivationTime) / 1000;
+      // 一定秒数以上アクティブでなかった場合のみsyncを実行して短時間での連続実行を防ぐ
+      if (diff > inactivityTimeoutSec) {
+        vscode.commands.executeCommand("extension.syncNotes");
+        logMessage(`ウィンドウ再アクティブ(${diff}秒経過)のためSyncを実行しました。`);
+      }
+      lastWindowActivationTime = now;
     }
   });
 
-  // 初期状態でタイマーを管理
-  manageInactivityTimer();
+  // ファイル保存後 → 5秒後に sync 実行。5秒以内に再度保存されたらタイマーをリセット
+  vscode.workspace.onDidSaveTextDocument(() => {
+    const isAutoSyncEnabled = vscode.workspace.getConfiguration(appName).get<boolean>("enableAutoSync", false);
+    if (!isAutoSyncEnabled) {
+      return;
+    }
+    if (saveSyncTimeout) {
+      clearTimeout(saveSyncTimeout);
+    }
+    saveSyncTimeout = setTimeout(() => {
+      vscode.commands.executeCommand("extension.syncNotes");
+      logMessage("ファイル保存後の遅延同期を実行しました。");
+    }, 5000);
+  });
+
 
   context.subscriptions.push(
     syncCommand,
     setAESKeyCommand,
     generateAESKeyCommand,
-    configChangeDisposable,
     copyAESKeyCommand,
     refreshAESKeyCommand,
     insertCurrentTimeCommand,
-    ...disposables
   );
   outputChannel.show(true);
 }
 
 export function deactivate() {
-  if (inactivityTimeout) {
-    clearTimeout(inactivityTimeout);
+  if (saveSyncTimeout) {
+    clearTimeout(saveSyncTimeout);
   }
   logMessage(`${appName} Extension Deactivated.`);
 }
