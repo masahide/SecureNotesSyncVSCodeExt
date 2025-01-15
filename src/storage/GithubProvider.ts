@@ -30,40 +30,60 @@ export class GitHubSyncProvider implements IStorageProvider {
             await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
             await this.execCmd(this.gitPath, ['init'], objectDir);
             await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], objectDir);
-            await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
-            // Check if 'main' local exists on remote
-            const checkMainBranch = await this.execCmd(this.gitPath, ['ls-remote', '--heads', 'origin', 'main'], objectDir);
-            await this.execCmd(this.gitPath, ['add', '.'], objectDir);
-            await this.execCmd(this.gitPath, ['commit', '-m', 'add'], objectDir);
-            if (checkMainBranch.stdout.trim() === '') { // remoteが空の場合はpush
-                await this.execCmd(this.gitPath, ['branch', '-M', 'main'], objectDir);
-                await this.execCmd(this.gitPath, ['push', 'origin', 'main'], objectDir);
-                await this.execCmd(this.gitPath, ['checkout', '-b', 'local'], objectDir);
+            try {
+                await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
+                // 3) origin/main が存在するかチェック
+                const originmain = await this.execCmd(this.gitPath, ['rev-parse', '--verify', 'origin/main'], objectDir);
+                if (!originmain.stdout.trim()) {
+                    throw new Error("origin/main が存在しません。");
+                }
+                // リモートに main がある場合 → main ブランチを作ってマージ
+                await this.execCmd(this.gitPath, ['checkout', '-b', 'main'], objectDir);
+                await this.execCmd(this.gitPath, ['add', '.'], objectDir);
+                // --allow-unrelated-histories と -X theirs で強制マージ
+                await this.execCmd(this.gitPath, [
+                    'merge',
+                    '--allow-unrelated-histories',
+                    'origin/main',
+                    '-X', 'theirs',
+                    '-m', 'Merge remote main'
+                ], objectDir);
+
+                logMessage("初回リポジトリ作成後、リモートmainをマージしました。");
+                return true;
+            } catch (error) {
+                logMessage("origin/main が存在しないため、mainブランチを新規作成します。error: " + error);
+                // origin/main が無い（=空リポジトリ or 本当にブランチが無い）場合
+                await this.execCmd(this.gitPath, ['checkout', '-b', 'main'], objectDir);
+                // 空のままだとコミットできないので最低限のファイルをコミット
+                await this.execCmd(this.gitPath, ['add', '.'], objectDir);
+                await this.commitIfNeeded(objectDir, 'Initial commit');
+                // リモートにpushしておく
+                await this.execCmd(this.gitPath, ['push', '-u', 'origin', 'main'], objectDir);
+                logMessage("初回リポジトリ作成後、remote main を新規作成してpushしました。");
                 return false;
             }
-            // 強制的にオブジェクトディレクトリとマージ
-            await this.execCmd(this.gitPath, ['branch', '-M', 'backup'], objectDir);
-            await this.execCmd(this.gitPath, ['checkout', 'main'], objectDir);
-            // 強制マージ
-            // -X ours でmain(リモート側)を優先
-            await this.execCmd(this.gitPath, ['merge', 'backup', '--allow-unrelated-histories', '-X', 'ours', '-m', 'force merge'], objectDir);
-            await this.execCmd(this.gitPath, ['branch', '-D', 'backup'], objectDir);
-            await this.execCmd(this.gitPath, ['checkout', '-b', 'local'], objectDir);
-            logMessage("オブジェクトディレクトリをGitHubと強制マージしました");
-            return true;
         }
+        // --- 既存リポジトリ ---
+        // 1) mainブランチにチェックアウト
         await this.execCmd(this.gitPath, ['checkout', 'main'], objectDir);
-        const orgHash = await this.execCmd(this.gitPath, ['rev-parse', 'main'], objectDir);
-        await this.execCmd(this.gitPath, ['pull', 'origin', 'main'], objectDir);
-        const newHash = await this.execCmd(this.gitPath, ['rev-parse', 'main'], objectDir);
-        if (orgHash.stdout.trim() === newHash.stdout.trim()) {
-            logMessage("変更がありません。");
-            await this.execCmd(this.gitPath, ['checkout', 'local'], objectDir);
+        // 2) fetchしてリモートの更新を取得
+        await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
+        // 3) origin/main をマージ
+        const localmain = await this.execCmd(this.gitPath, ['rev-parse', '--verify', 'main'], objectDir);
+        const originmain = await this.execCmd(this.gitPath, ['rev-parse', '--verify', 'origin/main'], objectDir);
+        if (localmain.stdout.trim() === originmain.stdout.trim()) {
+            logMessage("リモートに更新はありません。");
             return false;
         }
-        await this.execCmd(this.gitPath, ['merge', 'local', '-X', 'ours', '-m', 'merge local'], objectDir);
-        await this.execCmd(this.gitPath, ['branch', '-D', 'local'], objectDir);
-        await this.execCmd(this.gitPath, ['checkout', '-b', 'local'], objectDir);
+        await this.execCmd(this.gitPath, [
+            'merge',
+            'origin/main',
+            '-X', 'theirs',
+            '--allow-unrelated-histories',
+            '-m', 'Merge remote main'
+        ], objectDir);
+        logMessage("既存リポジトリでorigin/mainをマージしました。");
         return true;
     }
     // push する
@@ -72,38 +92,30 @@ export class GitHubSyncProvider implements IStorageProvider {
     public async upload(): Promise<boolean> {
         logMessage(`gitPath: ${this.gitPath}`);
         const objectDir = remotesDirUri.fsPath;
-        const branch = await this.execCmd(this.gitPath, ['branch', '--show-current'], objectDir);
-        if (branch.stdout.trim() !== 'local') {
-            await this.execCmd(this.gitPath, ['checkout', 'local'], objectDir);
-        }
-        await this.execCmd(this.gitPath, ['add', '.'], objectDir);
-        try {
-            await this.execCmd(this.gitPath, ['diff', '--cached', '--quiet'], objectDir);
-            logMessage("変更がありません。");
-            return false;
-        } catch { }
-        try {
-            await this.execCmd(this.gitPath, ['commit', '-m', 'commit'], objectDir);
-        } catch {
-            logMessage("commitに失敗しました。");
-            await this.execCmd(this.gitPath, ['reset', '--soft', 'HEAD'], objectDir);
+        const isGitRepo = await this.isGitRepository(objectDir);
+        if (!isGitRepo) {
+            logMessage("Gitリポジトリではありません。アップロードをスキップします。");
             return false;
         }
+
+        // 1) mainブランチをチェックアウト
         await this.execCmd(this.gitPath, ['checkout', 'main'], objectDir);
-        const orgHash = await this.execCmd(this.gitPath, ['rev-parse', 'main'], objectDir);
-        try {
-            // ローカルの変更をmainにマージしてリモートにpush
-            await this.execCmd(this.gitPath, ['merge', 'local'], objectDir);
-            await this.execCmd(this.gitPath, ['push', 'origin', 'main'], objectDir);
-        } catch {
-            logMessage("オブジェクトディレクトリの同期に失敗しました。");
-            await this.execCmd(this.gitPath, ['reset', '--hard', orgHash.stdout.trim()], objectDir);
-            await this.execCmd(this.gitPath, ['checkout', 'local'], objectDir);
+        // 3) 変更ファイルをステージング
+        await this.execCmd(this.gitPath, ['add', '.'], objectDir);
+
+        // 4) 差分があるか status --porcelain でチェック
+        const statusResult = await this.execCmd(this.gitPath, ['status', '--porcelain'], objectDir);
+        if (!statusResult.stdout.trim()) {
+            logMessage("差分がありません。アップロードは不要です。");
             return false;
         }
-        await this.execCmd(this.gitPath, ['branch', '-D', 'local'], objectDir);
-        await this.execCmd(this.gitPath, ['checkout', '-b', 'local'], objectDir);
-        logMessage("オブジェクトディレクトリをGitHubと同期しました。");
+
+        // 5) コミット
+        await this.execCmd(this.gitPath, ['commit', '-m', 'commit'], objectDir);
+
+        // 6) リモートへpush
+        await this.execCmd(this.gitPath, ['push', 'origin', 'main'], objectDir);
+        logMessage("mainブランチをリモートへpushしました。");
         return true;
     }
 
@@ -112,11 +124,11 @@ export class GitHubSyncProvider implements IStorageProvider {
         return new Promise((resolve, reject) => {
             cp.execFile(cmd, args, { cwd: cwd }, (error, stdout, stderr) => {
                 if (error) {
-                    reject(new Error(`execFile error: ${cwd}> ${cmd} ${args.join(' ')}\nstdout:'${stdout}', stderr:'${stderr}'`));
+                    reject(new Error(`execFile error: ${cwd}> ${cmd} ${args.join(' ')} \nstdout: '${stdout}', stderr: '${stderr}'`));
                 } else {
-                    logMessage(`execFile: ${cwd}> ${cmd} ${args.join(' ')}`);
-                    if (stdout !== '') { logMessage(`${stdout}`); }
-                    if (stderr !== '') { logMessage(`Err:${stderr}`); }
+                    logMessage(`execFile: ${cwd}> ${cmd} ${args.join(' ')} `);
+                    if (stdout !== '') { logMessage(`${stdout} `); }
+                    if (stderr !== '') { logMessage(`Err:${stderr} `); }
                     resolve({ stdout, stderr });
                 }
             });
@@ -131,6 +143,19 @@ export class GitHubSyncProvider implements IStorageProvider {
         } catch (error) {
             return false;
         }
+    }
+
+    /**
+ * ステージに上がっていればコミットする
+ */
+    private async commitIfNeeded(dir: string, message: string): Promise<void> {
+        // 差分チェック
+        const statusResult = await this.execCmd(this.gitPath, ['status', '--porcelain'], dir);
+        if (!statusResult.stdout.trim()) {
+            return;
+        }
+        // コミット
+        await this.execCmd(this.gitPath, ['commit', '-m', message], dir);
     }
 }
 
@@ -171,7 +196,7 @@ function findGitExecutable(): string {
             ];
             break;
         default:
-            throw new Error(`Unsupported platform: ${platform}`);
+            throw new Error(`Unsupported platform: ${platform} `);
     }
 
     // Search predefined paths
