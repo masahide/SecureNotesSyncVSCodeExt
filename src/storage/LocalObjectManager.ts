@@ -51,7 +51,9 @@ export class LocalObjectManager {
         const latestFileHashes = new Set(latestIndex.files.map((file) => file.hash));
         let updated = false;
         for (const file of localFiles) {
-            // ファイルがリモートインデックスに存在するか確認
+            if (file.deleted) {
+                continue; // 削除されたファイルはアップロードしない
+            }
             if (latestFileHashes.has(file.hash)) {
                 continue; // 既に存在する場合、アップロードをスキップ
             }
@@ -239,26 +241,7 @@ export class LocalObjectManager {
                 await this.fetchDecryptAndSaveFile(conflict.filePath, conflict.remoteHash, options);
                 continue;
             }
-            const choice = await vscode.window.showQuickPick(
-                ["Keep Local Version", "Keep Remote Version", "Save Remote as Conflict File", "Abort Sync"],
-                {
-                    placeHolder: `Conflict detected in file: ${conflict.filePath} `,
-                }
-            );
-
-            if (choice === "Keep Local Version") {
-                // ローカルの変更を適用（何もしない）
-                continue;
-            } else if (choice === "Keep Remote Version") {
-                // リモートのファイルでローカルを上書き
-                await this.overwriteLocalFileWithRemote(conflict.filePath, conflict.remoteHash, options);
-            } else if (choice === "Save Remote as Conflict File") {
-                // リモートのファイルを別名で保存
-                await this.saveRemoteFileAsConflict(conflict.filePath, conflict.remoteHash, options);
-            } else if (choice === "Abort Sync" || !choice) {
-                // 同期を中止
-                return false;
-            }
+            await this.saveRemoteFileAsConflict(conflict.filePath, conflict.remoteHash, options);
         }
         return true;
     }
@@ -317,6 +300,7 @@ export class LocalObjectManager {
         }
 
         const files: FileEntry[] = [];
+        const filesMap = new Map<string, FileEntry>();
         const previousFileMap = new Map<string, FileEntry>();
         if (previousIndex) {
             // ファイルパスをキーにしてマップに保存
@@ -345,6 +329,7 @@ export class LocalObjectManager {
                         hash: previousFileEntry.hash,
                         timestamp: stat.mtime,
                     });
+                    filesMap.set(relativePath, { ...previousFileEntry });
                 } else {
                     // タイムスタンプが異なる場合、ハッシュ値を再計算
                     const fileContent = await vscode.workspace.fs.readFile(fileUri);
@@ -354,6 +339,17 @@ export class LocalObjectManager {
                         path: relativePath,
                         hash: hash,
                         timestamp: stat.mtime,
+                    });
+                }
+            }
+            // ファイルの削除を検出し、files に追加
+            for (const [path, fileEntry] of previousFileMap) {
+                if (!filesMap.has(path)) {
+                    files.push({
+                        path: path,
+                        hash: fileEntry.hash, // 削除されたファイルのハッシュ値はそのまま
+                        timestamp: fileEntry.timestamp, // 削除されたファイルのタイムスタンプはそのまま
+                        deleted: true,
                     });
                 }
             }
@@ -463,9 +459,9 @@ export class LocalObjectManager {
         }
 
         // 2) 削除されたファイルの反映
-        // oldIndex にはあるが newIndex にはない」＝削除されたファイル
+        // oldIndex にはあるが newIndex では削除フラグがあるファイル
         for (const [filePath, oldFileEntry] of oldMap.entries()) {
-            if (!newMap.has(filePath)) {
+            if (newMap.get(filePath)?.deleted) {
                 // ローカルワークスペースから削除
                 logMessage(`reflectFileChanges: File removed -> ${filePath}`);
                 const localUri = vscode.Uri.joinPath(rootUri, filePath);
