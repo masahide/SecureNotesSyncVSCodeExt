@@ -2,7 +2,7 @@
   "name": "secure-notes-sync",
   "displayName": "Secure Notes Sync",
   "description": "A VSCode extension for securely syncing notes with a GitHub repository.",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "publisher": "MasahideYAMASAKI",
   "engines": {
     "vscode": "^1.96.0"
@@ -35,8 +35,13 @@
         },
         "SecureNotesSync.inactivityTimeoutSec": {
           "type": "number",
-          "description": "Inactivity timeout in seconds for auto sync",
+          "description": "Inactivity timeout in seconds for triggering sync when the window is refocused",
           "default": 60
+        },
+        "SecureNotesSync.saveSyncTimeoutSec": {
+          "type": "number",
+          "description": "Timeout in seconds after file save before triggering sync",
+          "default": 5
         },
         "SecureNotesSync.onePasswordUri": {
           "type": "string",
@@ -47,6 +52,11 @@
           "type": "string",
           "description": "(Optional) The 1Password account name to use with the op CLI",
           "default": ""
+        },
+        "SecureNotesSync.onePasswordCacheTimeout": {
+          "type": "string",
+          "description": "Cache timeout for the AES encryption key retrieved via 1Password (e.g., '1h', '30m', '2d')",
+          "default": "30d"
         }
       }
     },

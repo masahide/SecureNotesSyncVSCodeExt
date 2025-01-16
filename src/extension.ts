@@ -183,15 +183,13 @@ export async function activate(context: vscode.ExtensionContext) {
       const inactivityTimeoutSec = vscode.workspace.getConfiguration(appName).get<number>("inactivityTimeoutSec", 60);
       const now = Date.now();
       if (lastWindowActivationTime === 0) {
-        // 拡張起動後に初めてアクティブになった場合
         lastWindowActivationTime = now;
         return;
       }
       const diff = (now - lastWindowActivationTime) / 1000;
-      // 一定秒数以上アクティブでなかった場合のみsyncを実行して短時間での連続実行を防ぐ
       if (diff > inactivityTimeoutSec) {
         vscode.commands.executeCommand("extension.syncNotes");
-        logMessage(`ウィンドウ再アクティブ(${diff}秒経過)のためSyncを実行しました。`);
+        logMessage(`ウィンドウ再アクティブ(${Math.round(diff)}秒経過)のためSyncを実行しました。`);
       }
       lastWindowActivationTime = now;
     }
@@ -206,10 +204,11 @@ export async function activate(context: vscode.ExtensionContext) {
     if (saveSyncTimeout) {
       clearTimeout(saveSyncTimeout);
     }
+    const saveSyncTimeoutSec = vscode.workspace.getConfiguration(appName).get<number>("saveSyncTimeoutSec", 5);
     saveSyncTimeout = setTimeout(() => {
       vscode.commands.executeCommand("extension.syncNotes");
       logMessage("ファイル保存後の遅延同期を実行しました。");
-    }, 5000);
+    }, saveSyncTimeoutSec * 1000);
   });
 
 
@@ -262,15 +261,15 @@ async function getAESKey(context: vscode.ExtensionContext): Promise<string | und
   // 3) "op://" の場合はキャッシュをチェック
   const cachedKey = await context.secrets.get(aesEncryptionKey);
   const cachedTimeStr = await context.secrets.get(aesEncryptionKeyFetchedTime);
+  const cacheTimeoutStr = vscode.workspace.getConfiguration(appName).get<string>("onePasswordCacheTimeout", "30d");
   if (cachedKey && cachedTimeStr) {
     const cachedTime = parseInt(cachedTimeStr, 10);
     const now = Date.now();
-    if (!isNaN(cachedTime) && (now - cachedTime) < 86400000 * 30) { // 30 days
-      // まだキャッシュ有効
+    if (!isNaN(cachedTime) && (now - cachedTime) < parseTimeToMs(cacheTimeoutStr)) { // Convert to milliseconds
+      // Cache still valid
       return cachedKey;
     }
   }
-
   // 4) キャッシュが無い or 期限切れ → op CLI で取得する
   let keyFrom1Password: string | undefined;
   try {
@@ -316,4 +315,28 @@ function getKeyFrom1PasswordCLI(opPath: string, account: string, opUri: string):
       }
     });
   });
+}
+
+function parseTimeToMs(timeStr: string): number {
+  const timeUnitRegex = /(\d+)([smhd])/;
+  const match = timeStr.match(timeUnitRegex);
+  if (match) {
+    const value = parseInt(match[1], 10);
+    const unit = match[2];
+    switch (unit) {
+      case 's':
+        return value * 1000;
+      case 'm':
+        return value * 60 * 1000;
+      case 'h':
+        return value * 60 * 60 * 1000;
+      case 'd':
+        return value * 24 * 60 * 60 * 1000;
+      default:
+        return 2592000000; // 30 days in milliseconds
+    }
+  } else {
+    // Invalid format, default to 30 days
+    return 2592000000;
+  }
 }
