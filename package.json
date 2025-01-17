@@ -2,7 +2,7 @@
   "name": "secure-notes-sync",
   "displayName": "Secure Notes Sync",
   "description": "A VSCode extension for securely syncing notes with a GitHub repository.",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "publisher": "MasahideYAMASAKI",
   "engines": {
     "vscode": "^1.96.0"
@@ -18,6 +18,23 @@
   "activationEvents": [
     "workspaceContains:.secureNotes/wsIndex.json"
   ],
+  "viewsContainers": {
+    "activitybar": [
+      {
+        "id": "secureNotesBranches",
+        "title": "Secure Notes Branches",
+        "icon": "src/assets/git-branch.svg"
+      }
+    ]
+  },
+  "views": {
+    "secureNotesBranches": [
+      {
+        "id": "secureNotesBranchesView",
+        "name": "Branches"
+      }
+    ]
+  },
   "contributes": {
     "configuration": {
       "type": "object",
@@ -84,6 +101,18 @@
       {
         "command": "extension.insertCurrentTime",
         "title": "Insert Current Time"
+      },
+      {
+        "command": "extension.generateAESKey",
+        "title": "Generate AES Key"
+      },
+      {
+        "command": "extension.createBranchFromIndex",
+        "title": "Create Branch from Index"
+      },
+      {
+        "command": "extension.checkoutBranch",
+        "title": "Checkout Branch"
       }
     ]
   },
