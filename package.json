@@ -18,24 +18,36 @@
   "activationEvents": [
     "workspaceContains:.secureNotes/wsIndex.json"
   ],
-  "viewsContainers": {
-    "activitybar": [
-      {
-        "id": "secureNotesBranches",
-        "title": "Secure Notes Branches",
-        "icon": "src/assets/git-branch.svg"
-      }
-    ]
-  },
-  "views": {
-    "secureNotesBranches": [
-      {
-        "id": "secureNotesBranchesView",
-        "name": "Branches"
-      }
-    ]
-  },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "secureNotesBranches",
+          "title": "Secure Notes Branches",
+          "icon": "src/assets/git-branch.svg"
+        }
+      ]
+    },
+    "views": {
+      "secureNotesBranches": [
+        {
+          "id": "secureNotesBranchesView",
+          "name": "Branches"
+        }
+      ]
+    },
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "extension.createBranchFromIndex",
+          "when": "view == secureNotesBranchesView && viewItem == indexItem"
+        },
+        {
+          "command": "extension.checkoutBranch",
+          "when": "view == secureNotesBranchesView && viewItem == branchItem"
+        }
+      ]
+    },
     "configuration": {
       "type": "object",
       "title": "Secure Notes Sync",

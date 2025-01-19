@@ -16,115 +16,129 @@ export class GitHubSyncProvider implements IStorageProvider {
         this.gitPath = findGitExecutable();
     }
 
-    // pull する
-    // リモート側が更新されていない場合は false を返す
-    // リモート側が更新されている場合は、強制的にlocalとマージして true を返す
-    public async download(): Promise<boolean> {
+    /**
+     * ローカルにクローン相当のものがない場合は作成し、指定ブランチをfetch/mergeする。
+     * リモートに該当ブランチが存在しない場合は、新規に作成してpushする。
+     *
+     * @param branchName 例: "main", "dev", ...
+     * @returns {Promise<boolean>} リモートに更新があった場合はtrue、なかった場合はfalse
+     */
+    public async download(branchName: string): Promise<boolean> {
         logMessage(`gitPath: ${this.gitPath}`);
         const objectDir = remotesDirUri.fsPath;
         // ディレクトリがGitリポジトリかどうかを確認
         const isGitRepo = await this.isGitRepository(objectDir);
         if (!isGitRepo) {
             // Gitリポジトリを初期化
-            const gitattributesUri = vscode.Uri.joinPath(remotesDirUri, '.gitattributes');
-            await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
-            await this.execCmd(this.gitPath, ['init'], objectDir);
-            await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], objectDir);
-            try {
-                await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
-                // 3) origin/main が存在するかチェック
-                const originmain = await this.execCmd(this.gitPath, ['rev-parse', '--verify', 'origin/main'], objectDir);
-                if (!originmain.stdout.trim()) {
-                    throw new Error("origin/main が存在しません。");
-                }
-                // リモートに main がある場合 → main ブランチを作ってマージ
-                await this.execCmd(this.gitPath, ['checkout', '-b', 'main'], objectDir);
-                await this.execCmd(this.gitPath, ['add', '.'], objectDir);
-                // --allow-unrelated-histories と -X theirs で強制マージ
+            await this.initializeGitRepo(objectDir, branchName);
+            // ここで一度リモートをfetchし、origin/branchNameが存在するかチェック
+            const isRemoteBranchExists = await this.remoteBranchExists(objectDir, branchName);
+            if (isRemoteBranchExists) {
+                // リモートブランチをマージ
+                await this.checkoutBranch(objectDir, branchName, true /*createIfNotExist*/);
+                // merge origin/branchName (theirs)
                 await this.execCmd(this.gitPath, [
                     'merge',
+                    `origin/${branchName}`,
                     '--allow-unrelated-histories',
-                    'origin/main',
                     '-X', 'theirs',
-                    '-m', 'Merge remote main'
+                    '-m', `Merge remote ${branchName}`
                 ], objectDir);
-
-                logMessage("初回リポジトリ作成後、リモートmainをマージしました。");
+                logMessage(`初回リポジトリ作成後、リモート${branchName}をマージしました。`);
                 return true;
-            } catch (error) {
-                logMessage("origin/main が存在しないため、mainブランチを新規作成します。error: " + error);
-                // origin/main が無い（=空リポジトリ or 本当にブランチが無い）場合
-                await this.execCmd(this.gitPath, ['checkout', '-b', 'main'], objectDir);
-                // 空のままだとコミットできないので最低限のファイルをコミット
+            } else {
+                // リモートブランチが存在しない → ローカルで空コミットして push
+                await this.checkoutBranch(objectDir, branchName, true);
+                // 空だとコミットできないので最低限のファイルをコミット
                 await this.execCmd(this.gitPath, ['add', '.'], objectDir);
                 await this.commitIfNeeded(objectDir, 'Initial commit');
-                // リモートにpushしておく
-                await this.execCmd(this.gitPath, ['push', '-u', 'origin', 'main'], objectDir);
-                logMessage("初回リポジトリ作成後、remote main を新規作成してpushしました。");
+                await this.execCmd(this.gitPath, ['push', '-u', 'origin', branchName], objectDir);
+                logMessage(`リモートにブランチ「${branchName}」を新規作成してpushしました。`);
+                return false;
+            }
+        } else {
+            // 既存リポジトリの場合
+            // 1) fetchしてリモートの更新を取得
+            await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
+
+            // 2) origin/branchNameがあるかどうかをチェック
+            const isRemoteBranchExists = await this.remoteBranchExists(objectDir, branchName);
+
+            // 3) ローカル側にそのブランチをチェックアウト (なければ作る)
+            await this.checkoutBranch(objectDir, branchName, true /* createIfNotExist */);
+
+            if (isRemoteBranchExists) {
+                // リモートに更新がある場合はマージしてみる
+                const localRef = await this.execCmd(this.gitPath, ['rev-parse', '--verify', branchName], objectDir);
+                const remoteRef = await this.execCmd(this.gitPath, ['rev-parse', '--verify', `origin/${branchName}`], objectDir);
+
+                if (localRef.stdout.trim() === remoteRef.stdout.trim()) {
+                    logMessage(`リモートに更新はありません（${branchName}ブランチ）。`);
+                    return false;
+                }
+                // merge origin/branchName
+                await this.execCmd(this.gitPath, [
+                    'merge',
+                    `origin/${branchName}`,
+                    '--allow-unrelated-histories',
+                    '-X', 'theirs',
+                    '-m', `Merge remote ${branchName}`
+                ], objectDir);
+                logMessage(`既存リポジトリでorigin/${branchName}をマージしました。`);
+                return true;
+            } else {
+                // リモートにbranchがない → 新規としてpush
+                logMessage(`リモートに ${branchName} が存在しないので新規pushします。`);
+                await this.execCmd(this.gitPath, ['push', '-u', 'origin', branchName], objectDir);
                 return false;
             }
         }
-        // --- 既存リポジトリ ---
-        // 1) mainブランチにチェックアウト
-        await this.execCmd(this.gitPath, ['checkout', 'main'], objectDir);
-        // 2) fetchしてリモートの更新を取得
-        await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
-        // 3) origin/main をマージ
-        const localmain = await this.execCmd(this.gitPath, ['rev-parse', '--verify', 'main'], objectDir);
-        const originmain = await this.execCmd(this.gitPath, ['rev-parse', '--verify', 'origin/main'], objectDir);
-        if (localmain.stdout.trim() === originmain.stdout.trim()) {
-            logMessage("リモートに更新はありません。");
-            return false;
-        }
-        await this.execCmd(this.gitPath, [
-            'merge',
-            'origin/main',
-            '-X', 'theirs',
-            '--allow-unrelated-histories',
-            '-m', 'Merge remote main'
-        ], objectDir);
-        logMessage("既存リポジトリでorigin/mainをマージしました。");
-        return true;
     }
-    // push する
-    // ローカル側が更新されていない場合は false を返す
-    // ローカル側が更新されている場合はpushして true を返す
-    public async upload(): Promise<boolean> {
+
+    /**
+  * ローカルの変更をステージ&コミットし、指定ブランチをpush。
+  * 差分がなければ push しない。
+  *
+  * @param branchName
+  * @returns {Promise<boolean>} pushしたらtrue、差分なければfalse
+  */
+    public async upload(branchName: string): Promise<boolean> {
         logMessage(`gitPath: ${this.gitPath}`);
         const objectDir = remotesDirUri.fsPath;
+
         const isGitRepo = await this.isGitRepository(objectDir);
         if (!isGitRepo) {
             logMessage("Gitリポジトリではありません。アップロードをスキップします。");
             return false;
         }
 
-        // 1) mainブランチをチェックアウト
-        await this.execCmd(this.gitPath, ['checkout', 'main'], objectDir);
-        // 3) 変更ファイルをステージング
-        await this.execCmd(this.gitPath, ['add', '.'], objectDir);
+        // 1) 指定ブランチをCheckout (なければ作る)
+        await this.checkoutBranch(objectDir, branchName, true);
 
-        // 4) 差分があるか status --porcelain でチェック
+        // 2) 差分があればコミット
+        await this.execCmd(this.gitPath, ['add', '.'], objectDir);
         const statusResult = await this.execCmd(this.gitPath, ['status', '--porcelain'], objectDir);
         if (!statusResult.stdout.trim()) {
             logMessage("差分がありません。アップロードは不要です。");
             return false;
         }
-
-        // 5) コミット
+        // コミット
         await this.execCmd(this.gitPath, ['commit', '-m', 'commit'], objectDir);
 
-        // 6) リモートへpush
-        await this.execCmd(this.gitPath, ['push', 'origin', 'main'], objectDir);
-        logMessage("mainブランチをリモートへpushしました。");
+        // 3) push
+        await this.execCmd(this.gitPath, ['push', 'origin', branchName], objectDir);
+        logMessage(`${branchName}ブランチをリモートへpushしました。`);
         return true;
     }
 
-    // Gitコマンドを実行するヘルパー関数
+    /**
+     * Gitコマンドを実行するヘルパー関数
+     */
     private async execCmd(cmd: string, args: string[], cwd: string): Promise<{ stdout: string, stderr: string }> {
         return new Promise((resolve, reject) => {
             cp.execFile(cmd, args, { cwd: cwd }, (error, stdout, stderr) => {
                 if (error) {
-                    reject(new Error(`execFile error: ${cwd}> ${cmd} ${args.join(' ')} \nstdout: '${stdout}', stderr: '${stderr}'`));
+                    reject(new Error(`execFile error: ${cwd}> ${cmd} ${args.join(' ')} \nstdout: '${stdout}'\nstderr: '${stderr}'`));
                 } else {
                     logMessage(`execFile: ${cwd}> ${cmd} ${args.join(' ')} `);
                     if (stdout !== '') { logMessage(`${stdout} `); }
@@ -135,7 +149,9 @@ export class GitHubSyncProvider implements IStorageProvider {
         });
     }
 
-    // Check if a directory is a git repository
+    /**
+    * 指定ディレクトリがGitリポジトリかどうか
+    */
     private async isGitRepository(dir: string): Promise<boolean> {
         try {
             await this.execCmd(this.gitPath, ['rev-parse', '--is-inside-work-tree'], dir);
@@ -146,8 +162,66 @@ export class GitHubSyncProvider implements IStorageProvider {
     }
 
     /**
- * ステージに上がっていればコミットする
- */
+   * Gitリポジトリを初期化し、remote originを追加する
+   */
+    private async initializeGitRepo(dir: string, branchName: string): Promise<void> {
+        // .gitattributesでバイナリ扱いとする（暗号化ファイルをテキスト差分しないため）
+        const gitattributesUri = vscode.Uri.joinPath(remotesDirUri, '.gitattributes');
+        await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
+
+        await this.execCmd(this.gitPath, ['init'], dir);
+        await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], dir);
+        // fetchだけ先にしておく
+        await this.execCmd(this.gitPath, ['fetch', 'origin'], dir);
+        logMessage("Gitリポジトリを初期化しました。");
+    }
+
+    /**
+     * 指定ブランチが origin で存在するかどうか
+     */
+    private async remoteBranchExists(dir: string, branchName: string): Promise<boolean> {
+        try {
+            // origin/branchName が存在するか
+            await this.execCmd(this.gitPath, ['rev-parse', '--verify', `origin/${branchName}`], dir);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * createIfNotExist=trueの場合、指定ブランチが存在しなければ「git checkout -b branchName」で作成する。
+     * 既にあれば「git checkout branchName」で移動する。
+     * @param dir 
+     * @param branchName 
+     * @param createIfNotExist trueならローカルに存在しない場合に新規作成
+     */
+    private async checkoutBranch(dir: string, branchName: string, createIfNotExist: boolean): Promise<void> {
+        const localBranchExists = await this.localBranchExists(dir, branchName);
+        if (!localBranchExists && createIfNotExist) {
+            // 新規ブランチ
+            await this.execCmd(this.gitPath, ['checkout', '-b', branchName], dir);
+        } else {
+            // 既存ブランチにcheckout
+            await this.execCmd(this.gitPath, ['checkout', branchName], dir);
+        }
+    }
+
+    /**
+     * ローカルにbranchNameというブランチが存在するかどうか
+     */
+    private async localBranchExists(dir: string, branchName: string): Promise<boolean> {
+        try {
+            const result = await this.execCmd(this.gitPath, ['rev-parse', '--verify', branchName], dir);
+            return !!result.stdout.trim();
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * ステージ上に差分があればコミット（差分がなければ何もしない）
+     */
     private async commitIfNeeded(dir: string, message: string): Promise<void> {
         // 差分チェック
         const statusResult = await this.execCmd(this.gitPath, ['status', '--porcelain'], dir);

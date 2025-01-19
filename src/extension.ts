@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import * as os from "os";
 import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
 import { BranchTreeViewProvider } from "./BranchTreeViewProvider"; // new
-import { LocalObjectManager } from "./storage/LocalObjectManager";
+import { LocalObjectManager, getCurrentBranchName, setCurrentBranchName } from "./storage/LocalObjectManager";
 import { GitHubSyncProvider } from "./storage/GithubProvider";
 import { IndexFile } from "./types";
 import * as crypto from "crypto";
@@ -67,8 +67,7 @@ export async function activate(context: vscode.ExtensionContext) {
         showInfo(`Generated and stored AES key: ${key}`);
       } catch (error: any) {
         showError(
-          `Error generating encrypted text: ${
-            error instanceof Error ? error.message : String(error)
+          `Error generating encrypted text: ${error instanceof Error ? error.message : String(error)
           }`
         );
       }
@@ -85,10 +84,9 @@ export async function activate(context: vscode.ExtensionContext) {
           showError("AES Key not set");
           return false;
         }
-        const options = {
-          environmentId: environmentId,
-          encryptionKey: encryptKey,
-        };
+
+
+
         const gitRemoteUrl = vscode.workspace
           .getConfiguration(appName)
           .get<string>("gitRemoteUrl");
@@ -97,6 +95,10 @@ export async function activate(context: vscode.ExtensionContext) {
           return;
         }
 
+        const options = {
+          environmentId: environmentId,
+          encryptionKey: encryptKey,
+        };
         const previousIndex = await LocalObjectManager.loadWsIndex(options);
         logMessage(`Loaded previous index file: ${previousIndex.uuid}`);
         let newLocalIndex = await LocalObjectManager.generateLocalIndexFile(
@@ -107,7 +109,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
         const cloudStorageProvider = new GitHubSyncProvider(gitRemoteUrl);
         let updated = false;
-        if (await cloudStorageProvider.download()) {
+        // 追加: 現在のブランチ名を取得 (HEADファイル or default: main)
+        const currentBranch = await getCurrentBranchName();
+        if (await cloudStorageProvider.download(currentBranch)) {
           // リモートに更新があった場合
           const remoteIndex = await LocalObjectManager.loadRemoteIndex(options);
           const conflicts = await LocalObjectManager.detectConflicts(
@@ -143,7 +147,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         if (updated) {
           // 3) 新しいインデックスを保存
-          await LocalObjectManager.saveIndexFile(newLocalIndex, options);
+          await LocalObjectManager.saveIndexFile(newLocalIndex, currentBranch, encryptKey);
           await LocalObjectManager.saveWsIndexFile(newLocalIndex, options);
           await LocalObjectManager.reflectFileChanges(
             previousIndex,
@@ -152,7 +156,7 @@ export async function activate(context: vscode.ExtensionContext) {
           );
 
           // 4) GitHub に push
-          await cloudStorageProvider.upload();
+          await cloudStorageProvider.upload(currentBranch);
           showInfo("Merge completed successfully.");
           return true;
         }
@@ -408,6 +412,10 @@ export async function activate(context: vscode.ExtensionContext) {
           environmentId: "",
           encryptionKey: encryptKey,
         });
+
+        // **ここで HEADファイルに選択したブランチを記録**
+        await setCurrentBranchName(branchName);
+
         // Optionally store the current branch name in wsIndex or a separate field
         vscode.window.showInformationMessage(
           `Checked out branch: ${branchName}`

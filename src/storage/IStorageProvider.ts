@@ -5,6 +5,6 @@ export interface IStorageProvider {
      *  - ローカルの .enc ファイルをクラウドへ
      *  - クラウドにしかない .enc ファイルをローカルへ
      */
-    download(): Promise<boolean>;
-    upload(): Promise<boolean>;
+    download(branchName: string): Promise<boolean>;
+    upload(branchName: string): Promise<boolean>;
 }
