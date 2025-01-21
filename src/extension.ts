@@ -95,10 +95,7 @@ export async function activate(context: vscode.ExtensionContext) {
           return;
         }
 
-        const options = {
-          environmentId: environmentId,
-          encryptionKey: encryptKey,
-        };
+        const options = { environmentId: environmentId, encryptionKey: encryptKey };
         const previousIndex = await LocalObjectManager.loadWsIndex(options);
         logMessage(`Loaded previous index file: ${previousIndex.uuid}`);
         let newLocalIndex = await LocalObjectManager.generateLocalIndexFile(
@@ -149,11 +146,7 @@ export async function activate(context: vscode.ExtensionContext) {
           // 3) 新しいインデックスを保存
           await LocalObjectManager.saveIndexFile(newLocalIndex, currentBranch, encryptKey);
           await LocalObjectManager.saveWsIndexFile(newLocalIndex, options);
-          await LocalObjectManager.reflectFileChanges(
-            previousIndex,
-            newLocalIndex,
-            options
-          );
+          await LocalObjectManager.reflectFileChanges(previousIndex, newLocalIndex, options, false);
 
           // 4) GitHub に push
           await cloudStorageProvider.upload(currentBranch);
@@ -385,43 +378,24 @@ export async function activate(context: vscode.ExtensionContext) {
           vscode.window.showErrorMessage(`Branch ${branchName} has no index.`);
           return;
         }
+        const options = { environmentId: environmentId, encryptionKey: encryptKey };
         // 5) Load that index from .secureNotes
-        const targetIndex = await LocalObjectManager.loadIndex(
-          latestIndexUuid,
-          {
-            environmentId: "",
-            encryptionKey: encryptKey,
-          }
-        );
+        const targetIndex = await LocalObjectManager.loadIndex(latestIndexUuid, options);
         // 6) Reflect those files in the workspace
         //    For "checkout", we can just do reflectFileChanges
-        const currentWsIndex = await LocalObjectManager.loadWsIndex({
-          environmentId: "",
-          encryptionKey: encryptKey,
-        });
-        await LocalObjectManager.reflectFileChanges(
-          currentWsIndex,
-          targetIndex,
-          {
-            environmentId: "",
-            encryptionKey: encryptKey,
-          }
-        );
+        const currentWsIndex = await LocalObjectManager.loadWsIndex(options);
+        // TODO: checkoutの場合は、ファイルの差分を取らずに上書きして、存在しないファイルは削除する必要がある
+        await LocalObjectManager.reflectFileChanges(currentWsIndex, targetIndex, options, true);
         // 7) Update wsIndex.json to record that we have the new branch checked out
-        await LocalObjectManager.saveWsIndexFile(targetIndex, {
-          environmentId: "",
-          encryptionKey: encryptKey,
-        });
+        await LocalObjectManager.saveWsIndexFile(targetIndex, options);
 
         // **ここで HEADファイルに選択したブランチを記録**
         await setCurrentBranchName(branchName);
 
         // Optionally store the current branch name in wsIndex or a separate field
-        vscode.window.showInformationMessage(
-          `Checked out branch: ${branchName}`
-        );
+        showInfo(`Checked out branch: ${branchName}`);
       } catch (err: any) {
-        vscode.window.showErrorMessage(`checkoutBranch error: ${err.message}`);
+        showError(`checkoutBranch error: ${err.message}`);
       }
     }
   );

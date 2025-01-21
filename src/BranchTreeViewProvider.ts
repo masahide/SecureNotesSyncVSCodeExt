@@ -166,7 +166,7 @@ export class IndexItem extends vscode.TreeItem {
         super(
             `${new Date(indexFile.timestamp).toLocaleString()} [${indexFile.uuid.slice(
                 0,
-                10
+                14
             )}...]`,
             vscode.TreeItemCollapsibleState.None
         );

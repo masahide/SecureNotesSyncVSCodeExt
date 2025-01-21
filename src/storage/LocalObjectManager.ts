@@ -398,32 +398,21 @@ export class LocalObjectManager {
             for (const fileUri of filesInFolder) {
                 const stat = await vscode.workspace.fs.stat(fileUri);
                 const relativePath = vscode.workspace.asRelativePath(fileUri, false);
+                filesMap.set(relativePath, { path: relativePath, hash: "", timestamp: stat.mtime });
 
                 // 前回のインデックスに同じファイルがあるか確認
                 const previousFileEntry = previousFileMap.get(relativePath);
 
+                let hash = "";
                 if (previousFileEntry && previousFileEntry.timestamp === stat.mtime) {
                     // タイムスタンプが同じ場合、ハッシュ値を再利用
-                    files.push({
-                        path: relativePath,
-                        hash: previousFileEntry.hash,
-                        timestamp: stat.mtime,
-                    });
-                    filesMap.set(relativePath, { ...previousFileEntry });
+                    hash = previousFileEntry.hash;
                 } else {
                     // タイムスタンプが異なる場合、ハッシュ値を再計算
                     const fileContent = await vscode.workspace.fs.readFile(fileUri);
-                    const hash = crypto
-                        .createHash("sha256")
-                        .update(fileContent)
-                        .digest("hex");
-
-                    files.push({
-                        path: relativePath,
-                        hash: hash,
-                        timestamp: stat.mtime,
-                    });
+                    hash = crypto.createHash("sha256").update(fileContent).digest("hex")
                 }
+                files.push({ path: relativePath, hash: hash, timestamp: stat.mtime });
             }
             // ファイルの削除を検出し、files に追加
             for (const [path, fileEntry] of previousFileMap) {
@@ -530,8 +519,10 @@ export class LocalObjectManager {
     public static async reflectFileChanges(
         oldIndex: IndexFile,
         newIndex: IndexFile,
-        options: LocalObjectManagerOptions
+        options: LocalObjectManagerOptions,
+        forceCheckout: boolean,
     ): Promise<void> {
+        logMessage(`reflectFileChanges: Start. forceCheckout:${forceCheckout} oldIndex:${oldIndex.uuid}, newIndex:${newIndex.uuid}`);
         const rootUri = getRootUri();
 
         // oldIndex のファイルをMap化
@@ -549,7 +540,10 @@ export class LocalObjectManager {
         // 1) 追加 or 更新されたファイルの反映
         //   「newIndex にはあるが oldIndex にはない」＝新規追加されたファイル
         for (const [filePath, newFileEntry] of newMap.entries()) {
-            if (!oldMap.has(filePath)) {
+            if (newFileEntry.deleted) {
+                continue;
+            }
+            if (!oldMap.has(filePath) || oldMap.get(filePath)?.deleted) {
                 // 新規ファイルをローカルへ復元
                 // まだローカルに実ファイルが無い場合、.secureNotes/remotes/... から復号して作成する
                 logMessage(`reflectFileChanges: File added -> ${filePath}`);
@@ -564,26 +558,48 @@ export class LocalObjectManager {
         // 2) 削除されたファイルの反映
         // oldIndex にはあるが newIndex では削除フラグがあるファイル
         for (const [filePath, oldFileEntry] of oldMap.entries()) {
-            if (newMap.get(filePath)?.deleted) {
-                // ローカルワークスペースから削除
-                logMessage(`reflectFileChanges: File removed -> ${filePath}`);
-                const localUri = vscode.Uri.joinPath(rootUri, filePath);
-                try {
-                    // VSCodeのworkspace.fs.deleteで削除実行
-                    await vscode.workspace.fs.delete(localUri, {
-                        recursive: false,
-                        useTrash: false,
-                    });
-                } catch (error: any) {
-                    // 存在しない場合などは単にログ出力
-                    logMessage(`Error deleting file: ${filePath}. ${error.message}`);
+            const newfile = newMap.get(filePath);
+            if (forceCheckout) {
+                if (!newfile || newfile.deleted) {
+                    // 強制チェックアウトの場合、newIndexに存在しないファイルは削除
+                    this.removeFile(filePath);
+                }
+            } else {
+                if (newfile && (newfile.deleted
+                    && newfile.timestamp === oldFileEntry.timestamp) // 削除フラグが立っているがタイムスタンプが同じ場合
+                ) {
+                    this.removeFile(filePath);
                 }
             }
+        }
+    }
+    private static async removeFile(filePath: string): Promise<void> {
+        // ローカルワークスペースから削除
+        const localUri = vscode.Uri.joinPath(rootUri, filePath);
+        try {
+            try {
+                const fsstat = await vscode.workspace.fs.stat(localUri);
+                if (fsstat.type !== vscode.FileType.File) {
+                    return;
+                }
+            } catch {
+                return;
+            }
+            // VSCodeのworkspace.fs.deleteで削除実行
+            await vscode.workspace.fs.delete(localUri, {
+                recursive: false,
+                useTrash: false,
+            });
+            logMessage(`reflectFileChanges: File removed -> ${filePath}`);
+        } catch (error: any) {
+            // 存在しない場合などは単にログ出力
+            logMessage(`warning: deleting file: ${filePath}. ${error.message}`);
         }
     }
     public static getRefsDirUri(): vscode.Uri {
         return remoteRefsDirUri; // .secureNotes/remotes/refs
     }
+
 
     // Save the indexFile.uuid as the "latest" for the given branch
     public static async saveBranchRef(
@@ -638,10 +654,6 @@ export async function getCurrentBranchName(): Promise<string> {
  * 現在のブランチ名を .secureNotes/HEAD に書き込む
  */
 export async function setCurrentBranchName(branchName: string): Promise<void> {
-    const rootUri = vscode.workspace.workspaceFolders?.[0].uri;
-    if (!rootUri) {
-        return;
-    }
     const headUri = vscode.Uri.joinPath(rootUri, ".secureNotes", HEAD_FILE_NAME);
     await vscode.workspace.fs.writeFile(headUri, Buffer.from(branchName, "utf8"));
 }
