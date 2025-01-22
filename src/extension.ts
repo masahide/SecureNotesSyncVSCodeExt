@@ -85,8 +85,6 @@ export async function activate(context: vscode.ExtensionContext) {
           return false;
         }
 
-
-
         const gitRemoteUrl = vscode.workspace
           .getConfiguration(appName)
           .get<string>("gitRemoteUrl");
@@ -147,6 +145,7 @@ export async function activate(context: vscode.ExtensionContext) {
           await LocalObjectManager.saveIndexFile(newLocalIndex, currentBranch, encryptKey);
           await LocalObjectManager.saveWsIndexFile(newLocalIndex, options);
           await LocalObjectManager.reflectFileChanges(previousIndex, newLocalIndex, options, false);
+          branchProvider.refresh();
 
           // 4) GitHub に push
           await cloudStorageProvider.upload(currentBranch);

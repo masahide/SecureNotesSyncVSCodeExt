@@ -126,8 +126,8 @@ export class BranchTreeViewProvider
         }
 
         // 3) 古い順 or 新しい順に並べる
-        //   "順にリスト表示"とだけあるのでお好みで。ここでは 古い -> 新しい 順に
-        indexFiles.sort((a, b) => a.timestamp - b.timestamp);
+        //   "順にリスト表示"とだけあるのでお好みで。ここでは 新しい -> 古い 順に
+        indexFiles.sort((a: IndexFile, b: IndexFile) => b.timestamp - a.timestamp);
 
         // 4) IndexItem を生成
         return indexFiles.map((idx) => new IndexItem(idx));
