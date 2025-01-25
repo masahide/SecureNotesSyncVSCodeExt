@@ -1,129 +1,123 @@
+### Start of README.md
+
 # Secure Notes Sync
 
-A Visual Studio Code extension for securely managing and synchronizing notes (or other files) with a GitHub repository. Files are automatically encrypted with an AES key before being pushed and stored remotely.
+A Visual Studio Code extension for securely managing and synchronizing notes (or other files) with a GitHub repository. Files are automatically encrypted with an AES key before being pushed and stored remotely. Supports branch-based synchronization and historical version management.
 
 ## Features
 
-- Encrypt notes/files in your workspace into a hidden `.secureNotes` folder.
-- Sync encryption changes to a remote GitHub repository.
-- Auto-sync based on inactivity (optional).
-- AES key management:
-  - Generate a new 32-byte AES key (64 hex characters).
-  - Retrieve the AES key from 1Password (optional).
-  - Copy the AES key to the clipboard.
-- Conflict detection and resolution when merging remote and local changes.
-- Insert current date/time into the active editor.
+- **Secure Sync**: Encrypt notes/files in your workspace into a hidden `.secureNotes` folder and sync with GitHub.
+- **Branch Management**: Create branches from specific historical indexes and switch between branches to manage different lines of development.
+- **Auto-Sync**: Optionally sync on save or after periods of inactivity.
+- **AES Key Management**:
+  - Generate/store 32-byte AES keys (64 hex characters).
+  - Retrieve keys from 1Password via CLI (optional).
+  - Copy keys to clipboard or refresh cached keys.
+- **Conflict Resolution**: Detect and resolve conflicts during merges.
+- **Time Insertion**: Insert current date/time into active editors.
+- **Tree View**: Visualize branches and historical indexes in the activity bar.
 
 ## Prerequisites
 
-- Visual Studio Code (version 1.96.0 or higher).
-- Git must be installed and available in your PATH.
-- (Optional) [1Password CLI](https://developer.1password.com/docs/cli/) (op) if you want to automatically retrieve the AES encryption key from 1Password.
+- Visual Studio Code (version 1.96.0+).
+- Git installed and accessible in PATH.
+- (Optional) [1Password CLI](https://developer.1password.com/docs/cli/) for AES key retrieval.
 
 ## Installation
 
-1. Install the extension from the VS Code Marketplace (or download and install the .vsix file manually).
-2. Open (or create) a workspace folder where you want to store your notes.
-3. Make sure Git is installed and accessible in your environment.
+1. Install from VS Code Marketplace.
+2. Open/create a workspace folder for notes.
+3. Ensure Git is installed.
 
 ## Quick Start
 
-After installing the extension, follow these steps to get started:
-
-1. Open your command palette (Ctrl+Shift+P on Windows/Linux, Cmd+Shift+P on macOS).
-2. Run "Set AES Key" to add your existing 32-byte key (in 64 hex characters), or "Generate AES Key" to create a new one.
-3. Configure "SecureNotesSync.gitRemoteUrl" with your GitHub repository URL (e.g., <git@github.com>:username/repo.git).
-4. Run the "Sync Notes" command to push your encrypted files to the remote repository.
+1. Open Command Palette (`Ctrl+Shift+P`/`Cmd+Shift+P`).
+2. **Generate AES Key** or **Set AES Key** to configure encryption.
+3. Set `SecureNotesSync.gitRemoteUrl` to your GitHub repo (e.g., `git@github.com:user/repo.git`).
+4. Run **Sync Notes** to initialize the `.secureNotes` structure and push encrypted files.
 
 ## Commands
 
-All commands are available in the Command Palette (Ctrl+Shift+P / Cmd+Shift+P). Search for them by name:
+Search these in the Command Palette:
 
-1. **Generate AES Key** (extension.generateAESKey)  
-   Generates a new random 32-byte key for encryption and saves it in VS Code Secrets.
+1. **Generate AES Key**  
+   Creates a new 32-byte key stored in VS Code Secrets.
 
-2. **Sync Notes** (extension.syncNotes)  
-   Manually triggers synchronization with your configured GitHub repository.  
-   - Pulls remote changes, merges them, and resolves conflicts if any.  
-   - Pushes local encrypted notes/files to GitHub.
+2. **Sync Notes**  
+   Manually sync encrypted files with GitHub (pull, merge conflicts, push).
 
-3. **Copy AES Key to Clipboard** (extension.copyAESKeyToClipboard)  
-   Copies your AES encryption key from VS Code Secrets to your clipboard.
+3. **Create Branch from Index**  
+   Create a new branch from a selected historical index (right-click index in Tree View).
 
-4. **Set AES Key** (extension.setAESKey)  
-   Allows you to input or update a custom AES key (64 hex characters).
+4. **Checkout Branch**  
+   Switch branches, updating the workspace to the selected branch's state (right-click branch in Tree View).
 
-5. **Refresh AES Key** (extension.refreshAESKey)  
-   Forces retrieval of the AES key from 1Password again, overwriting the local cached key.
+5. **Copy AES Key**  
+   Copy the AES key to your clipboard.
 
-6. **Insert Current Time** (extension.insertCurrentTime)  
-   Inserts the current date and time into the currently active editor at the cursor.
+6. **Set AES Key**  
+   Manually input/update the AES key.
+
+7. **Refresh AES Key**  
+   Force re-fetch the AES key from 1Password.
+
+8. **Insert Current Time**  
+   Add timestamp to the active editor.
 
 ## Configuration
 
-All configuration settings can be found under "Secure Notes Sync" in your VS Code settings. You can modify them by going to "File → Preferences → Settings" (or "Code → Preferences → Settings" on macOS) and searching for "Secure Notes Sync":
+Configure in VS Code settings (`File > Preferences > Settings`):
 
-- **SecureNotesSync.gitRemoteUrl** (string)
-  GitHub repository URL for syncing the object directory.  
-  Example: <git@github.com>:username/secure-notes-repo.git
+- **Git Remote URL** (`SecureNotesSync.gitRemoteUrl`)  
+  GitHub repo URL for sync (e.g., `git@github.com:user/repo.git`).
 
-- **SecureNotesSync.enableAutoSync** (boolean)  
-  Whether to enable auto-sync whenever there is an inactivity pause. Default: false.
+- **Enable Auto-Sync** (`SecureNotesSync.enableAutoSync`)  
+  Sync automatically on save/inactivity. Default: `false`.
 
-- **SecureNotesSync.inactivityTimeoutSec** (number)  
-  Inactivity timeout in seconds for auto-sync. Once the editor detects no user activity for this duration, it will trigger a sync if auto-sync is enabled. Default: 60.
+- **Inactivity Timeout** (`SecureNotesSync.inactivityTimeoutSec`)  
+  Seconds before auto-sync triggers after window blur. Default: `60`.
 
-- **SecureNotesSync.onePasswordUri** (string)
-  If set to an op:// URI, the AES key will be retrieved via the 1Password CLI. For example:  
-  op://Vault/Item/password
+- **1Password URI** (`SecureNotesSync.onePasswordUri`)  
+  `op://` URI to fetch AES key (e.g., `op://Vault/Item/password`).
 
-- **SecureNotesSync.onePasswordAccount** (string)
-  (Optional) The 1Password account name to use with the op CLI. Useful if you have multiple 1Password accounts.
+- **1Password Account** (`SecureNotesSync.onePasswordAccount`)  
+  (Optional) 1Password account name for CLI.
+
+- **1Password Cache Timeout** (`SecureNotesSync.onePasswordCacheTimeout`)  
+  Duration to cache AES keys from 1Password (e.g., `1h`, `30d`). Default: `30d`.
+
+## Branch Management
+
+- **View Branches**: The activity bar shows all branches under **Secure Notes Branches**.
+- **Create Branch**: Right-click an index in the Tree View and select **Create Branch from Index**.
+- **Checkout Branch**: Right-click a branch and choose **Checkout Branch** to switch contexts.
+- Each branch maintains its own history of indexes, allowing parallel development.
 
 ## How It Works
 
-1. The extension looks for (or creates) a `.secureNotes` folder inside your workspace. This folder holds the encrypted files and indexes.
-2. When you "Sync Notes," changes from the remote are fetched and merged.  
-   - If files differ both locally and remotely, you’ll be prompted to resolve conflicts.  
-   - Resolved versions are then encrypted locally under `.secureNotes`.
-3. Once the merge is resolved, changes are committed and pushed back to your configured GitHub remote.
-4. If "enableAutoSync" is turned on, the extension will monitor user activity. After the specified inactivity timeout, it will run the "Sync Notes" command automatically.
+1. Encrypted files and indexes are stored in `.secureNotes`, synced via Git.
+2. **Sync Notes**:
+   - Pulls remote changes and merges with local edits.
+   - Resolves conflicts by prompting or saving remote versions as `conflict-*` files.
+   - Pushes merged changes to GitHub.
+3. **Branches**: Each branch references a chain of indexes. Checkout switches the workspace to that branch's latest state.
 
-## Conflict Resolution
+## Using 1Password
 
-If the same file changed both locally and remotely, you'll see a prompt in VS Code offering three options:
-
-1. Keep Local Version  
-2. Keep Remote Version  
-3. Save Remote Version as a Conflict File (you’ll see a new file with a "conflict-..." timestamp in its name)
-
-Choose whichever option is appropriate. The extension then updates or preserves your local workspace accordingly.
-
-## Using 1Password CLI
-
-If you have set "SecureNotesSync.onePasswordUri" to an op://... URI, the extension will attempt to retrieve the AES key from the 1Password CLI:
-
-1. If the key has already been fetched within the last 30 days, the extension uses the cached version.
-2. Otherwise, it will run the op CLI in the background to retrieve a fresh copy.  
-3. If retrieving the key fails, the extension falls back to the key stored in VS Code Secrets (if any).
-
-Make sure the "op" command is installed and on your PATH. Also, you may need to be authenticated in 1Password CLI (e.g., run "op signin").
-
-## Tips
-
-- Keep your repository private to ensure your encrypted data remains confidential.  
-- If you need to share the repository with others, you must also securely share the AES key or have them retrieve it via 1Password.
-- If you accidentally commit your raw AES key (never do this!), rotate it immediately.
+1. Set `onePasswordUri` to your key's `op://` URI.
+2. The extension caches the key based on `onePasswordCacheTimeout`.
+3. If retrieval fails, falls back to VS Code Secrets.
 
 ## Contributing
 
-Feel free to submit issues or feature requests via GitHub:
-[SecureNotesSyncVSCodeExt on GitHub](https://github.com/masahide/SecureNotesSyncVSCodeExt)
+Issues/requests: [GitHub Repo](https://github.com/masahide/SecureNotesSyncVSCodeExt)
 
 ## License
 
-This project is licensed under the terms specified in the repository. Check the [LICENSE](https://github.com/masahide/SecureNotesSyncVSCodeExt/blob/main/LICENSE) file for more details.
+See [LICENSE](https://github.com/masahide/SecureNotesSyncVSCodeExt/blob/main/LICENSE).
 
 ---
 
-Thank you for using Secure Notes Sync! If you find this extension helpful, rating and sharing it with others is greatly appreciated. Keep your notes safe and synchronized!
+Secure your notes effortlessly with branch-aware encryption sync! ⚡🔒
+
+### End of README.md

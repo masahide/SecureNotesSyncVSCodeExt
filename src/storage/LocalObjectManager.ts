@@ -278,15 +278,17 @@ export class LocalObjectManager {
     public static async saveRemoteFileAsConflict(
         filePath: string,
         fileHash: string,
+        timestamp: Date,
         options: LocalObjectManagerOptions
     ): Promise<void> {
         // コンフリクト用のファイル名を生成（例: conflict-YYYYMMDD-HHmmss-ファイル名.ext）
-        const timestamp = new Date()
+        //const timestamp = new Date()
+        const time = timestamp
             .toISOString()
             .replace(/[:.]/g, "-")
             .replace("T", "_")
             .split("Z")[0];
-        const conflictFileName = `conflict - ${timestamp} -${filePath} `;
+        const conflictFileName = `conflict-${time}/${filePath}`;
         await this.fetchDecryptAndSaveFile(
             filePath,
             fileHash,
@@ -301,6 +303,7 @@ export class LocalObjectManager {
         conflicts: Conflict[],
         options: LocalObjectManagerOptions
     ): Promise<boolean> {
+        const now = new Date();
         for (const conflict of conflicts) {
             if (conflict.localHash.length === 0) {
                 logMessage(`Remote only file: ${conflict.filePath} `);
@@ -314,6 +317,7 @@ export class LocalObjectManager {
             await this.saveRemoteFileAsConflict(
                 conflict.filePath,
                 conflict.remoteHash,
+                now,
                 options
             );
         }
