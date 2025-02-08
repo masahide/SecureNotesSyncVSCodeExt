@@ -360,17 +360,6 @@ export class LocalObjectManager {
             }
         }
 
-        // ローカルに存在せず、リモートに存在するファイルも考慮
-        for (const remoteFile of remoteFileMap.values()) {
-            conflicts.push({
-                filePath: remoteFile.path,
-                localHash: "",
-                remoteHash: remoteFile.hash,
-                localTimestamp: 0,
-                remoteTimestamp: remoteFile.timestamp,
-            });
-        }
-
         return conflicts;
     }
     // ローカルのワークスペースからファイルリスト、ハッシュ値、タイムスタンプを取得し、インデックスファイルを生成します。
