@@ -1,8 +1,9 @@
 // storage/providers/GitHubSyncProvider.ts
 import * as vscode from "vscode";
+import * as path from 'path';
 import { IStorageProvider } from './IStorageProvider';
 import { remotesDirUri } from './LocalObjectManager';
-import { showError, logMessage } from '../logger';
+import { logMessage, logMessageRed, logMessageGreen, logMessageBlue } from '../logger';
 import * as cp from 'child_process';
 import which from 'which';
 import * as fs from 'fs';
@@ -45,7 +46,7 @@ export class GitHubSyncProvider implements IStorageProvider {
                     '-X', 'theirs',
                     '-m', `Merge remote ${branchName}`
                 ], objectDir);
-                logMessage(`初回リポジトリ作成後、リモート${branchName}をマージしました。`);
+                logMessageGreen(`初回リポジトリ作成後、リモート${branchName}をマージしました。`);
                 return true;
             } else {
                 // リモートブランチが存在しない → ローカルで空コミットして push
@@ -54,7 +55,7 @@ export class GitHubSyncProvider implements IStorageProvider {
                 await this.execCmd(this.gitPath, ['add', '.'], objectDir);
                 await this.commitIfNeeded(objectDir, 'Initial commit');
                 await this.execCmd(this.gitPath, ['push', '-u', 'origin', branchName], objectDir);
-                logMessage(`リモートにブランチ「${branchName}」を新規作成してpushしました。`);
+                logMessageGreen(`リモートにブランチ「${branchName}」を新規作成してpushしました。`);
                 return false;
             }
         } else {
@@ -85,11 +86,11 @@ export class GitHubSyncProvider implements IStorageProvider {
                     '-X', 'theirs',
                     '-m', `Merge remote ${branchName}`
                 ], objectDir);
-                logMessage(`既存リポジトリでorigin/${branchName}をマージしました。`);
+                logMessageGreen(`既存リポジトリでorigin/${branchName}をマージしました。`);
                 return true;
             } else {
                 // リモートにbranchがない → 新規としてpush
-                logMessage(`リモートに ${branchName} が存在しないので新規pushします。`);
+                logMessageBlue(`リモートに ${branchName} が存在しないので新規pushします。`);
                 await this.execCmd(this.gitPath, ['push', '-u', 'origin', branchName], objectDir);
                 return false;
             }
@@ -119,7 +120,7 @@ export class GitHubSyncProvider implements IStorageProvider {
         await this.execCmd(this.gitPath, ['add', '.'], objectDir);
         const statusResult = await this.execCmd(this.gitPath, ['status', '--porcelain'], objectDir);
         if (!statusResult.stdout.trim()) {
-            logMessage("差分がありません。アップロードは不要です。");
+            logMessageBlue("差分がありません。アップロードは不要です。");
             return false;
         }
         // コミット
@@ -127,7 +128,7 @@ export class GitHubSyncProvider implements IStorageProvider {
 
         // 3) push
         await this.execCmd(this.gitPath, ['push', 'origin', branchName], objectDir);
-        logMessage(`${branchName}ブランチをリモートへpushしました。`);
+        logMessageGreen(`${branchName}ブランチをリモートへpushしました。`);
         return true;
     }
 
@@ -140,9 +141,9 @@ export class GitHubSyncProvider implements IStorageProvider {
                 if (error) {
                     reject(new Error(`execFile error:${cmd} ${args.join(' ')} \nstdout: '${stdout}'\nstderr: '${stderr}'`));
                 } else {
-                    logMessage(`execFile:${cmd} ${args.join(' ')} `);
+                    logMessage(`execFile:${path.basename(cmd)} ${args.join(' ')} `);
                     if (stdout !== '') { logMessage(stdout); }
-                    if (stderr !== '') { logMessage(stderr); }
+                    if (stderr !== '') { logMessageRed(stderr); }
                     resolve({ stdout, stderr });
                 }
             });
@@ -173,7 +174,7 @@ export class GitHubSyncProvider implements IStorageProvider {
         await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], dir);
         // fetchだけ先にしておく
         await this.execCmd(this.gitPath, ['fetch', 'origin'], dir);
-        logMessage("Gitリポジトリを初期化しました。");
+        logMessageGreen("Gitリポジトリを初期化しました。");
     }
 
     /**

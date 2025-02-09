@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as os from "os";
-import { logMessage, showInfo, showError, setOutputChannel } from "./logger";
+import { logMessage, showInfo, showError, showOutputTerminal } from "./logger";
 import { BranchTreeViewProvider } from "./BranchTreeViewProvider"; // new
 import { LocalObjectManager, getCurrentBranchName, setCurrentBranchName } from "./storage/LocalObjectManager";
 import { GitHubSyncProvider } from "./storage/GithubProvider";
@@ -20,9 +20,8 @@ let lastWindowActivationTime = 0; // 前回ウィンドウがアクティブに�
 let saveSyncTimeout: NodeJS.Timeout | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
-  // Create output channel
-  const outputChannel = vscode.window.createOutputChannel(appName);
-  setOutputChannel(outputChannel);
+  // show output terminal
+  showOutputTerminal(appName);
   showInfo(`${appName} Extension Activated`);
 
   // 環境IDを生成or取得 (ホスト名 + UUID)
@@ -406,7 +405,6 @@ export async function activate(context: vscode.ExtensionContext) {
     createBranchFromIndex,
     checkoutBranch
   );
-  outputChannel.show(true);
 }
 
 export function deactivate() {
