@@ -255,10 +255,7 @@ export async function activate(context: vscode.ExtensionContext) {
       if (diff > inactivityTimeoutSec) {
         vscode.commands.executeCommand("extension.syncNotes");
         logMessage(
-          `ウィンドウ再アクティブ(${Math.round(
-            diff
-          )}秒経過)のためSyncを実行しました。`
-        );
+          `ウィンドウ再アクティブ(${Math.round(diff)}秒経過)のためSyncを実行しました。`);
       }
       lastWindowActivationTime = now;
     }

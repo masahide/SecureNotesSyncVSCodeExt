@@ -14,6 +14,8 @@ export class GitHubSyncProvider implements IStorageProvider {
     constructor(gitRemoteUrl: string) {
         this.gitRemoteUrl = gitRemoteUrl;
         this.gitPath = findGitExecutable();
+        logMessage(`gitPath: ${this.gitPath}`);
+        logMessage(`remotesDirPath: ${remotesDirUri.fsPath}`);
     }
 
     /**
@@ -24,7 +26,6 @@ export class GitHubSyncProvider implements IStorageProvider {
      * @returns {Promise<boolean>} リモートに更新があった場合はtrue、なかった場合はfalse
      */
     public async download(branchName: string): Promise<boolean> {
-        logMessage(`gitPath: ${this.gitPath}`);
         const objectDir = remotesDirUri.fsPath;
         // ディレクトリがGitリポジトリかどうかを確認
         const isGitRepo = await this.isGitRepository(objectDir);
@@ -103,7 +104,6 @@ export class GitHubSyncProvider implements IStorageProvider {
   * @returns {Promise<boolean>} pushしたらtrue、差分なければfalse
   */
     public async upload(branchName: string): Promise<boolean> {
-        logMessage(`gitPath: ${this.gitPath}`);
         const objectDir = remotesDirUri.fsPath;
 
         const isGitRepo = await this.isGitRepository(objectDir);
@@ -138,11 +138,11 @@ export class GitHubSyncProvider implements IStorageProvider {
         return new Promise((resolve, reject) => {
             cp.execFile(cmd, args, { cwd: cwd }, (error, stdout, stderr) => {
                 if (error) {
-                    reject(new Error(`execFile error: ${cwd}> ${cmd} ${args.join(' ')} \nstdout: '${stdout}'\nstderr: '${stderr}'`));
+                    reject(new Error(`execFile error:${cmd} ${args.join(' ')} \nstdout: '${stdout}'\nstderr: '${stderr}'`));
                 } else {
-                    logMessage(`execFile: ${cwd}> ${cmd} ${args.join(' ')} `);
-                    if (stdout !== '') { logMessage(`${stdout} `); }
-                    if (stderr !== '') { logMessage(`Err:${stderr} `); }
+                    logMessage(`execFile:${cmd} ${args.join(' ')} `);
+                    if (stdout !== '') { logMessage(stdout); }
+                    if (stderr !== '') { logMessage(stderr); }
                     resolve({ stdout, stderr });
                 }
             });
