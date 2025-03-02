@@ -273,13 +273,13 @@ export class LocalObjectManager {
     timestamp: Date,
     options: LocalObjectManagerOptions
   ): Promise<void> {
-    // コンフリクト用のファイル名を生成（例: conflict-YYYYMMDD-HHmmss-ファイル名.ext）
+    // コンフリクト用のファイル名を生成（例: conflict-local-YYYYMMDD-HHmmss-ファイル名.ext）
     const time = timestamp
       .toISOString()
       .replace(/[:.]/g, "-")
       .replace("T", "_")
       .split("Z")[0];
-    const conflictFileName = `conflict-${time}/${filePath}`;
+    const conflictFileName = `conflict-local-${time}/${filePath}`;
 
     // ローカルファイルのURIを取得
     const localUri = vscode.Uri.joinPath(
@@ -322,14 +322,14 @@ export class LocalObjectManager {
     timestamp: Date,
     options: LocalObjectManagerOptions
   ): Promise<void> {
-    // コンフリクト用のファイル名を生成（例: conflict-YYYYMMDD-HHmmss-ファイル名.ext）
+    // コンフリクト用のファイル名を生成（例: conflict-remote-YYYYMMDD-HHmmss-ファイル名.ext）
     //const timestamp = new Date()
     const time = timestamp
       .toISOString()
       .replace(/[:.]/g, "-")
       .replace("T", "_")
       .split("Z")[0];
-    const conflictFileName = `conflict-${time}/${filePath}`;
+    const conflictFileName = `conflict-remote-${time}/${filePath}`;
     await this.fetchDecryptAndSaveFile(
       filePath,
       fileHash,
