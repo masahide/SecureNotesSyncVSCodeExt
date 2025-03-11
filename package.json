@@ -1,68 +1,130 @@
 {
   "name": "secure-notes-sync",
   "displayName": "Secure Notes Sync",
-  "description": "A VS Code extension for securely syncing notes with AWS S3 using AES encryption.",
-  "version": "0.0.1",
-  "publisher": "your-publisher-name",
+  "description": "A VSCode extension for securely syncing notes with a GitHub repository.",
+  "version": "0.0.14",
+  "publisher": "MasahideYAMASAKI",
   "engines": {
-    "vscode": "^1.50.0"
+    "vscode": "^1.96.0"
   },
   "categories": [
     "Other"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/masahide/SecureNotesSyncVSCodeExt.git"
+  },
   "main": "./dist/extension.js",
+  "activationEvents": [
+    "workspaceContains:.secureNotes/wsIndex.json"
+  ],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "secureNotesBranches",
+          "title": "Secure Notes Branches",
+          "icon": "./assets/secure-note.svg"
+        }
+      ]
+    },
+    "views": {
+      "secureNotesBranches": [
+        {
+          "id": "secureNotesBranchesView",
+          "name": "Branches"
+        }
+      ]
+    },
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "extension.createBranchFromIndex",
+          "when": "view == secureNotesBranchesView && viewItem == indexItem"
+        },
+        {
+          "command": "extension.checkoutBranch",
+          "when": "view == secureNotesBranchesView && viewItem == branchItem"
+        }
+      ]
+    },
     "configuration": {
       "type": "object",
-      "title": "secureNotesSync Configuration",
+      "title": "Secure Notes Sync",
       "properties": {
-        "secureNotesSync.awsAccessKeyId": {
+        "SecureNotesSync.gitRemoteUrl": {
           "type": "string",
-          "description": "AWS Access Key ID for S3",
+          "description": "GitHub repository URL for syncing the object directory. (ex: git@github.com:user/repo.git)",
+          "default": "git@github.com:user/repo.git"
+        },
+        "SecureNotesSync.enableAutoSync": {
+          "type": "boolean",
+          "description": "Enable auto sync on save",
+          "default": false
+        },
+        "SecureNotesSync.inactivityTimeoutSec": {
+          "type": "number",
+          "description": "Inactivity timeout in seconds for triggering sync when the window is refocused",
+          "default": 60
+        },
+        "SecureNotesSync.saveSyncTimeoutSec": {
+          "type": "number",
+          "description": "Timeout in seconds after file save before triggering sync",
+          "default": 5
+        },
+        "SecureNotesSync.onePasswordUri": {
+          "type": "string",
+          "description": "If set to an op://… URI, the AES encryption key will be retrieved via 1Password CLI",
           "default": ""
         },
-        "secureNotesSync.s3Bucket": {
+        "SecureNotesSync.onePasswordAccount": {
           "type": "string",
-          "description": "S3 Bucket Name",
+          "description": "(Optional) The 1Password account name to use with the op CLI",
           "default": ""
         },
-        "secureNotesSync.s3Region": {
+        "SecureNotesSync.onePasswordCacheTimeout": {
           "type": "string",
-          "description": "S3 Region",
-          "default": ""
-        },
-        "secureNotesSync.s3Endpoint": {
-          "type": "string",
-          "description": "S3 Custom Endpoint (optional)",
-          "default": ""
-        },
-        "secureNotesSync.s3PrefixPath": {
-          "type": "string",
-          "description": "S3 Prefix Path (optional)",
-          "default": ""
+          "description": "Cache timeout for the AES encryption key retrieved via 1Password (e.g., '1h', '30m', '2d')",
+          "default": "30d"
         }
       }
     },
     "commands": [
       {
-        "command": "extension.setAWSSecret",
-        "title": "Set AWS secret access key"
-      },
-      {
-        "command": "extension.setAESKey",
-        "title": "Set AES encryption Key"
+        "command": "extension.generateAESKey",
+        "title": "Generate AES Key"
       },
       {
         "command": "extension.syncNotes",
-        "title": "Sync Notes with S3"
+        "title": "Sync Notes"
       },
       {
-        "command": "extension.downloadNotes",
-        "title": "Download and Decrypt Notes from S3"
+        "command": "extension.copyAESKeyToClipboard",
+        "title": "Copy AES Key to Clipboard"
       },
       {
-        "command": "extension.generateEncryptedText",
-        "title": "Generate 32-Byte Encrypted Text"
+        "command": "extension.setAESKey",
+        "title": "Set AES Key"
+      },
+      {
+        "command": "extension.refreshAESKey",
+        "title": "Refresh AES Key"
+      },
+      {
+        "command": "extension.insertCurrentTime",
+        "title": "Insert Current Time"
+      },
+      {
+        "command": "extension.generateAESKey",
+        "title": "Generate AES Key"
+      },
+      {
+        "command": "extension.createBranchFromIndex",
+        "title": "Create Branch from Index"
+      },
+      {
+        "command": "extension.checkoutBranch",
+        "title": "Checkout Branch"
       }
     ]
   },
@@ -78,21 +140,22 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/mocha": "^10.0.8",
-    "@types/node": "20.x",
-    "@types/vscode": "^1.94.0",
-    "@typescript-eslint/eslint-plugin": "^8.7.0",
-    "@typescript-eslint/parser": "^8.7.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.96.0",
+    "@types/which": "^3.0.4",
+    "@typescript-eslint/eslint-plugin": "^8.20.0",
+    "@typescript-eslint/parser": "^8.20.0",
     "@vscode/test-cli": "^0.0.10",
     "@vscode/test-electron": "^2.4.1",
-    "aws-sdk": "^2.1691.0",
-    "eslint": "^9.11.1",
-    "ts-loader": "^9.5.1",
-    "typescript": "^5.6.2",
-    "webpack": "^5.95.0",
-    "webpack-cli": "^5.1.4"
+    "eslint": "^9.18.0",
+    "ts-loader": "^9.5.2",
+    "typescript": "^5.7.3",
+    "webpack": "^5.97.1",
+    "webpack-cli": "^6.0.1"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.668.0"
+    "uuid": "^11.0.5",
+    "which": "^5.0.0"
   }
 }

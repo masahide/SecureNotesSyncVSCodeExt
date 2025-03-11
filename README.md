@@ -1,81 +1,123 @@
-# Secure Notes Sync VS Code Extension
+### Start of README.md
 
-## Overview
+# Secure Notes Sync
 
-The **Secure Notes Sync** extension allows users to sync notes between their local VS Code workspace and various cloud storage providers. This includes encrypting the notes with AES encryption before uploading them to the cloud, as well as downloading and decrypting them for local use. It is ideal for anyone who needs a simple, secure way to back up and retrieve notes or any text documents using their preferred cloud storage.
+A Visual Studio Code extension for securely managing and synchronizing notes (or other files) with a GitHub repository. Files are automatically encrypted with an AES key before being pushed and stored remotely. Supports branch-based synchronization and historical version management.
 
 ## Features
 
-- **Set Cloud Credentials and AES Key**: Store your cloud storage credentials and AES encryption key securely using VS Code's SecretStorage feature.
-- **Sync Notes with Cloud Storage**: Encrypt and upload your workspace notes to your chosen cloud storage provider for secure storage.
-- **Download and Decrypt Notes**: Retrieve and decrypt notes from cloud storage back into your workspace.
-
-## Supported Cloud Storage Providers
-
-- AWS S3 (Currently supported)
-- Additional providers (Planned for future updates)
+- **Secure Sync**: Encrypt notes/files in your workspace into a hidden `.secureNotes` folder and sync with GitHub.
+- **Branch Management**: Create branches from specific historical indexes and switch between branches to manage different lines of development.
+- **Auto-Sync**: Optionally sync on save or after periods of inactivity.
+- **AES Key Management**:
+  - Generate/store 32-byte AES keys (64 hex characters).
+  - Retrieve keys from 1Password via CLI (optional).
+  - Copy keys to clipboard or refresh cached keys.
+- **Conflict Resolution**: Detect and resolve conflicts during merges.
+- **Time Insertion**: Insert current date/time into active editors.
+- **Tree View**: Visualize branches and historical indexes in the activity bar.
 
 ## Prerequisites
 
-- **Cloud Account**: You need an active account for your chosen cloud storage provider.
-- **VS Code Version**: Ensure you are using VS Code version `^1.50.0` or later.
+- Visual Studio Code (version 1.96.0+).
+- Git installed and accessible in PATH.
+- (Optional) [1Password CLI](https://developer.1password.com/docs/cli/) for AES key retrieval.
 
-## Setup
+## Installation
 
-1. **Install Dependencies**: Run `npm install` in the project root to install all required dependencies.
-2. **Cloud Credentials**: Before you can sync your notes, you need to configure your cloud storage credentials and AES encryption key using the `Set Cloud Credentials and AES Key` command.
+1. Install from VS Code Marketplace.
+2. Open/create a workspace folder for notes.
+3. Ensure Git is installed.
+
+## Quick Start
+
+1. Open Command Palette (`Ctrl+Shift+P`/`Cmd+Shift+P`).
+2. **Generate AES Key** or **Set AES Key** to configure encryption.
+3. Set `SecureNotesSync.gitRemoteUrl` to your GitHub repo (e.g., `git@github.com:user/repo.git`).
+4. Run **Sync Notes** to initialize the `.secureNotes` structure and push encrypted files.
 
 ## Commands
 
-This extension provides the following commands that can be accessed through the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`):
+Search these in the Command Palette:
 
-1. **Set Cloud Credentials and AES Key** (`extension.setCredentials`)
+1. **Generate AES Key**  
+   Creates a new 32-byte key stored in VS Code Secrets.
 
-   - Prompts you to enter cloud storage credentials and a 32-character AES Encryption Key.
-   - These are securely stored using VS Code's SecretStorage.
+2. **Sync Notes**  
+   Manually sync encrypted files with GitHub (pull, merge conflicts, push).
 
-2. **Sync Notes with Cloud Storage** (`extension.syncNotes`)
+3. **Create Branch from Index**  
+   Create a new branch from a selected historical index (right-click index in Tree View).
 
-   - Encrypts all files in the current workspace and uploads them to your cloud storage.
-   - AES encryption ensures that your data remains private.
+4. **Checkout Branch**  
+   Switch branches, updating the workspace to the selected branch's state (right-click branch in Tree View).
 
-3. **Download and Decrypt Notes** (`extension.downloadNotes`)
+5. **Copy AES Key**  
+   Copy the AES key to your clipboard.
 
-   - Downloads encrypted files from your cloud storage, decrypts them, and stores them in the workspace.
+6. **Set AES Key**  
+   Manually input/update the AES key.
 
-## Usage
+7. **Refresh AES Key**  
+   Force re-fetch the AES key from 1Password.
 
-1. Open the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`).
-2. Run the command `Set Cloud Credentials and AES Key` to configure your cloud credentials and AES encryption key.
-3. Use `Sync Notes with Cloud Storage` to upload your workspace notes to your chosen cloud storage with AES encryption.
-4. Use `Download and Decrypt Notes` to retrieve and decrypt your notes from cloud storage.
+8. **Insert Current Time**  
+   Add timestamp to the active editor.
 
-## Security
+## Configuration
 
-- **AES Encryption**: Notes are encrypted using AES-256-CBC encryption. You need to provide a 32-character encryption key.
-- **SecretStorage**: Cloud credentials and the AES encryption key are stored securely using VS Code's SecretStorage feature.
+Configure in VS Code settings (`File > Preferences > Settings`):
 
-## Development
+- **Git Remote URL** (`SecureNotesSync.gitRemoteUrl`)  
+  GitHub repo URL for sync (e.g., `git@github.com:user/repo.git`).
 
-To build and run the extension locally:
+- **Enable Auto-Sync** (`SecureNotesSync.enableAutoSync`)  
+  Sync automatically on save/inactivity. Default: `false`.
 
-1. Clone the repository.
-2. Run `npm install` to install dependencies.
-3. Use the `F5` key in VS Code to open a new VS Code window with the extension loaded.
+- **Inactivity Timeout** (`SecureNotesSync.inactivityTimeoutSec`)  
+  Seconds before auto-sync triggers after window blur. Default: `60`.
 
-## Troubleshooting
+- **1Password URI** (`SecureNotesSync.onePasswordUri`)  
+  `op://` URI to fetch AES key (e.g., `op://Vault/Item/password`).
 
-- Ensure your **cloud credentials** and **AES encryption key** are set correctly using the `Set Cloud Credentials and AES Key` command.
-- If syncing or downloading fails, check the **permissions** for your cloud storage account to ensure you have sufficient privileges.
+- **1Password Account** (`SecureNotesSync.onePasswordAccount`)  
+  (Optional) 1Password account name for CLI.
 
-## Contribution
+- **1Password Cache Timeout** (`SecureNotesSync.onePasswordCacheTimeout`)  
+  Duration to cache AES keys from 1Password (e.g., `1h`, `30d`). Default: `30d`.
 
-Feel free to submit pull requests or report issues. Contributions are welcome to enhance the extension and make it more efficient.
+## Branch Management
+
+- **View Branches**: The activity bar shows all branches under **Secure Notes Branches**.
+- **Create Branch**: Right-click an index in the Tree View and select **Create Branch from Index**.
+- **Checkout Branch**: Right-click a branch and choose **Checkout Branch** to switch contexts.
+- Each branch maintains its own history of indexes, allowing parallel development.
+
+## How It Works
+
+1. Encrypted files and indexes are stored in `.secureNotes`, synced via Git.
+2. **Sync Notes**:
+   - Pulls remote changes and merges with local edits.
+   - Resolves conflicts by prompting or saving remote versions as `conflict-*` files.
+   - Pushes merged changes to GitHub.
+3. **Branches**: Each branch references a chain of indexes. Checkout switches the workspace to that branch's latest state.
+
+## Using 1Password
+
+1. Set `onePasswordUri` to your key's `op://` URI.
+2. The extension caches the key based on `onePasswordCacheTimeout`.
+3. If retrieval fails, falls back to VS Code Secrets.
+
+## Contributing
+
+Issues/requests: [GitHub Repo](https://github.com/masahide/SecureNotesSyncVSCodeExt)
 
 ## License
 
-This project is licensed under the MIT License.
+See [LICENSE](https://github.com/masahide/SecureNotesSyncVSCodeExt/blob/main/LICENSE).
 
-## Contact
+---
 
-For support or suggestions, please open an issue on the project's GitHub repository.
+Secure your notes effortlessly with branch-aware encryption sync! ⚡🔒
+
+### End of README.md
