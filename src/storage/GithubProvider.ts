@@ -169,7 +169,13 @@ export class GitHubSyncProvider implements IStorageProvider {
         // .gitattributesでバイナリ扱いとする（暗号化ファイルをテキスト差分しないため）
         const gitattributesUri = vscode.Uri.joinPath(remotesDirUri, '.gitattributes');
         await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
-
+        try {
+            await this.execCmd(this.gitPath, ['ls-remote', this.gitRemoteUrl], dir);
+            await this.execCmd(this.gitPath, ['clone', this.gitRemoteUrl], dir);
+            return;
+        } catch (error) {
+            logMessageRed(`リモートリポジトリが見つかりません 。URL: ${this.gitRemoteUrl}`);
+        }
         await this.execCmd(this.gitPath, ['init'], dir);
         await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], dir);
         // fetchだけ先にしておく
