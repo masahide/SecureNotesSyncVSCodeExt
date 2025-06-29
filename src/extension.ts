@@ -2,7 +2,11 @@ import * as vscode from "vscode";
 import * as os from "os";
 import { logMessage, showInfo, showError, showOutputTerminal } from "./logger";
 import { BranchTreeViewProvider } from "./BranchTreeViewProvider"; // new
-import { LocalObjectManager, getCurrentBranchName, setCurrentBranchName } from "./storage/LocalObjectManager";
+import {
+  LocalObjectManager,
+  getCurrentBranchName,
+  setCurrentBranchName,
+} from "./storage/LocalObjectManager";
 import { GitHubSyncProvider } from "./storage/GithubProvider";
 import { IndexFile } from "./types";
 import * as crypto from "crypto";
@@ -66,7 +70,8 @@ export async function activate(context: vscode.ExtensionContext) {
         showInfo(`Generated and stored AES key: ${key}`);
       } catch (error: any) {
         showError(
-          `Error generating encrypted text: ${error instanceof Error ? error.message : String(error)
+          `Error generating encrypted text: ${
+            error instanceof Error ? error.message : String(error)
           }`
         );
       }
@@ -92,7 +97,10 @@ export async function activate(context: vscode.ExtensionContext) {
           return;
         }
 
-        const options = { environmentId: environmentId, encryptionKey: encryptKey };
+        const options = {
+          environmentId: environmentId,
+          encryptionKey: encryptKey,
+        };
         const previousIndex = await LocalObjectManager.loadWsIndex(options);
         logMessage(`Loaded previous index file: ${previousIndex.uuid}`);
         let newLocalIndex = await LocalObjectManager.generateLocalIndexFile(
@@ -109,6 +117,7 @@ export async function activate(context: vscode.ExtensionContext) {
           // リモートに更新があった場合
           const remoteIndex = await LocalObjectManager.loadRemoteIndex(options);
           const conflicts = await LocalObjectManager.detectConflicts(
+            previousIndex,
             newLocalIndex,
             remoteIndex
           );
@@ -138,9 +147,18 @@ export async function activate(context: vscode.ExtensionContext) {
 
         if (updated) {
           // 3) 新しいインデックスを保存
-          await LocalObjectManager.saveIndexFile(newLocalIndex, currentBranch, encryptKey);
+          await LocalObjectManager.saveIndexFile(
+            newLocalIndex,
+            currentBranch,
+            encryptKey
+          );
           await LocalObjectManager.saveWsIndexFile(newLocalIndex, options);
-          await LocalObjectManager.reflectFileChanges(previousIndex, newLocalIndex, options, false);
+          await LocalObjectManager.reflectFileChanges(
+            previousIndex,
+            newLocalIndex,
+            options,
+            false
+          );
           branchProvider.refresh();
 
           // 4) GitHub に push
@@ -251,7 +269,10 @@ export async function activate(context: vscode.ExtensionContext) {
       if (diff > inactivityTimeoutSec) {
         vscode.commands.executeCommand("extension.syncNotes");
         logMessage(
-          `ウィンドウ再アクティブ(${Math.round(diff)}秒経過)のためSyncを実行しました。`);
+          `ウィンドウ再アクティブ(${Math.round(
+            diff
+          )}秒経過)のためSyncを実行しました。`
+        );
       }
       lastWindowActivationTime = now;
     }
@@ -370,14 +391,25 @@ export async function activate(context: vscode.ExtensionContext) {
           vscode.window.showErrorMessage(`Branch ${branchName} has no index.`);
           return;
         }
-        const options = { environmentId: environmentId, encryptionKey: encryptKey };
+        const options = {
+          environmentId: environmentId,
+          encryptionKey: encryptKey,
+        };
         // 5) Load that index from .secureNotes
-        const targetIndex = await LocalObjectManager.loadIndex(latestIndexUuid, options);
+        const targetIndex = await LocalObjectManager.loadIndex(
+          latestIndexUuid,
+          options
+        );
         // 6) Reflect those files in the workspace
         //    For "checkout", we can just do reflectFileChanges
         const currentWsIndex = await LocalObjectManager.loadWsIndex(options);
         // TODO: checkoutの場合は、ファイルの差分を取らずに上書きして、存在しないファイルは削除する必要がある
-        await LocalObjectManager.reflectFileChanges(currentWsIndex, targetIndex, options, true);
+        await LocalObjectManager.reflectFileChanges(
+          currentWsIndex,
+          targetIndex,
+          options,
+          true
+        );
         // 7) Update wsIndex.json to record that we have the new branch checked out
         await LocalObjectManager.saveWsIndexFile(targetIndex, options);
 
