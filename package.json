@@ -2,7 +2,7 @@
   "name": "secure-notes-sync",
   "displayName": "Secure Notes Sync",
   "description": "A VSCode extension for securely syncing notes with a GitHub repository.",
-  "version": "0.0.14",
+  "version": "2025.6.291122",
   "publisher": "MasahideYAMASAKI",
   "engines": {
     "vscode": "^1.96.0"
