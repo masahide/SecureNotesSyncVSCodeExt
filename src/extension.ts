@@ -133,10 +133,7 @@ export async function activate(context: vscode.ExtensionContext) {
           }
           // ローカルとリモートの変更をマージ
           logMessage("Merging local and remote changes...");
-          newLocalIndex = await LocalObjectManager.generateLocalIndexFile(
-            previousIndex,
-            options
-          );
+          newLocalIndex = LocalObjectManager.mergeIndexes(previousIndex, remoteIndex);
           updated = true;
         }
 

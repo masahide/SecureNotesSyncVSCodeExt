@@ -36,16 +36,6 @@ export class GitHubSyncProvider implements IStorageProvider {
             // ここで一度リモートをfetchし、origin/branchNameが存在するかチェック
             const isRemoteBranchExists = await this.remoteBranchExists(objectDir, branchName);
             if (isRemoteBranchExists) {
-                // リモートブランチをマージ
-                await this.checkoutBranch(objectDir, branchName, true /*createIfNotExist*/);
-                // merge origin/branchName (theirs)
-                await this.execCmd(this.gitPath, [
-                    'merge',
-                    `origin/${branchName}`,
-                    '--allow-unrelated-histories',
-                    '-X', 'theirs',
-                    '-m', `Merge remote ${branchName}`
-                ], objectDir);
                 logMessageGreen(`初回リポジトリ作成後、リモート${branchName}をマージしました。`);
                 return true;
             } else {
@@ -166,21 +156,27 @@ export class GitHubSyncProvider implements IStorageProvider {
    * Gitリポジトリを初期化し、remote originを追加する
    */
     private async initializeGitRepo(dir: string, branchName: string): Promise<void> {
-        // .gitattributesでバイナリ扱いとする（暗号化ファイルをテキスト差分しないため）
-        const gitattributesUri = vscode.Uri.joinPath(remotesDirUri, '.gitattributes');
-        await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
         try {
             await this.execCmd(this.gitPath, ['ls-remote', this.gitRemoteUrl], dir);
             await this.execCmd(this.gitPath, ['clone', this.gitRemoteUrl], dir);
+            await this.execCmd(this.gitPath, ['checkout', branchName], dir);
             return;
         } catch (error) {
-            logMessageRed(`リモートリポジトリが見つかりません 。URL: ${this.gitRemoteUrl}`);
+            logMessageRed(`Gitリポジトリのcloneに失敗しましたした: ${error}`);
         }
-        await this.execCmd(this.gitPath, ['init'], dir);
-        await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], dir);
-        // fetchだけ先にしておく
-        await this.execCmd(this.gitPath, ['fetch', 'origin'], dir);
-        logMessageGreen("Gitリポジトリを初期化しました。");
+        // .gitattributesでバイナリ扱いとする（暗号化ファイルをテキスト差分しないため）
+        try {
+            const gitattributesUri = vscode.Uri.joinPath(remotesDirUri, '.gitattributes');
+            await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
+
+            await this.execCmd(this.gitPath, ['init', '-b', branchName], dir);
+            await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], dir);
+            // pushだけ先にしておく
+            await this.execCmd(this.gitPath, ['push', 'origin', branchName], dir);
+            logMessageGreen("Gitリポジトリを初期化しました。");
+        } catch (error) {
+            throw new Error(`Gitリポジトリの初期化に失敗しました。ディレクトリ: ${dir}, ブランチ: ${branchName}`);
+        }
     }
 
     /**
