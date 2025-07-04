@@ -50,9 +50,9 @@ flowchart TD
     
     D -->|No| E[ローカルリポジトリ作成]
     E --> F[.gitattributes追加]
-    F --> G[初期コミット実行]
-    G --> H[リモートにプッシュ]
-    H --> I[ローカルワークスペース<br/>データ暗号化・保存]
+    F --> G[ワークスペースデータを<br/>暗号化してローカルに保存]
+    G --> H[全ファイルをコミット<br/>(.gitattributes + 暗号化データ)]
+    H --> I[リモートにプッシュ]
     
     D -->|Yes| J[リモートリポジトリを<br/>ローカルにクローン]
     J --> K[クローンしたデータを<br/>復号化]
@@ -116,14 +116,17 @@ async initializeNewRemoteRepository(branchName: string): Promise<void> {
         new TextEncoder().encode('* binary\n')
     );
     
-    // 3. 初期コミット
-    await this.execCmd(this.gitPath, ['add', '.'], localRepoDir);
-    await this.execCmd(this.gitPath, ['commit', '-m', 'Initial commit: Setup secure notes repository'], localRepoDir);
+    // 3. ワークスペースの既存ファイルを暗号化してローカルリポジトリに保存
+    await this.encryptAndSaveWorkspaceFiles(localRepoDir);
     
-    // 4. リモートにプッシュ
+    // 4. 全ファイル（.gitattributes + 暗号化データ）をコミット
+    await this.execCmd(this.gitPath, ['add', '.'], localRepoDir);
+    await this.execCmd(this.gitPath, ['commit', '-m', 'Initial commit: Setup secure notes with existing workspace data'], localRepoDir);
+    
+    // 5. リモートにプッシュ（完全な状態で）
     await this.execCmd(this.gitPath, ['push', '-u', 'origin', branchName], localRepoDir);
     
-    logMessageGreen(`新規リモートリポジトリを初期化しました: ${branchName}ブランチ`);
+    logMessageGreen(`新規リモートリポジトリを初期化しました（ワークスペースデータ含む）: ${branchName}ブランチ`);
 }
 ```
 
@@ -154,7 +157,103 @@ async cloneExistingRemoteRepository(branchName: string): Promise<void> {
 }
 ```
 
-#### Phase 4: データ復号化・展開処理
+#### Phase 4A: ワークスペースデータ暗号化・保存処理（新規リポジトリの場合）
+```typescript
+/**
+ * ワークスペースファイルを暗号化してローカルリポジトリに保存
+ * @param localRepoDir ローカルリポジトリディレクトリ
+ */
+async encryptAndSaveWorkspaceFiles(localRepoDir: string): Promise<void> {
+    try {
+        // 1. 現在のワークスペースファイルをスキャン
+        const workspaceFiles = await this.scanWorkspaceFiles();
+        
+        if (workspaceFiles.length === 0) {
+            logMessage('ワークスペースに暗号化対象ファイルがありません。');
+            return;
+        }
+        
+        // 2. 新しいインデックスを作成
+        const newIndex = await this.createNewIndex(workspaceFiles);
+        
+        // 3. ファイルを暗号化して保存
+        for (const fileEntry of newIndex.files) {
+            await this.encryptAndSaveFile(localRepoDir, fileEntry);
+        }
+        
+        // 4. インデックスを暗号化して保存
+        await this.saveEncryptedIndex(localRepoDir, newIndex);
+        
+        // 5. ワークスペースインデックスを更新
+        await this.updateWorkspaceIndex(newIndex);
+        
+        logMessage(`${workspaceFiles.length}個のファイルを暗号化してローカルリポジトリに保存しました。`);
+        
+    } catch (error) {
+        logMessageRed(`ワークスペースデータ暗号化・保存処理でエラーが発生しました: ${error}`);
+        throw error;
+    }
+}
+
+/**
+ * ワークスペース内の対象ファイルをスキャン
+ * @returns {Promise<string[]>} ファイルパス配列
+ */
+async scanWorkspaceFiles(): Promise<string[]> {
+    const workspaceFiles: string[] = [];
+    const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+    
+    if (!workspaceUri) {
+        return workspaceFiles;
+    }
+    
+    // .secureNotes ディレクトリを除外してファイルをスキャン
+    const files = await vscode.workspace.findFiles(
+        '**/*',
+        '{.secureNotes/**,.git/**,node_modules/**}'
+    );
+    
+    for (const fileUri of files) {
+        const relativePath = vscode.workspace.asRelativePath(fileUri);
+        workspaceFiles.push(relativePath);
+    }
+    
+    return workspaceFiles;
+}
+
+/**
+ * 新規インデックスファイルを作成
+ * @param filePaths ファイルパス配列
+ * @returns {Promise<IndexFile>} 新規インデックス
+ */
+async createNewIndex(filePaths: string[]): Promise<IndexFile> {
+    const fileEntries: FileEntry[] = [];
+    
+    for (const filePath of filePaths) {
+        const fileUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, filePath);
+        const content = await vscode.workspace.fs.readFile(fileUri);
+        const hash = await this.calculateFileHash(content);
+        const stat = await vscode.workspace.fs.stat(fileUri);
+        
+        fileEntries.push({
+            path: filePath,
+            hash: hash,
+            size: content.length,
+            lastModified: stat.mtime
+        });
+    }
+    
+    return {
+        uuid: this.generateUUID(),
+        environmentId: await this.getEnvironmentId(),
+        parentUuids: [], // 新規作成なので親は存在しない
+        files: fileEntries,
+        timestamp: Date.now()
+    };
+}
+```
+
+#### Phase 4B: データ復号化・展開処理（既存リポジトリの場合）
 ```typescript
 /**
  * クローンしたリモートデータを復号化してワークスペースに展開
@@ -286,12 +385,17 @@ async updateWorkspaceIndex(latestIndex: IndexFile): Promise<void> {
 2. `initializeNewRemoteRepository()`: 新規リモートリポジトリ初期化
 3. `cloneExistingRemoteRepository()`: 既存リモートリポジトリクローン
 4. `loadAndDecryptRemoteData()`: クローンデータの復号化・展開
+5. `encryptAndSaveWorkspaceFiles()`: ワークスペースファイルの暗号化・保存
 
 ### LocalObjectManager クラス
 1. `decryptAndRestoreFile()`: 個別ファイルの復号化・復元
 2. `loadRemoteIndexes()`: リモートインデックスファイル読み込み
 3. `findLatestIndex()`: 最新インデックス特定
 4. `updateWorkspaceIndex()`: ワークスペースインデックス更新
+5. `scanWorkspaceFiles()`: ワークスペースファイルスキャン
+6. `createNewIndex()`: 新規インデックス作成
+7. `encryptAndSaveFile()`: 個別ファイルの暗号化・保存
+8. `saveEncryptedIndex()`: 暗号化インデックス保存
 
 ## 📈 改善されるメリット
 
@@ -306,10 +410,12 @@ async updateWorkspaceIndex(latestIndex: IndexFile): Promise<void> {
 ### 3. データ整合性
 - **確実な復元**: クローン時に既存のリモートデータを正しくワークスペースに復元
 - **状態の一貫性**: リモートとローカルの状態を確実に同期
+- **完全な初期化**: 新規作成時もワークスペースデータを含めて完全な状態でリモートに保存
 
 ### 4. 初期化の確実性
 - **環境非依存**: リモートの状態に関係なく、確実に同期環境を構築
 - **エラー処理**: 各段階での適切なエラーハンドリング
+- **一貫性保証**: 新規・既存どちらの場合も最終的にリモートとローカルが同じ状態になる
 
 ## 🔄 既存コードとの互換性
 
