@@ -9,6 +9,8 @@ import {
 } from "./storage/LocalObjectManager";
 import { GitHubSyncProvider } from "./storage/GithubProvider";
 import { IndexFile } from "./types";
+import { createSyncService } from "./SyncService";
+import { registerManualSyncTestCommand } from "./test/tmp_rovodev_manual-sync-test";
 import * as crypto from "crypto";
 import { execFile } from "child_process";
 import which from "which";
@@ -83,7 +85,7 @@ export async function activate(context: vscode.ExtensionContext) {
     "extension.syncNotes",
     async () => {
       try {
-        const encryptKey = await getAESKey(context); // ← ポイント：ここで getAESKey() を使う
+        const encryptKey = await getAESKey(context);
         if (!encryptKey) {
           showError("AES Key not set");
           return false;
@@ -97,82 +99,18 @@ export async function activate(context: vscode.ExtensionContext) {
           return;
         }
 
+        // SyncServiceを使用して同期処理を実行
+        const syncService = createSyncService(gitRemoteUrl, branchProvider);
         const options = {
           environmentId: environmentId,
           encryptionKey: encryptKey,
         };
-        const previousIndex = await LocalObjectManager.loadWsIndex(options);
-        logMessage(`Loaded previous index file: ${previousIndex.uuid}`);
-        let newLocalIndex = await LocalObjectManager.generateLocalIndexFile(
-          previousIndex,
-          options
-        );
-        showInfo("New local index file created.");
 
-        const cloudStorageProvider = new GitHubSyncProvider(gitRemoteUrl);
-        let updated = false;
-        // 追加: 現在のブランチ名を取得 (HEADファイル or default: main)
-        const currentBranch = await getCurrentBranchName();
-        if (await cloudStorageProvider.download(currentBranch)) {
-          // リモートに更新があった場合
-          const remoteIndex = await LocalObjectManager.loadRemoteIndex(options);
-          const conflicts = await LocalObjectManager.detectConflicts(
-            previousIndex,
-            newLocalIndex,
-            remoteIndex
-          );
-          if (conflicts.length > 0) {
-            const conflictsResolved = await LocalObjectManager.resolveConflicts(
-              conflicts,
-              options
-            );
-            if (!conflictsResolved) {
-              showInfo("Sync aborted due to unresolved conflicts.");
-              return true;
-            }
-          }
-          // ローカルとリモートの変更をマージ
-          logMessage("Merging local and remote changes...");
-          newLocalIndex = await LocalObjectManager.generateLocalIndexFile(
-            previousIndex,
-            options
-          );
-          updated = true;
-        }
-
-        // 2) マージ後のファイルを暗号化保存
-        updated =
-          (await LocalObjectManager.saveEncryptedObjects(
-            newLocalIndex.files,
-            previousIndex,
-            options
-          )) || updated;
-
-        if (updated) {
-          // 3) 新しいインデックスを保存
-          await LocalObjectManager.saveIndexFile(
-            newLocalIndex,
-            currentBranch,
-            encryptKey
-          );
-          await LocalObjectManager.saveWsIndexFile(newLocalIndex, options);
-          await LocalObjectManager.reflectFileChanges(
-            previousIndex,
-            newLocalIndex,
-            options,
-            false
-          );
-          branchProvider.refresh();
-
-          // 4) GitHub に push
-          await cloudStorageProvider.upload(currentBranch);
-          showInfo("Merge completed successfully.");
-          return true;
-        }
+        return await syncService.performIncrementalSync(options);
       } catch (error: any) {
         showError(`Sync failed: ${error.message}`);
+        return false;
       }
-      return false;
     }
   );
 
@@ -426,6 +364,9 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }
   );
+
+  // 手動テストコマンドを登録（開発時のみ）
+  registerManualSyncTestCommand(context);
 
   context.subscriptions.push(
     syncCommand,
