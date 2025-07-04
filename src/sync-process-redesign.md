@@ -51,7 +51,7 @@ flowchart TD
     D -->|No| E[ローカルリポジトリ作成]
     E --> F[.gitattributes追加]
     F --> G[ワークスペースデータを<br/>暗号化してローカルに保存]
-    G --> H[全ファイルをコミット<br/>(.gitattributes + 暗号化データ)]
+    G --> H[全ファイルをコミット<br/>.gitattributes + 暗号化データ]
     H --> I[リモートにプッシュ]
     
     D -->|Yes| J[リモートリポジトリを<br/>ローカルにクローン]
