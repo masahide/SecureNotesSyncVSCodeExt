@@ -55,6 +55,10 @@ suite('GitHubProvider Test Suite', () => {
   let testRepoUrl: string;
   let currentTestWorkspaceDir: string;
 
+  // テスト用 .gitconfig のパス
+  let testGitConfigPath: string;
+  let prevGitConfigGlobal: string | undefined;
+
   // 各テストケース毎に完全に独立した環境を初期化
   function initializeTestEnvironment() {
     // 新しいワークスペースディレクトリを作成
@@ -147,12 +151,16 @@ suite('GitHubProvider Test Suite', () => {
   }
 
   setup(async () => {
-    // Gitの基本設定を行い、警告メッセージを抑制
+    // テスト用 .gitconfig を作成し、GIT_CONFIG_GLOBALを設定
+    const osTmp = os.tmpdir();
+    testGitConfigPath = path.join(osTmp, `test-gitconfig-${Date.now()}-${Math.random().toString(36).slice(2)}.gitconfig`);
+    prevGitConfigGlobal = process.env.GIT_CONFIG_GLOBAL;
+    process.env.GIT_CONFIG_GLOBAL = testGitConfigPath;
     try {
-      execSync('git config --global init.defaultBranch main', { stdio: 'ignore' });
-      execSync('git config --global user.email "test@example.com"', { stdio: 'ignore' });
-      execSync('git config --global user.name "Test User"', { stdio: 'ignore' });
-      execSync('git config --global advice.detachedHead false', { stdio: 'ignore' });
+      execSync(`git config --file "${testGitConfigPath}" init.defaultBranch main`, { stdio: 'ignore' });
+      execSync(`git config --file "${testGitConfigPath}" user.email "test@example.com"`, { stdio: 'ignore' });
+      execSync(`git config --file "${testGitConfigPath}" user.name "Test User"`, { stdio: 'ignore' });
+      execSync(`git config --file "${testGitConfigPath}" advice.detachedHead false`, { stdio: 'ignore' });
     } catch (error) {
       // 設定に失敗しても続行
       console.log('Git config setup failed, continuing with defaults');
@@ -160,14 +168,18 @@ suite('GitHubProvider Test Suite', () => {
   });
 
   teardown(() => {
-    // Gitの設定をリセット（オプション）
+    // テスト用 .gitconfig の削除とGIT_CONFIG_GLOBALのリセット
     try {
-      execSync('git config --global --unset init.defaultBranch', { stdio: 'ignore' });
-      execSync('git config --global --unset user.email', { stdio: 'ignore' });
-      execSync('git config --global --unset user.name', { stdio: 'ignore' });
-      execSync('git config --global --unset advice.detachedHead', { stdio: 'ignore' });
+      if (testGitConfigPath && fs.existsSync(testGitConfigPath)) {
+        fs.rmSync(testGitConfigPath, { force: true });
+      }
     } catch (error) {
-      // 設定削除に失敗しても無視
+      // 削除失敗は無視
+    }
+    if (prevGitConfigGlobal === undefined) {
+      delete process.env.GIT_CONFIG_GLOBAL;
+    } else {
+      process.env.GIT_CONFIG_GLOBAL = prevGitConfigGlobal;
     }
   });
 
