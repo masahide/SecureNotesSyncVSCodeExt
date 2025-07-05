@@ -2,8 +2,10 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 
 // ワークスペースフォルダのモックを最初に設定
+// 一時ディレクトリを使用して実際に書き込み可能なパスを設定
+const tempWorkspaceDir = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'test-workspace-'));
 const mockWorkspaceFolder = {
-  uri: vscode.Uri.file('/mock/workspace'),
+  uri: vscode.Uri.file(tempWorkspaceDir),
   name: 'mock-workspace',
   index: 0
 };
