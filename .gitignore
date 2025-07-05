@@ -4,3 +4,13 @@ node_modules
 .vscode-test/
 *.vsix
 combined_prompt.txt
+
+# Temporary development and test files (root directory only)
+/tmp_rovodev_*.js
+/tmp_rovodev_*.md
+/tmp_code_*.bash
+
+# Note: src/test/ files with proper names are now tracked:
+# - manual-sync-test.ts (manual testing functionality)
+# - unit-test.ts (TypeScript direct execution tests)  
+# - alternative-test-runner.ts (alternative test runner)

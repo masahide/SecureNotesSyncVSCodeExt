@@ -115,10 +115,6 @@
         "title": "Insert Current Time"
       },
       {
-        "command": "extension.generateAESKey",
-        "title": "Generate AES Key"
-      },
-      {
         "command": "extension.createBranchFromIndex",
         "title": "Create Branch from Index"
       },
@@ -129,17 +125,19 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run package",
+    "vscode:prepublish": "pnpm run package",
     "compile": "webpack",
     "watch": "webpack --watch",
     "package": "webpack --mode production --devtool hidden-source-map",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
-    "test:sync": "npm run compile-tests && node ./out/test/tmp_rovodev_test-runner.js",
-    "test:incremental": "npm run compile-tests && npm run compile"
+    "test:sync": "pnpm run compile-tests && node ./out/test/alternative-test-runner.js",
+    "test:incremental": "pnpm run compile-tests && pnpm run compile",
+    "test:unit": "tsx src/test/unit-test.ts",
+    "test:fast": "pnpm run test:unit && pnpm run lint"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -152,6 +150,7 @@
     "@vscode/test-electron": "^2.4.1",
     "eslint": "^9.18.0",
     "ts-loader": "^9.5.2",
+    "tsx": "^4.20.3",
     "typescript": "^5.7.3",
     "webpack": "^5.97.1",
     "webpack-cli": "^6.0.1"

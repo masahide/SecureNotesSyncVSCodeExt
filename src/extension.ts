@@ -10,7 +10,7 @@ import {
 import { GitHubSyncProvider } from "./storage/GithubProvider";
 import { IndexFile } from "./types";
 import { createSyncService } from "./SyncService";
-import { registerManualSyncTestCommand } from "./test/tmp_rovodev_manual-sync-test";
+import { registerManualSyncTestCommand } from "./test/manual-sync-test";
 import * as crypto from "crypto";
 import { execFile } from "child_process";
 import which from "which";
