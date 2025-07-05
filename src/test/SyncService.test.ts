@@ -1,5 +1,41 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
+
+// ワークスペースフォルダのモックを最初に設定
+const mockWorkspaceFolder = {
+  uri: vscode.Uri.file('/mock/workspace'),
+  name: 'mock-workspace',
+  index: 0
+};
+
+// ワークスペースフォルダをモック（インポート前に設定）
+Object.defineProperty(vscode.workspace, 'workspaceFolders', {
+  value: [mockWorkspaceFolder],
+  writable: true,
+  configurable: true
+});
+
+// logger機能をモック（インポート前に設定）
+const mockLogger = {
+  logMessage: () => {},
+  showInfo: () => {},
+  showError: () => {},
+  logMessageRed: () => {},
+  logMessageGreen: () => {},
+  logMessageBlue: () => {},
+  showOutputTerminal: () => {}
+};
+
+// loggerモジュールをモック
+const Module = require('module');
+const originalRequire = Module.prototype.require;
+Module.prototype.require = function(id: string) {
+  if (id === '../logger' || id.endsWith('/logger')) {
+    return mockLogger;
+  }
+  return originalRequire.apply(this, arguments);
+};
+
 import { SyncService, SyncOptions, SyncDependencies } from '../SyncService';
 import { IndexFile, FileEntry } from '../types';
 
@@ -112,6 +148,8 @@ const originalGetCurrentBranchName = LocalObjectManagerModule.getCurrentBranchNa
 // モック関数を作成
 const mockGetCurrentBranchName = async (): Promise<string> => 'main';
 
+// ワークスペースフォルダのモックは上部で既に定義済み
+
 suite('SyncService Test Suite', () => {
   let syncService: SyncService;
   let mockDependencies: SyncDependencies;
@@ -120,6 +158,12 @@ suite('SyncService Test Suite', () => {
   setup(() => {
     // getCurrentBranchNameをモック関数に置き換え
     (LocalObjectManagerModule as any).getCurrentBranchName = mockGetCurrentBranchName;
+
+    // ワークスペースフォルダをモック
+    Object.defineProperty(vscode.workspace, 'workspaceFolders', {
+      value: [mockWorkspaceFolder],
+      writable: true
+    });
 
     mockDependencies = {
       localObjectManager: MockLocalObjectManager as any,
@@ -138,6 +182,12 @@ suite('SyncService Test Suite', () => {
   teardown(() => {
     // 元の関数に戻す
     (LocalObjectManagerModule as any).getCurrentBranchName = originalGetCurrentBranchName;
+    
+    // ワークスペースフォルダのモックをクリア
+    Object.defineProperty(vscode.workspace, 'workspaceFolders', {
+      value: undefined,
+      writable: true
+    });
   });
 
   test('増分同期処理 - リモート更新なしの場合', async () => {
@@ -210,14 +260,22 @@ suite('SyncService Test Suite', () => {
   });
 
   test('増分同期処理 - エラー発生時の処理', async () => {
-    // エラーを発生させるモック
-    const mockLocalManager = mockDependencies.localObjectManager as any;
-    mockLocalManager.loadWsIndex = async () => {
-      throw new Error('Test error');
+    // エラーテスト用の独立したモックを作成
+    const errorMockDependencies = {
+      localObjectManager: {
+        ...MockLocalObjectManager,
+        loadWsIndex: async () => {
+          throw new Error('Test error');
+        }
+      } as any,
+      gitHubSyncProvider: new MockGitHubSyncProvider('https://github.com/test/repo.git') as any,
+      branchProvider: new MockBranchProvider()
     };
+    
+    const errorSyncService = new SyncService(errorMockDependencies);
 
     try {
-      await syncService.performIncrementalSync(testOptions);
+      await errorSyncService.performIncrementalSync(testOptions);
       assert.fail('エラーが発生するはずです');
     } catch (error: any) {
       assert.strictEqual(error.message, 'Test error');
@@ -225,14 +283,23 @@ suite('SyncService Test Suite', () => {
   });
 
   test('増分同期処理 - ファイル更新なしの場合', async () => {
+    // 新しいSyncServiceインスタンスを作成（他のテストの影響を避けるため）
+    const cleanMockDependencies = {
+      localObjectManager: MockLocalObjectManager as any,
+      gitHubSyncProvider: new MockGitHubSyncProvider('https://github.com/test/repo.git') as any,
+      branchProvider: new MockBranchProvider()
+    };
+    
+    const cleanSyncService = new SyncService(cleanMockDependencies);
+    
     // ファイル更新がない場合のモック
-    const mockLocalManager = mockDependencies.localObjectManager as any;
+    const mockLocalManager = cleanMockDependencies.localObjectManager as any;
     mockLocalManager.saveEncryptedObjects = async () => false;
 
-    const mockGitHubProvider = mockDependencies.gitHubSyncProvider as any;
+    const mockGitHubProvider = cleanMockDependencies.gitHubSyncProvider as any;
     mockGitHubProvider.download = async () => false;
 
-    const result = await syncService.performIncrementalSync(testOptions);
+    const result = await cleanSyncService.performIncrementalSync(testOptions);
     
     // 更新がないのでfalseが返される
     assert.strictEqual(result, false);
