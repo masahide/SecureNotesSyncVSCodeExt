@@ -9,6 +9,7 @@ import {
   LocalObjectManagerOptions,
 } from "../types";
 import { v7 as uuidv7 } from "uuid";
+import * as path from "path";
 
 const secureNotesDir = ".secureNotes";
 const objectDirName = "objects";
@@ -775,7 +776,9 @@ export class LocalObjectManager {
 
       for (const fileUri of filesInFolder) {
         const stat = await vscode.workspace.fs.stat(fileUri);
-        const relativePath = vscode.workspace.asRelativePath(fileUri, false);
+        // ワークスペースフォルダからの相対パスを正しく取得
+        const relativePath = path.relative(folder.uri.fsPath, fileUri.fsPath);
+        
         filesMap.set(relativePath, {
           path: relativePath,
           hash: "",

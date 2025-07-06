@@ -80,7 +80,8 @@ export class GitHubSyncProvider implements IStorageProvider {
                         }
                     } as any;
 
-                    const localObjectManager = new (await import('./LocalObjectManager')).LocalObjectManager(
+                    const { LocalObjectManager } = await import('./LocalObjectManager');
+                    const localObjectManager = new LocalObjectManager(
                         workspaceUri.fsPath, 
                         mockContext
                     );
@@ -156,7 +157,8 @@ export class GitHubSyncProvider implements IStorageProvider {
                 }
             } as any;
 
-            const localObjectManager = new (await import('./LocalObjectManager')).LocalObjectManager(
+            const { LocalObjectManager } = await import('./LocalObjectManager');
+            const localObjectManager = new LocalObjectManager(
                 workspaceUri.fsPath, 
                 mockContext
             );
