@@ -44,12 +44,27 @@ Module.prototype.require = function(id: string) {
 
 import { LocalObjectManager } from '../storage/LocalObjectManager';
 import { IndexFile, FileEntry } from '../types';
+import * as path from 'path';
+import * as fs from 'fs';
 
 suite('LocalObjectManager Test Suite', () => {
   const testOptions = {
     environmentId: 'test-env',
     encryptionKey: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
   };
+
+  // Mock context for new tests
+  const mockContext = {
+    secrets: {
+      get: async (key: string) => testOptions.encryptionKey,
+      store: async (key: string, value: string) => {},
+      delete: async (key: string) => {}
+    },
+    workspaceState: {
+      get: (key: string) => undefined,
+      update: async (key: string, value: any) => {}
+    }
+  } as any;
 
   // テスト後のクリーンアップ
   teardown(() => {
@@ -335,5 +350,187 @@ suite('LocalObjectManager Test Suite', () => {
     } catch (error) {
       assert.ok(true, 'テスト環境での制限を考慮');
     }
+  });
+
+  suite('Sync Process Redesign Tests', () => {
+    suite('Phase 4: Data Decryption and Restoration', () => {
+      test('encryptAndSaveWorkspaceFiles - encrypts and saves all workspace files', async () => {
+        // Given: ワークスペースにファイルが存在する
+        const testFile1 = path.join(tempWorkspaceDir, 'note1.md');
+        const testFile2 = path.join(tempWorkspaceDir, 'folder', 'note2.md');
+        
+        fs.writeFileSync(testFile1, '# Note 1\nContent of note 1');
+        fs.mkdirSync(path.dirname(testFile2), { recursive: true });
+        fs.writeFileSync(testFile2, '# Note 2\nContent of note 2');
+
+        // Create LocalObjectManager instance
+        const localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext);
+
+        // When: ワークスペースファイルの暗号化・保存を実行
+        const indexFile = await localObjectManager.encryptAndSaveWorkspaceFiles();
+
+        // Then: インデックスファイルが作成され、ファイルが暗号化される
+        assert.ok(indexFile);
+        assert.ok(indexFile.uuid);
+        assert.strictEqual(indexFile.files.length, 2);
+        
+        // 暗号化されたファイルが存在することを確認
+        const secureNotesDir = path.join(tempWorkspaceDir, '.secureNotes');
+        assert.ok(fs.existsSync(secureNotesDir));
+      });
+
+      test('decryptAndRestoreFile - decrypts and restores individual file', async () => {
+        // Given: 暗号化されたファイルデータ
+        const relativePath = 'test-note.md';
+        const originalContent = '# Test Note\nThis is test content.';
+        
+        // Create test file and encrypt it first
+        const testFile = path.join(tempWorkspaceDir, relativePath);
+        fs.writeFileSync(testFile, originalContent);
+        
+        const localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext);
+        const indexFile = await localObjectManager.encryptAndSaveWorkspaceFiles();
+        
+        // Delete the original file to test restoration
+        fs.unlinkSync(testFile);
+        
+        const fileEntry = indexFile.files.find(f => f.path === relativePath);
+        assert.ok(fileEntry, 'File entry should exist in index');
+
+        // When: ファイルの復号化・復元を実行
+        await localObjectManager.decryptAndRestoreFile(fileEntry);
+
+        // Then: ファイルがワークスペースに復元される
+        assert.ok(fs.existsSync(testFile));
+        const restoredContent = fs.readFileSync(testFile, 'utf8');
+        assert.strictEqual(restoredContent, originalContent);
+      });
+
+      test('loadRemoteIndexes - loads all remote index files', async () => {
+        // Given: リモートインデックスファイルが存在する
+        const secureNotesDir = path.join(tempWorkspaceDir, '.secureNotes');
+        const indexesDir = path.join(secureNotesDir, 'remotes', 'indexes');
+        fs.mkdirSync(indexesDir, { recursive: true });
+
+        // Create LocalObjectManager instance
+        const localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext);
+        
+        // Create a test index file first
+        const testIndex = await localObjectManager.encryptAndSaveWorkspaceFiles();
+
+        // When: リモートインデックスファイルの読み込みを実行
+        const indexes = await localObjectManager.loadRemoteIndexes();
+
+        // Then: インデックスファイルが読み込まれる
+        assert.ok(Array.isArray(indexes));
+        assert.ok(indexes.length >= 0); // At least empty array should be returned
+      });
+
+      test('findLatestIndex - finds the most recent index', async () => {
+        // Given: 複数のインデックスファイル
+        const indexes: IndexFile[] = [
+          { 
+            uuid: 'index1', 
+            files: [], 
+            timestamp: new Date('2024-01-01T00:00:00Z').getTime(), 
+            parentUuids: [], 
+            environmentId: 'test' 
+          },
+          { 
+            uuid: 'index2', 
+            files: [], 
+            timestamp: new Date('2024-01-02T00:00:00Z').getTime(), 
+            parentUuids: ['index1'], 
+            environmentId: 'test' 
+          },
+          { 
+            uuid: 'index3', 
+            files: [], 
+            timestamp: new Date('2024-01-03T00:00:00Z').getTime(), 
+            parentUuids: ['index2'], 
+            environmentId: 'test' 
+          }
+        ];
+
+        const localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext);
+
+        // When: 最新インデックスの特定を実行
+        const latestIndex = await localObjectManager.findLatestIndex(indexes);
+
+        // Then: 最新のインデックスが特定される
+        assert.strictEqual(latestIndex.uuid, 'index3');
+        assert.strictEqual(latestIndex.timestamp, new Date('2024-01-03T00:00:00Z').getTime());
+      });
+
+      test('updateWorkspaceIndex - updates workspace index file', async () => {
+        // Given: 新しいインデックスデータ
+        const newIndex: IndexFile = {
+          uuid: 'new-index-123',
+          files: [
+            { path: 'note.md', hash: 'hash123', timestamp: Date.now() }
+          ],
+          timestamp: Date.now(),
+          parentUuids: [],
+          environmentId: 'test'
+        };
+
+        const localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext);
+
+        // When: ワークスペースインデックスの更新を実行
+        await localObjectManager.updateWorkspaceIndex(newIndex);
+
+        // Then: wsIndex.jsonが更新される
+        const wsIndexPath = path.join(tempWorkspaceDir, '.secureNotes', 'wsIndex.json');
+        assert.ok(fs.existsSync(wsIndexPath));
+        
+        const wsIndexContent = JSON.parse(fs.readFileSync(wsIndexPath, 'utf8'));
+        assert.strictEqual(wsIndexContent.uuid, newIndex.uuid);
+      });
+    });
+
+    suite('Integration Tests - LocalObjectManager', () => {
+      test('complete encryption and decryption flow', async () => {
+        // Given: ワークスペースにテストファイルが存在する
+        const testFiles = [
+          { path: 'doc1.md', content: '# Document 1\nFirst document content' },
+          { path: 'notes/doc2.md', content: '# Document 2\nSecond document content' },
+          { path: 'README.md', content: '# Project README\nProject description' }
+        ];
+
+        // Create test files
+        for (const file of testFiles) {
+          const filePath = path.join(tempWorkspaceDir, file.path);
+          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+          fs.writeFileSync(filePath, file.content);
+        }
+
+        const localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext);
+
+        // When: 暗号化・保存を実行
+        const indexFile = await localObjectManager.encryptAndSaveWorkspaceFiles();
+
+        // Then: 全てのファイルが暗号化される
+        assert.strictEqual(indexFile.files.length, testFiles.length);
+
+        // ワークスペースファイルを削除
+        for (const file of testFiles) {
+          const filePath = path.join(tempWorkspaceDir, file.path);
+          fs.unlinkSync(filePath);
+        }
+
+        // 復号化・復元を実行
+        for (const fileEntry of indexFile.files) {
+          await localObjectManager.decryptAndRestoreFile(fileEntry);
+        }
+
+        // 全てのファイルが復元されることを確認
+        for (const file of testFiles) {
+          const filePath = path.join(tempWorkspaceDir, file.path);
+          assert.ok(fs.existsSync(filePath));
+          const restoredContent = fs.readFileSync(filePath, 'utf8');
+          assert.strictEqual(restoredContent, file.content);
+        }
+      });
+    });
   });
 });

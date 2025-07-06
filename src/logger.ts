@@ -101,7 +101,17 @@ function colorText(text: string, color: string): string {
 // Log message を出力する際にタイムスタンプを行頭に追加
 export function logMessage(message: string) {
   const timestamp = getLocalISOStringWithOffset();
-  pty.write(`${timestamp} ${message}`);
+  try {
+    if (pty) {
+      pty.write(`${timestamp} ${message}`);
+    } else {
+      // テスト環境などでptyが初期化されていない場合
+      console.log(`${timestamp} ${message}`);
+    }
+  } catch (error) {
+    // エラーが発生した場合はコンソールに出力
+    console.log(`${timestamp} ${message}`);
+  }
 }
 
 export function logMessageRed(message: string) {

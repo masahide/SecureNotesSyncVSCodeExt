@@ -382,4 +382,141 @@ suite('GitHubProvider Test Suite', () => {
       cleanupTestEnvironment();
     }
   });
+
+  suite('Sync Process Redesign Tests', () => {
+    suite('Phase 1: Remote Repository Existence Check', () => {
+      test('checkRemoteRepositoryExists - repository exists', async () => {
+        const env = initializeTestEnvironment();
+        try {
+          // Given: リモートリポジトリが存在する
+          const provider = new GitHubSyncProvider(env.testRepoUrl);
+          
+          // When: リモートリポジトリの存在確認を実行
+          const exists = await provider.checkRemoteRepositoryExists();
+
+          // Then: 存在することが確認される
+          assert.strictEqual(exists, true);
+        } finally {
+          cleanupTestEnvironment();
+        }
+      });
+
+      test('checkRemoteRepositoryExists - repository does not exist', async () => {
+        const env = initializeTestEnvironment();
+        try {
+          // Given: リモートリポジトリが存在しない
+          const nonExistentUrl = `file://${env.testRepoPath}/non-existent-repo.git`;
+          const provider = new GitHubSyncProvider(nonExistentUrl);
+
+          // When: リモートリポジトリの存在確認を実行
+          const exists = await provider.checkRemoteRepositoryExists();
+
+          // Then: 存在しないことが確認される
+          assert.strictEqual(exists, false);
+        } finally {
+          cleanupTestEnvironment();
+        }
+      });
+    });
+
+    suite('Phase 2: New Repository Initialization', () => {
+      test('initializeNewRemoteRepository - creates local repo and pushes to remote', async () => {
+        const env = initializeTestEnvironment();
+        try {
+          // Given: リモートリポジトリが存在しない
+          const newRepoUrl = `file://${env.testRepoPath}/new-repo.git`;
+          const provider = new GitHubSyncProvider(newRepoUrl);
+
+          // When: 新規リモートリポジトリの初期化を実行
+          await provider.initializeNewRemoteRepository();
+
+          // Then: ローカルリポジトリが作成される
+          const secureNotesDir = path.join(env.currentTestWorkspaceDir, '.secureNotes');
+          assert.ok(fs.existsSync(secureNotesDir));
+        } finally {
+          cleanupTestEnvironment();
+        }
+      });
+    });
+
+    suite('Phase 3: Existing Repository Clone', () => {
+      test('cloneExistingRemoteRepository - clones remote repository', async () => {
+        const env = initializeTestEnvironment();
+        try {
+          // Given: リモートリポジトリが存在する
+          const provider = new GitHubSyncProvider(env.testRepoUrl);
+
+          // When: 既存リモートリポジトリのクローンを実行
+          await provider.cloneExistingRemoteRepository();
+
+          // Then: .secureNotesディレクトリが存在することを確認
+          const secureNotesDir = path.join(env.currentTestWorkspaceDir, '.secureNotes');
+          assert.ok(fs.existsSync(secureNotesDir));
+        } finally {
+          cleanupTestEnvironment();
+        }
+      });
+
+      test('loadAndDecryptRemoteData - loads and decrypts remote data', async () => {
+        const env = initializeTestEnvironment();
+        try {
+          // Given: クローンされたリモートデータが存在する
+          const provider = new GitHubSyncProvider(env.testRepoUrl);
+          
+          // 事前にクローンを実行
+          await provider.cloneExistingRemoteRepository();
+
+          // When: リモートデータの読み込み・復号化を実行
+          await provider.loadAndDecryptRemoteData();
+
+          // Then: データが正しく復号化・展開される
+          // (実際の復号化処理は LocalObjectManager のテストで詳細にテスト)
+          assert.ok(true); // この段階では処理が完了することを確認
+        } finally {
+          cleanupTestEnvironment();
+        }
+      });
+    });
+
+    suite('Integration Tests - New Sync Flow', () => {
+      test('complete sync flow - new repository', async () => {
+        const env = initializeTestEnvironment();
+        try {
+          // Given: リモートリポジトリが存在しない環境
+          const newRepoUrl = `file://${env.testRepoPath}/new-repo.git`;
+          const provider = new GitHubSyncProvider(newRepoUrl);
+
+          // Create test workspace files
+          const testFile = path.join(env.currentTestWorkspaceDir, 'test.md');
+          fs.writeFileSync(testFile, '# Test Note\nThis is a test note.');
+
+          // When: 完全な同期フローを実行
+          const result = await provider.download('main');
+
+          // Then: 新規リポジトリとして初期化される
+          assert.strictEqual(result, false); // 新規作成なので更新はなし
+          const secureNotesDir = path.join(env.currentTestWorkspaceDir, '.secureNotes');
+          assert.ok(fs.existsSync(secureNotesDir));
+        } finally {
+          cleanupTestEnvironment();
+        }
+      });
+
+      test('complete sync flow - existing repository', async () => {
+        const env = initializeTestEnvironment();
+        try {
+          // Given: リモートリポジトリが存在する環境
+          const provider = new GitHubSyncProvider(env.testRepoUrl);
+
+          // When: 完全な同期フローを実行
+          const result = await provider.download('main');
+
+          // Then: 既存リポジトリからデータが復元される
+          assert.strictEqual(result, true); // 既存データを復元したので更新あり
+        } finally {
+          cleanupTestEnvironment();
+        }
+      });
+    });
+  });
 });

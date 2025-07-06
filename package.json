@@ -134,6 +134,7 @@
     "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
     "lint": "eslint src",
     "test": "vscode-test",
+    "test:headless": "xvfb-run -a vscode-test",
     "test:sync": "pnpm run compile-tests && node ./out/test/alternative-test-runner.js",
     "test:incremental": "pnpm run compile-tests && pnpm run compile",
     "test:unit": "tsx src/test/unit-test.ts",
