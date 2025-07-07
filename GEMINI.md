@@ -78,6 +78,7 @@
 2. Use `GithubProvider` for remote Git operations
 3. Follow the storage provider interface pattern
 4. Handle conflicts gracefully with user notification
+5. Handle Git operation failures gracefully, allowing the process to continue where possible.
 
 #### UI Components
 1. Extend `BranchTreeViewProvider` for tree view modifications
@@ -103,7 +104,7 @@
 - Use the logger module for consistent error reporting
 - Show user-friendly messages via `showError()` function
 - Log detailed error information for debugging
-- Gracefully handle network failures and Git errors
+- Gracefully handle network failures and Git errors, preventing the application from crashing.
 - Provide recovery suggestions when possible
 
 ### Performance Considerations

@@ -100,7 +100,7 @@ export async function activate(context: vscode.ExtensionContext) {
         }
 
         // SyncServiceを使用して同期処理を実行
-        const syncService = createSyncService(gitRemoteUrl, branchProvider);
+        const syncService = createSyncService(gitRemoteUrl, branchProvider, encryptKey);
         const options = {
           environmentId: environmentId,
           encryptionKey: encryptKey,

@@ -65,14 +65,26 @@ export class SyncService {
         // Phase 2B: 既存リモートリポジトリの場合
         logMessage('=== Phase 2B: 既存リモートリポジトリ処理 ===');
         
-        // 1. 既存リモートリポジトリをクローン
+        // 1. リモートリポジトリが空かどうかを確認
+        const isEmpty = await this.dependencies.gitHubSyncProvider.checkRemoteRepositoryIsEmpty();
+        
+        if (isEmpty) {
+          // 空のリポジトリの場合は新規初期化と同じ処理
+          logMessage('空のリモートリポジトリのため、ワークスペースファイルを暗号化してアップロードします。');
+          await this.dependencies.gitHubSyncProvider.initializeEmptyRemoteRepository();
+          await this.dependencies.gitHubSyncProvider.encryptAndUploadWorkspaceFiles();
+          showInfo("空のリモートリポジトリにワークスペースファイルをアップロードしました。");
+          return false; // 新規作成なので更新はなし
+        }
+        
+        // 2. 既存リモートリポジトリをクローン/更新
         await this.dependencies.gitHubSyncProvider.cloneExistingRemoteRepository();
         
-        // 2. リモートデータを復号化・展開
+        // 3. リモートデータを復号化・展開
         await this.dependencies.gitHubSyncProvider.loadAndDecryptRemoteData();
         
-        // 3. 従来の増分同期処理を実行
-        const syncResult = await this.performTraditionalIncrementalSync(options, currentBranch);
+        // 4. 従来の増分同期処理を実行（リモートダウンロードはスキップ）
+        const syncResult = await this.performTraditionalIncrementalSync(options, currentBranch, true);
         
         showInfo("既存リポジトリからデータを復元し、増分同期を完了しました。");
         return syncResult;
@@ -86,8 +98,11 @@ export class SyncService {
 
   /**
    * 従来の増分同期処理（既存リポジトリの場合に使用）
+   * @param options 同期オプション
+   * @param currentBranch 現在のブランチ名
+   * @param skipRemoteDownload リモートダウンロードをスキップするかどうか
    */
-  private async performTraditionalIncrementalSync(options: SyncOptions, currentBranch: string): Promise<boolean> {
+  private async performTraditionalIncrementalSync(options: SyncOptions, currentBranch: string, skipRemoteDownload: boolean = false): Promise<boolean> {
     // 1. 前回のインデックスを読み込み
     const previousIndex = await this.loadPreviousIndex(options);
     logMessage(`Loaded previous index file: ${previousIndex.uuid}`);
@@ -97,7 +112,7 @@ export class SyncService {
     logMessage("New local index file created.");
 
     // 3. リモートからダウンロードして更新があるかチェック
-    const hasRemoteUpdates = await this.downloadRemoteUpdates(currentBranch);
+    const hasRemoteUpdates = skipRemoteDownload ? true : await this.downloadRemoteUpdates(currentBranch);
 
     let finalIndex = newLocalIndex;
     let updated = hasRemoteUpdates;
@@ -259,10 +274,10 @@ export class SyncService {
 /**
  * SyncServiceのファクトリー関数
  */
-export function createSyncService(gitRemoteUrl: string, branchProvider?: any): SyncService {
+export function createSyncService(gitRemoteUrl: string, branchProvider?: any, encryptionKey?: string): SyncService {
   const dependencies: SyncDependencies = {
     localObjectManager: LocalObjectManager,
-    gitHubSyncProvider: new GitHubSyncProvider(gitRemoteUrl),
+    gitHubSyncProvider: new GitHubSyncProvider(gitRemoteUrl, encryptionKey),
     branchProvider
   };
 

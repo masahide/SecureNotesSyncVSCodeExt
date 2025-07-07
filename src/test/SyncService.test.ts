@@ -179,15 +179,27 @@ class MockGitHubSyncProvider {
     return false; // Default: no remote repository exists
   }
 
+  async checkRemoteRepositoryIsEmpty(): Promise<boolean> {
+    return false; // Default: repository is not empty
+  }
+
   async initializeNewRemoteRepository(): Promise<void> {
     // Mock implementation
   }
 
-  async cloneExistingRemoteRepository(): Promise<void> {
+  async initializeEmptyRemoteRepository(): Promise<void> {
     // Mock implementation
   }
 
+  async cloneExistingRemoteRepository(): Promise<void> {
+    // Mock implementation - void return type
+  }
+
   async loadAndDecryptRemoteData(): Promise<void> {
+    // Mock implementation
+  }
+
+  async encryptAndUploadWorkspaceFiles(): Promise<void> {
     // Mock implementation
   }
 }
@@ -261,6 +273,7 @@ suite('SyncService Test Suite', () => {
     
     // リモートリポジトリが存在する場合
     mockGitHubProvider.checkRemoteRepositoryExists = async () => true;
+    mockGitHubProvider.checkRemoteRepositoryIsEmpty = async () => false;
     
     let cloneCalled = false;
     let loadDataCalled = false;
@@ -287,6 +300,7 @@ suite('SyncService Test Suite', () => {
     
     // リモートリポジトリが存在する場合
     mockGitHubProvider.checkRemoteRepositoryExists = async () => true;
+    mockGitHubProvider.checkRemoteRepositoryIsEmpty = async () => false;
     
     // 従来の増分同期処理でリモート更新があることをシミュレート
     mockGitHubProvider.download = async () => true;
@@ -318,6 +332,7 @@ suite('SyncService Test Suite', () => {
     
     // リモートリポジトリが存在する場合
     mockGitHubProvider.checkRemoteRepositoryExists = async () => true;
+    mockGitHubProvider.checkRemoteRepositoryIsEmpty = async () => false;
     
     mockLocalManager.detectConflicts = async () => [{ type: 'conflict', file: 'test.txt' }];
     mockLocalManager.resolveConflicts = async () => false;
