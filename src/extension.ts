@@ -80,6 +80,54 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  // リポジトリを初期化するコマンド
+  const initializeCommand = vscode.commands.registerCommand(
+    "extension.initializeRepository",
+    async () => {
+      try {
+        const encryptKey = await getAESKey(context);
+        if (!encryptKey) {
+          showError("AES Key not set");
+          return false;
+        }
+
+        const gitRemoteUrl = vscode.workspace
+          .getConfiguration(appName)
+          .get<string>("gitRemoteUrl");
+        if (!gitRemoteUrl) {
+          showError("設定でGitHubリポジトリURLを設定してください。");
+          return;
+        }
+
+        // SyncServiceを使用して初期化処理を実行
+        const syncService = createSyncService(gitRemoteUrl, branchProvider, encryptKey);
+        const options = {
+          environmentId: environmentId,
+          encryptionKey: encryptKey,
+        };
+
+        // 初期化済みか確認
+        const isInitialized = await syncService.isRepositoryInitialized();
+        if (isInitialized) {
+          const answer = await vscode.window.showWarningMessage(
+            "リポジトリは既に初期化されていま���。再初期化しますか？ (現在のローカルの.secureNotesディレクトリは削除されます)",
+            "はい",
+            "いいえ"
+          );
+          if (answer !== "はい") {
+            showInfo("初期化をキャンセルしました。");
+            return;
+          }
+        }
+
+        return await syncService.initializeRepository(options);
+      } catch (error: any) {
+        showError(`Repository initialization failed: ${error.message}`);
+        return false;
+      }
+    }
+  );
+
   // ノートを同期するコマンド
   const syncCommand = vscode.commands.registerCommand(
     "extension.syncNotes",
@@ -101,6 +149,14 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // SyncServiceを使用して同期処理を実行
         const syncService = createSyncService(gitRemoteUrl, branchProvider, encryptKey);
+        
+        // 未初期化の場合はエラ��
+        const isInitialized = await syncService.isRepositoryInitialized();
+        if (!isInitialized) {
+          showError("リポジトリが初期化されていません。まず `Secure Notes: Initialize Repository` コマンドを実行してください。");
+          return;
+        }
+
         const options = {
           environmentId: environmentId,
           encryptionKey: encryptKey,
@@ -369,6 +425,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerManualSyncTestCommand(context);
 
   context.subscriptions.push(
+    initializeCommand,
     syncCommand,
     setAESKeyCommand,
     generateAESKeyCommand,

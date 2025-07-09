@@ -91,36 +91,40 @@
     },
     "commands": [
       {
-        "command": "extension.generateAESKey",
-        "title": "Generate AES Key"
+        "command": "extension.initializeRepository",
+        "title": "Secure Notes: Initialize Repository"
       },
       {
         "command": "extension.syncNotes",
-        "title": "Sync Notes"
+        "title": "Secure Notes: Sync with Remote Repository"
+      },
+      {
+        "command": "extension.generateAESKey",
+        "title": "Secure Notes: Generate New AES Key"
       },
       {
         "command": "extension.copyAESKeyToClipboard",
-        "title": "Copy AES Key to Clipboard"
+        "title": "Secure Notes: Copy AES Key to Clipboard"
       },
       {
         "command": "extension.setAESKey",
-        "title": "Set AES Key"
+        "title": "Secure Notes: Set AES Key Manually"
       },
       {
         "command": "extension.refreshAESKey",
-        "title": "Refresh AES Key"
+        "title": "Secure Notes: Refresh AES Key from 1Password"
       },
       {
         "command": "extension.insertCurrentTime",
-        "title": "Insert Current Time"
+        "title": "Secure Notes: Insert Current Time"
       },
       {
         "command": "extension.createBranchFromIndex",
-        "title": "Create Branch from Index"
+        "title": "Secure Notes: Create Branch from Index"
       },
       {
         "command": "extension.checkoutBranch",
-        "title": "Checkout Branch"
+        "title": "Secure Notes: Checkout Branch"
       }
     ]
   },

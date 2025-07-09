@@ -8,11 +8,12 @@ Secure Notes Syncは、VS Code拡張機能として動作し、ワークスペ�
 
 ### 1. **コア構成要素**
 
-- **拡張機能エントリポイント** (`extension.ts`): コマンド登録、イベント処理、AESキー管理
-- **ローカルオブジェクト管理** (`LocalObjectManager.ts`): 暗号化、インデックス管理、競合解決
-- **GitHub同期プロバイダ** (`GithubProvider.ts`): Git操作によるリモート同期
-- **ブランチツリービュー** (`BranchTreeViewProvider.ts`): UI表示とブランチ操作
-- **ロガー** (`logger.ts`): ターミナル出力とエラー管理
+- **拡張機能エントリポイント** (`extension.ts`): コマンド登録、イベント処理、UI連携。
+- **同期サービス** (`SyncService.ts`): 同期処理と初期化処理のオーケストレーションを担当。
+- **ローカルオブジェクト管理** (`LocalObjectManager.ts`): ローカルでのファイル操作、インデックス生成、暗号化・復号化、競合解決。
+- **GitHub同期プロバイダ** (`GithubProvider.ts`): Git操作によるリモートリポジトリとの通信。
+- **ブランチツリービュー** (`BranchTreeViewProvider.ts`): UI表示とブランチ操作。
+- **ロガー** (`logger.ts`): ターミナル出力とエラー管理。
 
 ### 2. **データ構造**
 
@@ -141,42 +142,38 @@ graph TD
 ### 4. **ファイル同期システム**
 
 #### 同期処理の全体フロー
+
+### 4. **ファイル同期システム (`SyncService`)**
+
+コマンドが分離されたことにより、処理フローが明確になりました。
+
+#### A. リポジトリ初期化フロー (`initializeRepository`)
+
 ```mermaid
 graph TD
-    A[同期開始] --> B[AESキー取得]
-    B --> C[前回インデックス読み込み]
-    C --> D[新規ローカルインデックス生成]
-    D --> E[リモートダウンロード]
-    E --> F{リモート更新あり?}
-    F -->|Yes| G[リモートインデックス読み込み]
-    F -->|No| M[ローカル変更のみアップロード]
-    G --> H[競合検出]
-    H --> I{競合あり?}
-    I -->|Yes| J[競合解決]
-    I -->|No| K[インデックスマージ]
-    J --> K
-    K --> L[暗号化ファイル保存]
-    L --> M
-    M --> N[新インデックス保存]
-    N --> O[リモートアップロード]
-    O --> P[同期完了]
+    A[初期化開始] --> B{リモートリポジトリ存在確認};
+    B -->|No| C[新規リポジトリとして初期化];
+    B -->|Yes| D{リモートは空?};
+    D -->|Yes| E[空のリポジトリとして初期化];
+    D -->|No| F[エラー表示: 既にデータが存在];
+
+    C --> G[ローカルファイル暗号化 & Push];
+    E --> G;
+    G --> H[完了];
+    F --> H;
 ```
 
-#### 競合検出アルゴリズム
-- **3-way比較**: 前回・ローカル・リモートの状態を比較
-- **変更タイプ判定**:
-  - `localUpdate`: ローカルのみ変更
-  - `remoteUpdate`: リモートのみ変更
-  - `localAdd`: ローカルで新規追加
-  - `remoteAdd`: リモートで新規追加
-  - `localDelete`: ローカルで削除
-  - `remoteDelete`: リモートで削除
+#### B. 増分同期フロー (`performIncrementalSync`)
 
-#### 競合解決戦略
-1. **リモート優先**: リモートの変更を採用
-2. **ローカル保護**: ローカルファイルを `conflict-local-{timestamp}/` に移動
-3. **削除ファイル保護**: 削除されたファイルを `deleted-{timestamp}/` に移動
-4. **自動マージ**: タイムスタンプベースの自動選択
+```mermaid
+graph TD
+    A[同期開始] --> B[ローカルリポジトリをクローン/プル];
+    B --> C[リモートデータを復号・展開];
+    C --> D[3-wayマージによる競合解決];
+    D --> E[変更点を暗号化・保存];
+    E --> F[リモートへアップロード];
+    F --> G[完了];
+```
 
 ### 5. **GitHub同期プロバイダ**
 
@@ -282,12 +279,13 @@ graph TD
 ## 利用可能なコマンド
 
 ### 基本操作
-- `extension.generateAESKey`: 新しい32バイトAESキーを生成
-- `extension.setAESKey`: AESキーを手動設定
-- `extension.syncNotes`: 手動同期実行
-- `extension.refreshAESKey`: 1PasswordからAESキーを強制再取得
+- `Secure Notes: Initialize Repository`: 現在のワークスペースを新しいSecure Notesリポジトリとして初期化します。
+- `Secure Notes: Sync with Remote Repository`: 既存のリポジトリと変更点を同期します。
+- `Secure Notes: Generate New AES Key`: 新しい32バイトAESキーを生成します。
+- `Secure Notes: Set AES Key Manually`: AESキーを手動設定します。
+- `Secure Notes: Refresh AES Key from 1Password`: 1PasswordからAESキーを強制再取得します。
 
-### ユーティリティ
+## ユーティリティ
 - `extension.copyAESKeyToClipboard`: AESキーをクリップボードにコピー
 - `extension.insertCurrentTime`: 現在時刻をエディタに挿入
 

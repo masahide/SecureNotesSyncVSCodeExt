@@ -36,6 +36,11 @@ export class GitHubSyncProvider implements IStorageProvider {
         logMessage(`remotesDirPath: ${currentRemotesDirUri.fsPath}`);
     }
 
+    public async isGitRepositoryInitialized(): Promise<boolean> {
+        const objectDir = getRemotesDirUri().fsPath;
+        return await this.isGitRepository(objectDir);
+    }
+
     /**
      * リモートリポジトリの存在確認
      * @returns {Promise<boolean>} リモートリポジトリが存在する場合はtrue
@@ -79,6 +84,12 @@ export class GitHubSyncProvider implements IStorageProvider {
     public async initializeNewRemoteRepository(): Promise<void> {
         const objectDir = getRemotesDirUri().fsPath;
 
+        // 既存のディレクトリがあれば削除して作り直す
+        if (fs.existsSync(objectDir)) {
+            fs.rmSync(objectDir, { recursive: true, force: true });
+        }
+        fs.mkdirSync(objectDir, { recursive: true });
+
         // .gitattributesファイルを作成
         const gitattributesUri = vscode.Uri.joinPath(getRemotesDirUri(), '.gitattributes');
         await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
@@ -86,82 +97,7 @@ export class GitHubSyncProvider implements IStorageProvider {
         // Gitリポジトリを初期化
         await this.execCmd(this.gitPath, ['init'], objectDir);
         await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], objectDir);
-
-        // デフォルトブランチをmainに変更（古いGitバージョンとの互換性のため）
-        try {
-            await this.execCmd(this.gitPath, ['checkout', '-b', 'main'], objectDir);
-        } catch (error) {
-            // masterブランチが既に存在する場合はmainにリネーム
-            try {
-                await this.execCmd(this.gitPath, ['branch', '-m', 'master', 'main'], objectDir);
-            } catch (renameError) {
-                logMessage(`ブランチ名の変更に失敗しました: ${renameError}`);
-            }
-        }
-
-        // 必要なディレクトリ構造を作成
-        const indexesDir = vscode.Uri.joinPath(getRemotesDirUri(), 'indexes');
-        const filesDir = vscode.Uri.joinPath(getRemotesDirUri(), 'files');
-        const refsDir = vscode.Uri.joinPath(getRemotesDirUri(), 'refs');
-
-        await vscode.workspace.fs.createDirectory(indexesDir);
-        await vscode.workspace.fs.createDirectory(filesDir);
-        await vscode.workspace.fs.createDirectory(refsDir);
-
-        // ワークスペースファイルを暗号化・保存
-        try {
-            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-            if (workspaceUri) {
-                // 暗号化キーを取得
-                if (!this.encryptionKey) {
-                    logMessage('暗号化キーが設定されていません。空のindexファイルを作成します。');
-                    // 空のindexファイルを作成
-                    const emptyIndexContent = JSON.stringify({
-                        uuid: require('uuid').v7(),
-                        timestamp: new Date().toISOString(),
-                        parentUuid: null,
-                        files: [],
-                        environmentId: 'unknown'
-                    }, null, 2);
-                    const indexPath = path.join(objectDir, 'indexes', 'empty-index.json');
-                    await vscode.workspace.fs.writeFile(vscode.Uri.file(indexPath), new TextEncoder().encode(emptyIndexContent));
-                } else {
-                    // MockContextを作成
-                    const mockContext = {
-                        secrets: {
-                            get: async (key: string) => this.encryptionKey,
-                            store: async (key: string, value: string) => { },
-                            delete: async (key: string) => { }
-                        }
-                    } as any;
-
-                    const { LocalObjectManager } = await import('./LocalObjectManager');
-                    const localObjectManager = new LocalObjectManager(
-                        workspaceUri.fsPath,
-                        mockContext
-                    );
-
-                    const indexFile = await localObjectManager.encryptAndSaveWorkspaceFiles();
-                    logMessage(`ワークスペースファイルを暗号化・保存: ${indexFile.files.length}ファイル`);
-                }
-            }
-        } catch (error) {
-            logMessage(`ワークスペースファイルの暗号化中にエラーが発生: ${error}`);
-            logMessage('テスト環境での制限を考慮してエラーを無視します。');
-        }
-
-        // 初期コミット
-        await this.execCmd(this.gitPath, ['add', '.'], objectDir);
-        await this.commitIfNeeded(objectDir, 'Initial commit with encrypted workspace files');
-
-        // リモートにプッシュ
-        try {
-            await this.execCmd(this.gitPath, ['push', '-u', 'origin', 'main'], objectDir);
-            logMessageGreen('新規リモートリポジトリを初期化し、ワークスペースファイルをプッシュしました。');
-        } catch (error) {
-            logMessage(`リモートpushに失敗しました（テスト環境の可能性）: ${error}`);
-            throw error; // エラーを再スローして処理を中断
-        }
+        await this.execCmd(this.gitPath, ['checkout', '-b', 'main'], objectDir);
     }
 
     /**
@@ -217,58 +153,31 @@ export class GitHubSyncProvider implements IStorageProvider {
         if (isExistingRepo) {
             // 既存のローカルリポジトリがある場合はpullで更新
             try {
-                // リモートURLが正しいかチェック
                 const remoteResult = await this.execCmd(this.gitPath, ['remote', 'get-url', 'origin'], objectDir);
-                if (remoteResult.stdout.trim() === this.gitRemoteUrl) {
-                    await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
-                    await this.execCmd(this.gitPath, ['pull', 'origin', 'main'], objectDir);
-                    logMessageGreen('既存ローカルリポジトリを更新しました。');
-                    return true;
+                if (remoteResult.stdout.trim() !== this.gitRemoteUrl) {
+                    logMessage(`リモートURLが異なります。再クローンを実行します。`);
+                    fs.rmSync(objectDir, { recursive: true, force: true });
+                    await this.execCmd(this.gitPath, ['clone', this.gitRemoteUrl, objectDir], path.dirname(objectDir));
                 } else {
-                    logMessage(`リモートURLが異なります。再クローンを実行します。現在: ${remoteResult.stdout.trim()}, 期待: ${this.gitRemoteUrl}`);
+                    await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
+                    // メインブランチに追従するように変更
+                    await this.execCmd(this.gitPath, ['reset', '--hard', 'origin/main'], objectDir);
                 }
+                logMessageGreen('既存ローカルリポジトリを更新しました。');
+                return true;
             } catch (error) {
                 logMessage(`既存リポジトリの更新に失敗しました: ${error}`);
-                // 更新に失敗した場合は再クローンを試行
+                return false;
             }
         }
 
-        // 一時ディレクトリを使用してクローンし、その後移動する方式
-        const tempDir = path.join(path.dirname(objectDir), `remotes-temp-${crypto.randomUUID()}`);
-        const parentDir = path.dirname(objectDir);
-
+        // ローカルリポジトリが存在しない場合はクローン
         try {
-            // 一時ディレクトリにクローン
-            await this.execCmd(this.gitPath, ['clone', this.gitRemoteUrl, path.basename(tempDir)], parentDir);
-            logMessage('一時ディレクトリにクローンしました。');
-
-            // 既存ディレクトリを削除
-            if (fs.existsSync(objectDir)) {
-                try {
-                    await vscode.workspace.fs.delete(getRemotesDirUri(), { recursive: true, useTrash: false });
-                    logMessage('既存の.secureNotes/remotesディレクトリを削除しました（VS Code API）。');
-                } catch (error) {
-                    // VS Code APIで削除に失敗した場合はNode.js fsで削除
-                    fs.rmSync(objectDir, { recursive: true, force: true });
-                    logMessage('既存の.secureNotes/remotesディレクトリを削除しました（Node.js fs）。');
-                }
-            }
-
-            // 一時ディレクトリを目的の場所に移動
-            fs.renameSync(tempDir, objectDir);
+            // クローン先ディレクトリの親ディレクトリで実行し、クローン先のディレクトリ名を指定
+            await this.execCmd(this.gitPath, ['clone', this.gitRemoteUrl, path.basename(objectDir)], path.dirname(objectDir));
             logMessageGreen('既存リモートリポジトリをクローンしました。');
             return true;
-
         } catch (error) {
-            // エラーが発生した場合は一時ディレクトリをクリーンアップ
-            try {
-                if (fs.existsSync(tempDir)) {
-                    fs.rmSync(tempDir, { recursive: true, force: true });
-                }
-            } catch (cleanupError) {
-                logMessage(`一時ディレクトリのクリーンアップに失敗: ${cleanupError}`);
-            }
-
             logMessage(`クローンに失敗しました: ${error}`);
             return false;
         }
@@ -459,33 +368,26 @@ export class GitHubSyncProvider implements IStorageProvider {
     public async upload(branchName: string): Promise<boolean> {
         const objectDir = getRemotesDirUri().fsPath;
 
-        const isGitRepo = await this.isGitRepository(objectDir);
-        if (!isGitRepo) {
+        if (!await this.isGitRepository(objectDir)) {
             logMessage("Gitリポジトリではありません。アップロードをスキップします。");
             return false;
         }
 
-        // 1) 指定ブランチをCheckout (なければ作る)
         await this.checkoutBranch(objectDir, branchName, true);
-
-        // 2) 差分があればコミット
         await this.execCmd(this.gitPath, ['add', '.'], objectDir);
-        const statusResult = await this.execCmd(this.gitPath, ['status', '--porcelain'], objectDir);
-        if (!statusResult.stdout.trim()) {
+
+        const committed = await this.commitIfNeeded(objectDir, 'commit');
+        if (!committed) {
             logMessageBlue("差分がありません。アップロードは不要です。");
             return false;
         }
-        // コミット
-        await this.execCmd(this.gitPath, ['commit', '-m', 'commit'], objectDir);
 
-        // 3) push
         try {
             await this.execCmd(this.gitPath, ['push', 'origin', branchName], objectDir);
             logMessageGreen(`${branchName}ブランチをリモートへpushしました。`);
             return true;
         } catch (error) {
             logMessage(`リモートpushに失敗しました（テスト環境の可能性）: ${error}`);
-            // テスト環境では存在しないリモートリポジトリへのpushが失敗するのは正常
             return false;
         }
     }
@@ -494,14 +396,16 @@ export class GitHubSyncProvider implements IStorageProvider {
      * Gitコマンドを実行するヘルパー関数
      */
     private async execCmd(cmd: string, args: string[], cwd: string): Promise<{ stdout: string, stderr: string }> {
+        logMessage(`Executing: ${cmd} ${args.join(' ')} in ${cwd}`);
         return new Promise((resolve, reject) => {
             cp.execFile(cmd, args, { cwd: cwd }, (error, stdout, stderr) => {
                 if (error) {
+                    logMessageRed(`Execution failed: ${error}`);
                     reject(new Error(`execFile error:${cmd} ${args.join(' ')} \nstdout: '${stdout}'\nstderr: '${stderr}'`));
                 } else {
-                    logMessage(`execFile:${path.basename(cmd)} ${args.join(' ')} `);
-                    if (stdout !== '') { logMessage(stdout); }
-                    if (stderr !== '') { logMessageRed(stderr); }
+                    logMessage(`Execution success: ${path.basename(cmd)} ${args.join(' ')} `);
+                    if (stdout) { logMessage(`stdout: ${stdout}`); }
+                    if (stderr) { logMessageRed(`stderr: ${stderr}`); }
                     resolve({ stdout, stderr });
                 }
             });
@@ -592,15 +496,17 @@ export class GitHubSyncProvider implements IStorageProvider {
 
     /**
      * ステージ上に差分があればコミット（差分がなければ何もしない）
+     * @returns {Promise<boolean>} コミットした場合はtrue
      */
-    private async commitIfNeeded(dir: string, message: string): Promise<void> {
+    private async commitIfNeeded(dir: string, message: string): Promise<boolean> {
         // 差分チェック
         const statusResult = await this.execCmd(this.gitPath, ['status', '--porcelain'], dir);
         if (!statusResult.stdout.trim()) {
-            return;
+            return false;
         }
         // コミット
         await this.execCmd(this.gitPath, ['commit', '-m', message], dir);
+        return true;
     }
 }
 

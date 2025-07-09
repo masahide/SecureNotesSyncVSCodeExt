@@ -23,26 +23,26 @@ export class SyncService {
   }
 
   /**
-   * 再設計された同期処理のメインロジック
-   * Phase 1: リモートリポジトリ存在確認 → 分岐処理
-   * @param options 同期オプション
-   * @returns 同期が実行されたかどうか
+   * リポジトリが初期化済みかを確認
    */
-  async performIncrementalSync(options: SyncOptions): Promise<boolean> {
-    try {
-      logMessage('=== 再設計された同期処理フローを開始 ===');
-      
-      // Phase 1: リモートリポジトリの存在確認
-      const remoteExists = await this.dependencies.gitHubSyncProvider.checkRemoteRepositoryExists();
-      logMessage(`リモートリポジトリ存在確認結果: ${remoteExists}`);
+  async isRepositoryInitialized(): Promise<boolean> {
+    // .secureNotes/remotes/.git が存在するかで判断
+    return await this.dependencies.gitHubSyncProvider.isGitRepositoryInitialized();
+  }
 
-      // 現在のブランチ名を取得
+  /**
+   * 新規または空のリポジトリを初期化する
+   * @param options 同期オプション
+   * @returns 初期化が成功したかどうか
+   */
+  async initializeRepository(options: SyncOptions): Promise<boolean> {
+    try {
+      logMessage('=== リポジトリ初期化処理を開始 ===');
+      const remoteExists = await this.dependencies.gitHubSyncProvider.checkRemoteRepositoryExists();
       const currentBranch = await getCurrentBranchName();
 
       if (!remoteExists) {
-        // Phase 2A: 新規リモートリポジトリの場合
-        logMessage('=== Phase 2A: 新規リモートリポジトリ初期化 ===');
-        
+        logMessage('リモートリポジトリが存在しないため、新規として初期化します。');
         // 1. ワークスペースファイルを暗号化・保存
         const mockContext = await this.createMockContext(options.encryptionKey);
         const localObjectManager = new this.dependencies.localObjectManager(
@@ -59,36 +59,48 @@ export class SyncService {
         await this.dependencies.gitHubSyncProvider.upload(currentBranch);
         
         showInfo("新規リポジトリとして初期化し、ワークスペースファイルをアップロードしました。");
-        return false; // 新規作成なので更新はなし
-        
+        return true;
       } else {
-        // Phase 2B: 既存リモートリポジトリの場合
-        logMessage('=== Phase 2B: 既存リモートリポジトリ処理 ===');
-        
-        // 1. リモートリポジトリが空かどうかを確認
         const isEmpty = await this.dependencies.gitHubSyncProvider.checkRemoteRepositoryIsEmpty();
-        
         if (isEmpty) {
-          // 空のリポジトリの場合は新規初期化と同じ処理
           logMessage('空のリモートリポジトリのため、ワークスペースファイルを暗号化してアップロードします。');
           await this.dependencies.gitHubSyncProvider.initializeEmptyRemoteRepository();
           await this.dependencies.gitHubSyncProvider.encryptAndUploadWorkspaceFiles();
           showInfo("空のリモートリポジトリにワークスペースファイルをアップロードしました。");
-          return false; // 新規作成なので更新はなし
+          return true;
+        } else {
+          showError("リモートリポジトリには既にデー��が存在します。通常の同期処理を使用してください。");
+          return false;
         }
-        
-        // 2. 既存リモートリポジトリをクローン/更新
-        await this.dependencies.gitHubSyncProvider.cloneExistingRemoteRepository();
-        
-        // 3. リモートデータを復号化・展開
-        await this.dependencies.gitHubSyncProvider.loadAndDecryptRemoteData();
-        
-        // 4. 従来の増分同期処理を実行（リモートダウンロードはスキップ）
-        const syncResult = await this.performTraditionalIncrementalSync(options, currentBranch, true);
-        
-        showInfo("既存リポジトリからデータを復元し、増分同期を完了しました。");
-        return syncResult;
       }
+    } catch (error: any) {
+      showError(`Repository initialization failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * 既存リポジトリとの増分同期処理
+   * @param options 同期オプション
+   * @returns 同期が実行されたかどうか
+   */
+  async performIncrementalSync(options: SyncOptions): Promise<boolean> {
+    try {
+      logMessage('=== 増分同期処理フローを開始 ===');
+      
+      const currentBranch = await getCurrentBranchName();
+
+      // 1. 既存リモートリポジトリをクローン/更新
+      await this.dependencies.gitHubSyncProvider.cloneExistingRemoteRepository();
+      
+      // 2. リモートデータを復号化・展開
+      await this.dependencies.gitHubSyncProvider.loadAndDecryptRemoteData();
+      
+      // 3. 従来の増分同期処理を実行（リモートダウンロードはスキップ）
+      const syncResult = await this.performTraditionalIncrementalSync(options, currentBranch, true);
+      
+      showInfo("既存リポジトリからデータを復元し、増分同期を完了しました。");
+      return syncResult;
       
     } catch (error: any) {
       showError(`Sync failed: ${error.message}`);
