@@ -105,8 +105,12 @@
         "title": "Sync"
       },
       {
-        "command": "secureNotes.initialize",
-        "title": "Initialize Repository"
+        "command": "secureNotes.initializeNewRepository",
+        "title": "Initialize New Repository"
+      },
+      {
+        "command": "secureNotes.importExistingRepository",
+        "title": "Import Existing Repository"
       },
       {
         "command": "secureNotes.previewIndex",

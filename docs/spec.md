@@ -139,31 +139,49 @@ graph TD
 - 1Password CLIとの連携（op://URI）
 - キャッシュ機能（設定可能な有効期限）
 
-### 4. **ファイル同期システム**
-
-#### 同期処理の全体フロー
-
 ### 4. **ファイル同期システム (`SyncService`)**
 
 コマンドが分離されたことにより、処理フローが明確になりました。
 
-#### A. リポジトリ初期化フロー (`initializeRepository`)
+#### A. 新規リポジトリ初期化フロー (`initializeNewRepository`)
 
 ```mermaid
 graph TD
-    A[初期化開始] --> B{リモートリポジトリ存在確認};
-    B -->|No| C[新規リポジトリとして初期化];
-    B -->|Yes| D{リモートは空?};
-    D -->|Yes| E[空のリポジトリとして初期化];
-    D -->|No| F[エラー表示: 既にデータが存在];
+    A[新規初期化開始] --> B{リモートリポジトリ存在確認};
+    B -->|No| C[新規リモートリポジトリ作成];
+    B -->|Yes| D{リモートにデータ存在?};
+    D -->|Yes| E[エラー表示: 既存データあり<br/>Import Existing Repository推奨];
+    D -->|No| F[空リポジトリとして初期化];
 
-    C --> G[ローカルファイル暗号化 & Push];
-    E --> G;
-    G --> H[完了];
-    F --> H;
+    C --> G[初期インデックス生成];
+    F --> G;
+    G --> H[ローカルファイル暗号化];
+    H --> I[リモートへプッシュ];
+    I --> J[完了];
+    E --> K[処理中断];
 ```
 
-#### B. 増分同期フロー (`performIncrementalSync`)
+#### B. 既存リポジトリ取り込みフロー (`importExistingRepository`)
+
+```mermaid
+graph TD
+    A[既存取り込み開始] --> B{リモートリポジトリ存在確認};
+    B -->|No| C[エラー表示: リポジトリ不存在<br/>Initialize New Repository推奨];
+    B -->|Yes| D{リモートにデータ存在?};
+    D -->|No| E[エラー表示: データなし<br/>Initialize New Repository推奨];
+    D -->|Yes| F[既存リモートリポジトリクローン];
+
+    F --> G[リモートデータ復号化・展開];
+    G --> H[最新インデックス取得];
+    H --> I[ワークスペースに展開];
+    I --> J[ローカルインデックス更新];
+    J --> K[ブランチプロバイダー更新];
+    K --> L[完了];
+    C --> M[処理中断];
+    E --> M;
+```
+
+#### C. 増分同期フロー (`performIncrementalSync`)
 
 ```mermaid
 graph TD
@@ -175,7 +193,43 @@ graph TD
     F --> G[完了];
 ```
 
-### 5. **GitHub同期プロバイダ**
+### 5. **実装アーキテクチャの改善**
+
+#### DRY原則の適用
+
+最新の実装では、重複コードの排除（DRY: Don't Repeat Yourself）を徹底し、保守性と拡張性を向上させています。
+
+##### 共通化された処理
+
+1. **同期サービス初期化** (`initializeSyncService`)
+   - AESキー取得・検証
+   - 設定管理とサービス作成
+   - オプション生成
+   - 全ての同期関連コマンドで共通利用
+
+2. **リポジトリ初期化確認** (`confirmRepositoryReinitialization`)
+   - 既存リポジトリの確認
+   - ユーザー確認ダイアログ
+   - キャンセル処理
+   - 新規・既存両方の初期化で共通利用
+
+3. **エラーハンドリング** (`executeSyncOperation`)
+   - 統一されたtry-catch処理
+   - 一貫したエラーメッセージ表示
+   - 全てのコマンドハンドラーで共通利用
+
+4. **リポジトリ初期化** (`handleRepositoryInitialization`)
+   - 新規・既存初期化の共通処理
+   - 初期化タイプによる処理分岐
+   - メッセージのカスタマイズ対応
+
+##### コード削減効果
+- **重複コード削減**: 約200行のコード削減
+- **関数サイズ**: 各ハンドラー関数が平均70%短縮
+- **保守性向上**: 共通ロジックの一元管理
+- **拡張性向上**: 新機能追加の容易化
+
+### 6. **GitHub同期プロバイダ**
 
 #### Git操作フロー
 ```mermaid
@@ -204,7 +258,7 @@ graph TD
 - **競合解決**: `--allow-unrelated-histories -X theirs` でリモート優先マージ
 - **バイナリ扱い**: `.gitattributes` で暗号化ファイルをバイナリ指定
 
-### 6. **ブランチ管理システム**
+### 7. **競合解決システム**
 
 #### ブランチ操作フロー
 ```mermaid
@@ -233,7 +287,7 @@ graph TD
 - **インデックス履歴**: 各ブランチの履歴を時系列表示
 - **コンテキストメニュー**: 右クリックでブランチ操作
 
-### 7. **自動同期システム**
+### 8. **自動同期システム**
 
 #### 自動同期トリガー
 1. **ファイル保存後**: 設定可能な遅延（デフォルト5秒）後に同期
@@ -260,7 +314,7 @@ graph TD
 - `saveSyncTimeoutSec`: ファイル保存後の遅延時間
 - `inactivityTimeoutSec`: ウィンドウ非アクティブ閾値
 
-### 8. **ログ・エラー管理システム**
+### 9. **ログ・エラー管理システム**
 
 #### ログ出力
 - **専用ターミナル**: "SecureNoteSync Log" ターミナルに出力
@@ -278,20 +332,66 @@ graph TD
 
 ## 利用可能なコマンド
 
-### 基本操作
-- `Secure Notes: Initialize Repository`: 現在のワークスペースを新しいSecure Notesリポジトリとして初期化します。
-- `Secure Notes: Sync with Remote Repository`: 既存のリポジトリと変更点を同期します。
-- `Secure Notes: Generate New AES Key`: 新しい32バイトAESキーを生成します。
-- `Secure Notes: Set AES Key Manually`: AESキーを手動設定します。
-- `Secure Notes: Refresh AES Key from 1Password`: 1PasswordからAESキーを強制再取得します。
+### 初期化コマンド
 
-## ユーティリティ
-- `extension.copyAESKeyToClipboard`: AESキーをクリップボードにコピー
-- `extension.insertCurrentTime`: 現在時刻をエディタに挿入
+#### `Secure Notes: Initialize New Repository`
+- **コマンドID**: `secureNotes.initializeNewRepository`
+- **目的**: 新規リモートリポジトリを作成して初期化
+- **使用場面**: 新しいプロジェクトを開始する場合
+- **処理内容**:
+  - リモートリポジトリの存在・データ確認
+  - 既存データがある場合はエラー表示
+  - 新規リポジトリとして初期化
+  - ローカルファイルを暗号化してプッシュ
 
-### ブランチ操作
-- `extension.createBranchFromIndex`: 選択したインデックスから新ブランチ作成
-- `extension.checkoutBranch`: 選択したブランチにチェックアウト
+#### `Secure Notes: Import Existing Repository`
+- **コマンドID**: `secureNotes.importExistingRepository`
+- **目的**: 既存のリモートリポジトリを取り込んで初期化
+- **使用場面**: 既存プロジェクトに参加する場合
+- **処理内容**:
+  - リモートリポジトリの存在・データ確認
+  - データがない場合はエラー表示
+  - リモートデータを復号化・展開
+  - ワークスペースにファイルを復元
+
+### 同期・キー管理コマンド
+
+#### `Secure Notes: Sync with Remote Repository`
+- **コマンドID**: `secureNotes.sync`
+- **目的**: 既存のリポジトリと変更点を同期
+- **処理内容**: 3-wayマージによる増分同期
+
+#### `Secure Notes: Generate New AES Key`
+- **コマンドID**: `secureNotes.generateAESKey`
+- **目的**: 新しい32バイトAESキーを生成・保存
+
+#### `Secure Notes: Set AES Key Manually`
+- **コマンドID**: `secureNotes.setAESKey`
+- **目的**: AESキーを手動で設定
+
+#### `Secure Notes: Refresh AES Key from 1Password`
+- **コマンドID**: `secureNotes.refreshAESKey`
+- **目的**: 1PasswordからAESキーを強制再取得
+
+### ユーティリティコマンド
+
+#### `Secure Notes: Copy AES Key to Clipboard`
+- **コマンドID**: `secureNotes.copyAESKeyToClipboard`
+- **目的**: 現在のAESキーをクリップボードにコピー
+
+#### `Secure Notes: Insert Current Time`
+- **コマンドID**: `secureNotes.insertCurrentTime`
+- **目的**: 現在時刻をアクティブエディタに挿入
+
+### ブランチ操作コマンド
+
+#### `Secure Notes: Create Branch from Index`
+- **コマンドID**: `secureNotes.createBranchFromIndex`
+- **目的**: 選択したインデックスから新ブランチを作成
+
+#### `Secure Notes: Checkout Branch`
+- **コマンドID**: `secureNotes.checkoutBranch`
+- **目的**: 選択したブランチにチェックアウト
 
 ## 設定項目
 

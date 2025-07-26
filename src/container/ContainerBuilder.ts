@@ -168,7 +168,8 @@ class MockSyncServiceFactory implements ISyncServiceFactory {
   createSyncService(config: any): ISyncService {
     return {
       isRepositoryInitialized: async () => true,
-      initializeRepository: async () => true,
+      initializeNewRepository: async () => true,
+      importExistingRepository: async () => true,
       performIncrementalSync: async () => true
     };
   }

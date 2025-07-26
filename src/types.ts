@@ -17,7 +17,7 @@ export interface IndexFile {
 
 // 競合情報を保持するインターフェース
 export interface UpdateFiles {
-  UpdatType:
+  UpdateType:
     | "localUpdate"
     | "remoteUpdate"
     | "localDelete"

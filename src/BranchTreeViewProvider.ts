@@ -148,7 +148,7 @@ export class BranchItem extends vscode.TreeItem {
         // 左クリックで「checkoutBranch」したいなら以下のように command を付与
         // ただし、右クリックメニューを使うなら不要
         //this.command = {
-        //    command: "extension.checkoutBranch",
+        //    command: "secureNotes.checkoutBranch",
         //    title: "Checkout Branch",
         //    arguments: [this],
         //};
@@ -158,7 +158,7 @@ export class BranchItem extends vscode.TreeItem {
 /**
  * ブランチ内の過去Index（履歴）を表すTreeItem
  *  - contextValueを "indexItem" としておけば、右クリックメニューで
- *    "extension.createBranchFromIndex" コマンドを関連付けやすい
+ *    "secureNotes.createBranchFromIndex" コマンドを関連付けやすい
  */
 export class IndexItem extends vscode.TreeItem {
     constructor(public readonly indexFile: IndexFile) {

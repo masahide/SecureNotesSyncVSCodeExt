@@ -16,12 +16,21 @@ export interface ISyncService {
    */
   isRepositoryInitialized(): Promise<boolean>;
 
+  
+
   /**
-   * 新規または空のリポジトリを初期化する
+   * 新規リモートリポジトリを作成して初期化する
    * @param options 同期オプション
    * @returns 初期化が成功した場合はtrue
    */
-  initializeRepository(options: SyncOptions): Promise<boolean>;
+  initializeNewRepository(options: SyncOptions): Promise<boolean>;
+
+  /**
+   * 既存のリモートリポジトリを取り込んで初期化する
+   * @param options 同期オプション
+   * @returns 初期化が成功した場合はtrue
+   */
+  importExistingRepository(options: SyncOptions): Promise<boolean>;
 
   /**
    * 既存リポジトリとの増分同期処理

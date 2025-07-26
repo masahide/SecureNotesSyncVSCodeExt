@@ -93,6 +93,14 @@ export class GitHubSyncProvider implements IStorageProvider {
     }
 
     /**
+     * リモートリポジトリにデータが存在するかどうかを確認
+     * @returns {Promise<boolean>} リモートリポジトリにデータが存在する場合はtrue
+     */
+    public async hasRemoteData(): Promise<boolean> {
+        return !(await this.checkRemoteRepositoryIsEmpty());
+    }
+
+    /**
      * リモートリポジトリが空かどうかを確認
      * @returns {Promise<boolean>} リモートリポジトリが空の場合はtrue
      */

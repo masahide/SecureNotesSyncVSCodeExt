@@ -527,7 +527,7 @@ export class LocalObjectManager {
     options: LocalObjectManagerOptions
   ): Promise<boolean> {
     for (const conflict of conflicts) {
-      switch (conflict.UpdatType) {
+      switch (conflict.UpdateType) {
         case "remoteUpdate":
         case "remoteAdd":
           // リモートの更新または追加の場合、リモートファイルを採用
@@ -537,7 +537,7 @@ export class LocalObjectManager {
             options
           );
           logMessage(
-            `Applied remote ${conflict.UpdatType} for: ${conflict.filePath}`
+            `Applied remote ${conflict.UpdateType} for: ${conflict.filePath}`
           );
           break;
 
@@ -661,7 +661,7 @@ export class LocalObjectManager {
           if (localFile.hash === prevHash) {
             // ローカルが変更されていない場合は remoteUpdate
             conflicts.push({
-              UpdatType: "remoteUpdate",
+              UpdateType: "remoteUpdate",
               filePath: path,
               localHash: localFile.hash,
               remoteHash: remoteFile.hash,
@@ -671,7 +671,7 @@ export class LocalObjectManager {
           } else if (remoteFile.hash === prevHash) {
             // リモートが変更されていない場合は localUpdate
             conflicts.push({
-              UpdatType: "localUpdate",
+              UpdateType: "localUpdate",
               filePath: path,
               localHash: localFile.hash,
               remoteHash: remoteFile.hash,
@@ -681,7 +681,7 @@ export class LocalObjectManager {
           } else {
             // 両方が変更されている場合は競合として扱う
             conflicts.push({
-              UpdatType:
+              UpdateType:
                 localFile.timestamp > remoteFile.timestamp
                   ? "localUpdate"
                   : "remoteUpdate",
@@ -698,7 +698,7 @@ export class LocalObjectManager {
         if (!prevFile) {
           // 新規追加
           conflicts.push({
-            UpdatType: "localAdd",
+            UpdateType: "localAdd",
             filePath: path,
             localHash: localFile.hash,
             remoteHash: "",
@@ -708,7 +708,7 @@ export class LocalObjectManager {
         } else if (!localFile.deleted) {
           // リモートで削除された
           conflicts.push({
-            UpdatType: "remoteDelete",
+            UpdateType: "remoteDelete",
             filePath: path,
             localHash: localFile.hash,
             remoteHash: "",
@@ -721,7 +721,7 @@ export class LocalObjectManager {
         if (!prevFile) {
           // 新規追加
           conflicts.push({
-            UpdatType: "remoteAdd",
+            UpdateType: "remoteAdd",
             filePath: path,
             localHash: "",
             remoteHash: remoteFile.hash,
@@ -731,7 +731,7 @@ export class LocalObjectManager {
         } else if (!remoteFile.deleted) {
           // ローカルで削除された
           conflicts.push({
-            UpdatType: "localDelete",
+            UpdateType: "localDelete",
             filePath: path,
             localHash: "",
             remoteHash: remoteFile.hash,
@@ -744,6 +744,37 @@ export class LocalObjectManager {
 
     return conflicts;
   }
+  /**
+   * 初期インデックスファイルを生成する（新規リポジトリ用）
+   */
+  static async generateInitialIndex(
+    options: LocalObjectManagerOptions
+  ): Promise<IndexFile> {
+    const emptyIndex: IndexFile = {
+      uuid: uuidv7(),
+      environmentId: options.environmentId,
+      parentUuids: [],
+      files: [],
+      timestamp: Date.now(),
+    };
+    return await this.generateLocalIndexFile(emptyIndex, options);
+  }
+
+  /**
+   * 空のインデックスファイルを生成する（既存リポジトリ取り込み用）
+   */
+  static async generateEmptyIndex(
+    options: LocalObjectManagerOptions
+  ): Promise<IndexFile> {
+    return {
+      uuid: uuidv7(),
+      environmentId: options.environmentId,
+      parentUuids: [],
+      files: [],
+      timestamp: Date.now(),
+    };
+  }
+
   // ローカルのワークスペースからファイルリスト、ハッシュ値、タイムスタンプを取得し、インデックスファイルを生成します。
   static async generateLocalIndexFile(
     previousIndex: IndexFile,

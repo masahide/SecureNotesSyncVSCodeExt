@@ -27,19 +27,82 @@ export class SyncService implements ISyncService {
     return await this.dependencies.storageProvider.isInitialized();
   }
 
+
   /**
-   * 新規または空のリポジトリを初期化する
+   * 新規リモートリポジトリを作成して初期化する
    * @param options 同期オプション
    * @returns 初期化が成功した場合はtrue
    */
-  async initializeRepository(options: SyncOptions): Promise<boolean> {
+  async initializeNewRepository(options: SyncOptions): Promise<boolean> {
     try {
-      logMessage('=== Starting repository initialization ===');
+      logMessage('=== Starting new repository initialization ===');
+
+      // リモートリポジトリが既に存在するかチェック
+      if (await this.isRepositoryInitialized()) {
+        const hasRemoteData = await (this.dependencies.storageProvider as GitHubSyncProvider).hasRemoteData();
+        if (hasRemoteData) {
+          showError("リモートリポジトリに既にデータが存在します。既存リポジトリを取り込む場合は 'Import Existing Repository' を使用してください。");
+          return false;
+        }
+      }
+
+      // 新規リポジトリとして初期化
       await this.dependencies.storageProvider.initialize();
-      showInfo("Repository initialized successfully.");
+
+      // ローカルファイルを暗号化してアップロード
+      const currentBranch = await getCurrentBranchName() || 'main';
+      const initialIndex = await this.dependencies.localObjectManager.generateInitialIndex(options);
+      await this.dependencies.localObjectManager.saveIndexFile(initialIndex, currentBranch, options.encryptionKey);
+      await this.dependencies.localObjectManager.saveWsIndexFile(initialIndex, options);
+      await this.dependencies.storageProvider.upload(currentBranch);
+
+      showInfo("新規リポジトリが正常に作成され、初期化されました。");
       return true;
     } catch (error: any) {
-      showError(`Repository initialization failed: ${error.message}`);
+      showError(`New repository initialization failed: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * 既存のリモートリポジトリを取り込んで初期化する
+   * @param options 同期オプション
+   * @returns 初期化が成功した場合はtrue
+   */
+  async importExistingRepository(options: SyncOptions): Promise<boolean> {
+    try {
+      logMessage('=== Starting existing repository import ===');
+
+      // リモートデータの存在確認
+      const hasRemoteData = await (this.dependencies.storageProvider as GitHubSyncProvider).hasRemoteData();
+      if (!hasRemoteData) {
+        showError("リモートリポジトリにデータが存在しません。新規リポジトリを作成する場合は 'Initialize New Repository' を使用してください。");
+        return false;
+      }
+
+      // 既存リモートリポジトリをクローン/更新
+      await (this.dependencies.storageProvider as GitHubSyncProvider).cloneExistingRemoteRepository();
+
+      // リモートデータを復号化・展開
+      await (this.dependencies.storageProvider as GitHubSyncProvider).loadAndDecryptRemoteData();
+
+      // リモートの最新インデックスを取得してローカルに設定
+      const remoteIndex = await this.dependencies.localObjectManager.loadRemoteIndex(options);
+      await this.dependencies.localObjectManager.saveWsIndexFile(remoteIndex, options);
+
+      // ファイルをワークスペースに展開
+      const emptyIndex = await this.dependencies.localObjectManager.generateEmptyIndex(options);
+      await this.dependencies.localObjectManager.reflectFileChanges(emptyIndex, remoteIndex, options, true);
+
+      // ブランチプロバイダーを更新
+      if (this.dependencies.branchProvider) {
+        this.dependencies.branchProvider.refresh();
+      }
+
+      showInfo("既存リポジトリが正常に取り込まれました。");
+      return true;
+    } catch (error: any) {
+      showError(`Existing repository import failed: ${error.message}`);
       return false;
     }
   }
@@ -52,21 +115,21 @@ export class SyncService implements ISyncService {
   async performIncrementalSync(options: SyncOptions): Promise<boolean> {
     try {
       logMessage('=== 増分同期処理フローを開始 ===');
-      
+
       const currentBranch = await getCurrentBranchName();
 
       // 1. 既存リモートリポジトリをクローン/更新
       await (this.dependencies.storageProvider as GitHubSyncProvider).cloneExistingRemoteRepository();
-      
+
       // 2. リモートデータを復号化・展開
       await (this.dependencies.storageProvider as GitHubSyncProvider).loadAndDecryptRemoteData();
-      
+
       // 3. 従来の増分同期処理を実行（リモートダウンロードはスキップ）
       const syncResult = await this.performTraditionalIncrementalSync(options, currentBranch, true);
-      
+
       showInfo("既存リポジトリからデータを復元し、増分同期を完了しました。");
       return syncResult;
-      
+
     } catch (error: any) {
       showError(`Sync failed: ${error.message}`);
       throw error;
@@ -125,12 +188,12 @@ export class SyncService implements ISyncService {
     return {
       secrets: {
         get: async (key: string) => encryptionKey,
-        store: async (key: string, value: string) => {},
-        delete: async (key: string) => {}
+        store: async (key: string, value: string) => { },
+        delete: async (key: string) => { }
       },
       workspaceState: {
         get: (key: string) => undefined,
-        update: async (key: string, value: any) => {}
+        update: async (key: string, value: any) => { }
       }
     };
   }

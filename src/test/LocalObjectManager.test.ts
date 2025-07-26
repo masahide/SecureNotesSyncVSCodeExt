@@ -261,7 +261,7 @@ suite('LocalObjectManager Test Suite', () => {
     // 基本的な検証
     assert.ok(Array.isArray(conflicts), '競合リストが配列で返されること');
     assert.strictEqual(conflicts.length, 1, 'ローカル更新の競合が1つ検出される');
-    assert.strictEqual(conflicts[0].UpdatType, 'localUpdate', '競合タイプがlocalUpdateであること');
+    assert.strictEqual(conflicts[0].UpdateType, 'localUpdate', '競合タイプがlocalUpdateであること');
     assert.strictEqual(conflicts[0].filePath, 'file1.txt', 'ファイルパスが正しいこと');
     assert.strictEqual(conflicts[0].localHash, 'hash2', 'ローカルハッシュが正しいこと');
     assert.strictEqual(conflicts[0].remoteHash, 'hash1', 'リモートハッシュが正しいこと');
@@ -289,7 +289,7 @@ suite('LocalObjectManager Test Suite', () => {
 
     const remoteConflicts = LocalObjectManager.detectConflicts(previousIndex, localUnchangedIndex, remoteUpdatedIndex);
     assert.strictEqual(remoteConflicts.length, 1, 'リモート更新の競合が1つ検出される');
-    assert.strictEqual(remoteConflicts[0].UpdatType, 'remoteUpdate', '競合タイプがremoteUpdateであること');
+    assert.strictEqual(remoteConflicts[0].UpdateType, 'remoteUpdate', '競合タイプがremoteUpdateであること');
 
     // 新規追加のテスト
     const localWithNewFile: IndexFile = {
@@ -306,7 +306,7 @@ suite('LocalObjectManager Test Suite', () => {
     const addConflicts = LocalObjectManager.detectConflicts(previousIndex, localWithNewFile, remoteIndex);
     const newFileConflict = addConflicts.find(c => c.filePath === 'newfile.txt');
     assert.ok(newFileConflict, '新規ファイルの競合が検出される');
-    assert.strictEqual(newFileConflict.UpdatType, 'localAdd', '競合タイプがlocalAddであること');
+    assert.strictEqual(newFileConflict.UpdateType, 'localAdd', '競合タイプがlocalAddであること');
 
     // 削除のテスト
     const localWithDeletedFile: IndexFile = {
@@ -319,7 +319,7 @@ suite('LocalObjectManager Test Suite', () => {
 
     const deleteConflicts = LocalObjectManager.detectConflicts(previousIndex, localWithDeletedFile, remoteIndex);
     assert.strictEqual(deleteConflicts.length, 1, '削除の競合が1つ検出される');
-    assert.strictEqual(deleteConflicts[0].UpdatType, 'localDelete', '競合タイプがlocalDeleteであること');
+    assert.strictEqual(deleteConflicts[0].UpdateType, 'localDelete', '競合タイプがlocalDeleteであること');
   });
 
   test('ファイル変更反映', async () => {
