@@ -38,7 +38,8 @@ Module.prototype.require = function(id: string) {
   return originalRequire.apply(this, arguments);
 };
 
-import { SyncService, SyncOptions, SyncDependencies } from '../SyncService';
+import { SyncService, SyncDependencies } from '../SyncService';
+import { SyncOptions } from '../interfaces/ISyncService';
 import { IndexFile, FileEntry } from '../types';
 
 // モックオブジェクト
@@ -236,7 +237,7 @@ suite('SyncService Test Suite', () => {
 
     mockDependencies = {
       localObjectManager: MockLocalObjectManager as any,
-      gitHubSyncProvider: new MockGitHubSyncProvider('https://github.com/test/repo.git') as any,
+      storageProvider: new MockGitHubSyncProvider('https://github.com/test/repo.git') as any,
       branchProvider: new MockBranchProvider()
     };
 
@@ -268,8 +269,8 @@ suite('SyncService Test Suite', () => {
   });
 
   test('増分同期処理 - リモート更新ありの場合', async () => {
-    // 既存リポジトリのシナリオをテスト
-    const mockGitHubProvider = mockDependencies.gitHubSyncProvider as any;
+    // モックの動作を設定
+    const mockGitHubProvider = mockDependencies.storageProvider as any;
     
     // リモートリポジトリが存在する場合
     mockGitHubProvider.checkRemoteRepositoryExists = async () => true;
@@ -294,8 +295,8 @@ suite('SyncService Test Suite', () => {
   });
 
   test('増分同期処理 - 競合がある場合', async () => {
-    // 既存リポジトリで競合があるケース
-    const mockGitHubProvider = mockDependencies.gitHubSyncProvider as any;
+    // リモート更新がある場合のテスト
+    const mockGitHubProvider = mockDependencies.storageProvider as any;
     const mockLocalManager = mockDependencies.localObjectManager as any;
     
     // リモートリポジトリが存在する場合
@@ -326,8 +327,8 @@ suite('SyncService Test Suite', () => {
   });
 
   test('増分同期処理 - 競合解決失敗の場合', async () => {
-    // 既存リポジトリで競合解決が失敗するケース
-    const mockGitHubProvider = mockDependencies.gitHubSyncProvider as any;
+    // エラーハンドリングのテスト
+    const mockGitHubProvider = mockDependencies.storageProvider as any;
     const mockLocalManager = mockDependencies.localObjectManager as any;
     
     // リモートリポジトリが存在する場合
@@ -352,7 +353,7 @@ suite('SyncService Test Suite', () => {
     
     const errorMockDependencies = {
       localObjectManager: MockLocalObjectManager as any,
-      gitHubSyncProvider: errorMockGitHubProvider,
+      storageProvider: errorMockGitHubProvider,
       branchProvider: new MockBranchProvider()
     };
     
@@ -370,7 +371,7 @@ suite('SyncService Test Suite', () => {
     // 新しいSyncServiceインスタンスを作成（他のテストの影響を避けるため）
     const cleanMockDependencies = {
       localObjectManager: MockLocalObjectManager as any,
-      gitHubSyncProvider: new MockGitHubSyncProvider('https://github.com/test/repo.git') as any,
+      storageProvider: new MockGitHubSyncProvider('https://github.com/test/repo.git') as any,
       branchProvider: new MockBranchProvider()
     };
     
@@ -380,7 +381,7 @@ suite('SyncService Test Suite', () => {
     const mockLocalManager = cleanMockDependencies.localObjectManager as any;
     mockLocalManager.saveEncryptedObjects = async () => false;
 
-    const mockGitHubProvider = cleanMockDependencies.gitHubSyncProvider as any;
+    const mockGitHubProvider = cleanMockDependencies.storageProvider as any;
     mockGitHubProvider.download = async () => false;
 
     const result = await cleanSyncService.performIncrementalSync(testOptions);
@@ -391,10 +392,17 @@ suite('SyncService Test Suite', () => {
 });
 
 suite('SyncService Integration Test Suite', () => {
-  test('createSyncService ファクトリー関数のテスト', () => {
-    const { createSyncService } = require('../SyncService');
+  test('SyncServiceFactory ファクトリー関数のテスト', () => {
+    const { SyncServiceFactory } = require('../factories/SyncServiceFactory');
     
-    const syncService = createSyncService('https://github.com/test/repo.git');
+    const factory = new SyncServiceFactory();
+    const config = {
+      storageType: 'github' as const,
+      remoteUrl: 'https://github.com/test/repo.git',
+      encryptionKey: '0'.repeat(64)
+    };
+    
+    const syncService = factory.createSyncService(config);
     
     assert.ok(syncService);
     assert.ok(syncService instanceof SyncService);

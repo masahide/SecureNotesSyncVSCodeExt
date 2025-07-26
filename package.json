@@ -34,16 +34,26 @@
           "id": "secureNotesBranchesView",
           "name": "Branches"
         }
+      ],
+      "explorer": [
+        {
+          "id": "secureNotes.branchList",
+          "name": "Branches"
+        },
+        {
+          "id": "secureNotes.indexHistory",
+          "name": "Index History"
+        }
       ]
     },
     "menus": {
       "view/item/context": [
         {
-          "command": "extension.createBranchFromIndex",
+          "command": "secureNotes.createBranchFromIndex",
           "when": "view == secureNotesBranchesView && viewItem == indexItem"
         },
         {
-          "command": "extension.checkoutBranch",
+          "command": "secureNotes.checkoutBranch",
           "when": "view == secureNotesBranchesView && viewItem == branchItem"
         }
       ]
@@ -91,40 +101,44 @@
     },
     "commands": [
       {
-        "command": "extension.initializeRepository",
-        "title": "Secure Notes: Initialize Repository"
+        "command": "secureNotes.sync",
+        "title": "Sync"
       },
       {
-        "command": "extension.syncNotes",
-        "title": "Secure Notes: Sync with Remote Repository"
+        "command": "secureNotes.initialize",
+        "title": "Initialize Repository"
       },
       {
-        "command": "extension.generateAESKey",
-        "title": "Secure Notes: Generate New AES Key"
+        "command": "secureNotes.previewIndex",
+        "title": "Preview Index"
       },
       {
-        "command": "extension.copyAESKeyToClipboard",
-        "title": "Secure Notes: Copy AES Key to Clipboard"
+        "command": "secureNotes.createBranchFromIndex",
+        "title": "Create Branch from Index"
       },
       {
-        "command": "extension.setAESKey",
-        "title": "Secure Notes: Set AES Key Manually"
+        "command": "secureNotes.checkoutBranch",
+        "title": "Checkout Branch"
       },
       {
-        "command": "extension.refreshAESKey",
-        "title": "Secure Notes: Refresh AES Key from 1Password"
+        "command": "secureNotes.setAESKey",
+        "title": "Set AES Key"
       },
       {
-        "command": "extension.insertCurrentTime",
-        "title": "Secure Notes: Insert Current Time"
+        "command": "secureNotes.generateAESKey",
+        "title": "Generate AES Key"
       },
       {
-        "command": "extension.createBranchFromIndex",
-        "title": "Secure Notes: Create Branch from Index"
+        "command": "secureNotes.copyAESKeyToClipboard",
+        "title": "Copy AES Key to Clipboard"
       },
       {
-        "command": "extension.checkoutBranch",
-        "title": "Secure Notes: Checkout Branch"
+        "command": "secureNotes.refreshAESKey",
+        "title": "Refresh AES Key"
+      },
+      {
+        "command": "secureNotes.insertCurrentTime",
+        "title": "Insert Current Time"
       }
     ]
   },

@@ -94,7 +94,7 @@ export class LocalObjectManager {
    * ワークスペースファイルの暗号化・保存（新規リポジトリ用）
    */
   public async encryptAndSaveWorkspaceFiles(): Promise<IndexFile> {
-    const encryptionKey = await this.context.secrets.get('aesKey');
+    const encryptionKey = await this.context.secrets.get('aesEncryptionKey');
     if (!encryptionKey) {
       throw new Error('AES encryption key not found');
     }
@@ -115,13 +115,13 @@ export class LocalObjectManager {
 
     // ワークスペースファイルをスキャンしてインデックスを作成
     const localIndex = await LocalObjectManager.generateLocalIndexFile(emptyIndex, options);
-    
+
     // ファイルを暗号化して保存
     await LocalObjectManager.saveEncryptedObjects(localIndex.files, emptyIndex, options);
-    
+
     // インデックスファイルを保存
     await LocalObjectManager.saveIndexFile(localIndex, 'main', encryptionKey);
-    
+
     // ワークスペースインデックスを保存
     await LocalObjectManager.saveWsIndexFile(localIndex, options);
 
@@ -132,20 +132,15 @@ export class LocalObjectManager {
    * 個別ファイルの復号化・復元
    */
   public async decryptAndRestoreFile(fileEntry: FileEntry): Promise<void> {
-    const encryptionKey = await this.context.secrets.get('aesKey');
+    const encryptionKey = await this.context.secrets.get('aesEncryptionKey');
     if (!encryptionKey) {
       throw new Error('AES encryption key not found');
     }
 
-    const options: LocalObjectManagerOptions = {
-      encryptionKey,
-      environmentId: 'default'
-    };
-
     await LocalObjectManager.fetchDecryptAndSaveFile(
       fileEntry.path,
       fileEntry.hash,
-      options
+      { encryptionKey, environmentId: 'default' },
     );
   }
 
@@ -153,10 +148,13 @@ export class LocalObjectManager {
    * リモートインデックスファイル読み込み
    */
   public async loadRemoteIndexes(): Promise<IndexFile[]> {
-    const encryptionKey = await this.context.secrets.get('aesKey');
+    logMessage('LocalObjectManager: loadRemoteIndexes called');
+    const encryptionKey = await this.context.secrets.get('aesEncryptionKey');
     if (!encryptionKey) {
+      logMessage('LocalObjectManager: AES encryption key not found in loadRemoteIndexes');
       throw new Error('AES encryption key not found');
     }
+    logMessage('LocalObjectManager: AES encryption key loaded successfully in loadRemoteIndexes');
 
     const options: LocalObjectManagerOptions = {
       encryptionKey,
@@ -169,12 +167,12 @@ export class LocalObjectManager {
     try {
       // インデックスディレクトリ内のすべてのサブディレクトリを取得
       const indexDirs = await vscode.workspace.fs.readDirectory(indexDirUri);
-      
+
       for (const [dirName, fileType] of indexDirs) {
         if (fileType === vscode.FileType.Directory) {
           const subDirUri = vscode.Uri.joinPath(indexDirUri, dirName);
           const files = await vscode.workspace.fs.readDirectory(subDirUri);
-          
+
           for (const [fileName, fileType] of files) {
             if (fileType === vscode.FileType.File) {
               const uuid = dirName + fileName;
@@ -218,17 +216,15 @@ export class LocalObjectManager {
    * ワークスペースインデックス更新
    */
   public async updateWorkspaceIndex(indexFile: IndexFile): Promise<void> {
-    const encryptionKey = await this.context.secrets.get('aesKey');
+    const encryptionKey = await this.context.secrets.get('aesEncryptionKey');
     if (!encryptionKey) {
       throw new Error('AES encryption key not found');
     }
 
-    const options: LocalObjectManagerOptions = {
+    await LocalObjectManager.saveWsIndexFile(indexFile, {
       encryptionKey,
       environmentId: 'default'
-    };
-
-    await LocalObjectManager.saveWsIndexFile(indexFile, options);
+    });
   }
 
   /**
@@ -778,7 +774,7 @@ export class LocalObjectManager {
         const stat = await vscode.workspace.fs.stat(fileUri);
         // ワークスペースフォルダからの相対パスを正しく取得
         const relativePath = path.relative(folder.uri.fsPath, fileUri.fsPath);
-        
+
         filesMap.set(relativePath, {
           path: relativePath,
           hash: "",

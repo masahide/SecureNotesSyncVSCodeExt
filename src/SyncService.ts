@@ -2,20 +2,17 @@ import * as vscode from "vscode";
 import { logMessage, showInfo, showError } from "./logger";
 import { LocalObjectManager, getCurrentBranchName } from "./storage/LocalObjectManager";
 import { GitHubSyncProvider } from "./storage/GithubProvider";
+import { IStorageProvider } from "./storage/IStorageProvider";
 import { IndexFile } from "./types";
-
-export interface SyncOptions {
-  environmentId: string;
-  encryptionKey: string;
-}
+import { ISyncService, SyncOptions } from "./interfaces/ISyncService";
 
 export interface SyncDependencies {
   localObjectManager: typeof LocalObjectManager;
-  gitHubSyncProvider: GitHubSyncProvider;
+  storageProvider: IStorageProvider;
   branchProvider?: any; // BranchTreeViewProvider
 }
 
-export class SyncService {
+export class SyncService implements ISyncService {
   private dependencies: SyncDependencies;
 
   constructor(dependencies: SyncDependencies) {
@@ -24,58 +21,26 @@ export class SyncService {
 
   /**
    * リポジトリが初期化済みかを確認
+   * @returns 初期化済みの場合はtrue
    */
   async isRepositoryInitialized(): Promise<boolean> {
-    // .secureNotes/remotes/.git が存在するかで判断
-    return await this.dependencies.gitHubSyncProvider.isGitRepositoryInitialized();
+    return await this.dependencies.storageProvider.isInitialized();
   }
 
   /**
    * 新規または空のリポジトリを初期化する
    * @param options 同期オプション
-   * @returns 初期化が成功したかどうか
+   * @returns 初期化が成功した場合はtrue
    */
   async initializeRepository(options: SyncOptions): Promise<boolean> {
     try {
-      logMessage('=== リポジトリ初期化処理を開始 ===');
-      const remoteExists = await this.dependencies.gitHubSyncProvider.checkRemoteRepositoryExists();
-      const currentBranch = await getCurrentBranchName();
-
-      if (!remoteExists) {
-        logMessage('リモートリポジトリが存在しないため、新規として初期化します。');
-        // 1. ワークスペースファイルを暗号化・保存
-        const mockContext = await this.createMockContext(options.encryptionKey);
-        const localObjectManager = new this.dependencies.localObjectManager(
-          vscode.workspace.workspaceFolders![0].uri.fsPath,
-          mockContext
-        );
-        const indexFile = await localObjectManager.encryptAndSaveWorkspaceFiles();
-        logMessage(`ワークスペースファイルを暗号化・保存: ${indexFile.files.length}ファイル`);
-
-        // 2. 新規リモートリポジトリを初期化
-        await this.dependencies.gitHubSyncProvider.initializeNewRemoteRepository();
-        
-        // 3. リモートにアップロード
-        await this.dependencies.gitHubSyncProvider.upload(currentBranch);
-        
-        showInfo("新規リポジトリとして初期化し、ワークスペースファイルをアップロードしました。");
-        return true;
-      } else {
-        const isEmpty = await this.dependencies.gitHubSyncProvider.checkRemoteRepositoryIsEmpty();
-        if (isEmpty) {
-          logMessage('空のリモートリポジトリのため、ワークスペースファイルを暗号化してアップロードします。');
-          await this.dependencies.gitHubSyncProvider.initializeEmptyRemoteRepository();
-          await this.dependencies.gitHubSyncProvider.encryptAndUploadWorkspaceFiles();
-          showInfo("空のリモートリポジトリにワークスペースファイルをアップロードしました。");
-          return true;
-        } else {
-          showError("リモートリポジトリには既にデー��が存在します。通常の同期処理を使用してください。");
-          return false;
-        }
-      }
+      logMessage('=== Starting repository initialization ===');
+      await this.dependencies.storageProvider.initialize();
+      showInfo("Repository initialized successfully.");
+      return true;
     } catch (error: any) {
       showError(`Repository initialization failed: ${error.message}`);
-      throw error;
+      return false;
     }
   }
 
@@ -91,10 +56,10 @@ export class SyncService {
       const currentBranch = await getCurrentBranchName();
 
       // 1. 既存リモートリポジトリをクローン/更新
-      await this.dependencies.gitHubSyncProvider.cloneExistingRemoteRepository();
+      await (this.dependencies.storageProvider as GitHubSyncProvider).cloneExistingRemoteRepository();
       
       // 2. リモートデータを復号化・展開
-      await this.dependencies.gitHubSyncProvider.loadAndDecryptRemoteData();
+      await (this.dependencies.storageProvider as GitHubSyncProvider).loadAndDecryptRemoteData();
       
       // 3. 従来の増分同期処理を実行（リモートダウンロードはスキップ）
       const syncResult = await this.performTraditionalIncrementalSync(options, currentBranch, true);
@@ -124,7 +89,7 @@ export class SyncService {
     logMessage("New local index file created.");
 
     // 3. リモートからダウンロードして更新があるかチェック
-    const hasRemoteUpdates = skipRemoteDownload ? true : await this.downloadRemoteUpdates(currentBranch);
+    const hasRemoteUpdates = skipRemoteDownload ? true : await this.dependencies.storageProvider.download(currentBranch);
 
     let finalIndex = newLocalIndex;
     let updated = hasRemoteUpdates;
@@ -184,12 +149,6 @@ export class SyncService {
     return await this.dependencies.localObjectManager.generateLocalIndexFile(previousIndex, options);
   }
 
-  /**
-   * リモートから更新をダウンロード
-   */
-  private async downloadRemoteUpdates(currentBranch: string): Promise<boolean> {
-    return await this.dependencies.gitHubSyncProvider.download(currentBranch);
-  }
 
   /**
    * リモート更新がある場合の競合検出・解決処理
@@ -277,21 +236,9 @@ export class SyncService {
       this.dependencies.branchProvider.refresh();
     }
 
-    // GitHubにアップロード
-    await this.dependencies.gitHubSyncProvider.upload(currentBranch);
+    // ストレージにアップロード
+    await this.dependencies.storageProvider.upload(currentBranch);
     showInfo("Merge completed successfully.");
   }
 }
 
-/**
- * SyncServiceのファクトリー関数
- */
-export function createSyncService(gitRemoteUrl: string, branchProvider?: any, encryptionKey?: string): SyncService {
-  const dependencies: SyncDependencies = {
-    localObjectManager: LocalObjectManager,
-    gitHubSyncProvider: new GitHubSyncProvider(gitRemoteUrl, encryptionKey),
-    branchProvider
-  };
-
-  return new SyncService(dependencies);
-}

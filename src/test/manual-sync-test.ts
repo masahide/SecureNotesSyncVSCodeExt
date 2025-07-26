@@ -4,7 +4,8 @@
  */
 
 import * as vscode from 'vscode';
-import { SyncService, createSyncService } from '../SyncService';
+import { SyncService } from '../SyncService';
+import { SyncServiceFactory } from '../factories/SyncServiceFactory';
 import { logMessage, showInfo, showError } from '../logger';
 
 export async function runManualSyncTest(): Promise<void> {
@@ -35,7 +36,13 @@ export async function runManualSyncTest(): Promise<void> {
     logMessage(`GitリモートURL: ${gitRemoteUrl}`);
 
     // SyncServiceを作成
-    const syncService = createSyncService(gitRemoteUrl);
+    const factory = new SyncServiceFactory();
+    const syncConfig = {
+      storageType: 'github' as const,
+      remoteUrl: gitRemoteUrl,
+      encryptionKey: '0'.repeat(64)
+    };
+    const syncService = factory.createSyncService(syncConfig);
 
     // テストケース1: 基本的な増分同期
     logMessage('📝 テストケース1: 基本的な増分同期');

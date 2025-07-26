@@ -1,8 +1,11 @@
 // storage/providers/GitHubSyncProvider.ts
 import * as vscode from "vscode";
 import * as path from 'path';
-import * as crypto from 'crypto';
 import { IStorageProvider } from './IStorageProvider';
+import { logMessage, logMessageRed, logMessageGreen, logMessageBlue } from '../logger';
+import * as cp from 'child_process';
+import which from 'which';
+import * as fs from 'fs';
 
 // 動的にremotesDirUriを取得する関数
 function getRemotesDirUri(): any {
@@ -17,10 +20,6 @@ function getRemotesDirUri(): any {
     }
     return vscode.Uri.joinPath(workspaceUri, '.secureNotes', 'remotes');
 }
-import { logMessage, logMessageRed, logMessageGreen, logMessageBlue } from '../logger';
-import * as cp from 'child_process';
-import which from 'which';
-import * as fs from 'fs';
 
 export class GitHubSyncProvider implements IStorageProvider {
     private gitRemoteUrl: string;
@@ -36,9 +35,46 @@ export class GitHubSyncProvider implements IStorageProvider {
         logMessage(`remotesDirPath: ${currentRemotesDirUri.fsPath}`);
     }
 
-    public async isGitRepositoryInitialized(): Promise<boolean> {
+    public async isInitialized(): Promise<boolean> {
         const objectDir = getRemotesDirUri().fsPath;
         return await this.isGitRepository(objectDir);
+    }
+
+    public async initialize(): Promise<void> {
+        logMessage('=== Initializing repository ===');
+
+        const remoteExists = await this.checkRemoteRepositoryExists();
+
+        if (!remoteExists) {
+            logMessage('Remote repository does not exist. Initializing a new one.');
+            await this.initializeNewRemoteRepository();
+        } else {
+            const isEmpty = await this.checkRemoteRepositoryIsEmpty();
+
+            if (isEmpty) {
+                logMessage('Remote repository is empty. Initializing for an empty remote.');
+                await this.initializeEmptyRemoteRepository();
+                try {
+                    await this.encryptAndUploadWorkspaceFiles();
+                    logMessageGreen('Workspace files uploaded to empty remote repository.');
+                } catch (error) {
+                    logMessage(`Failed to upload workspace files: ${error}`);
+                    // Propagate error to let the caller know initialization failed.
+                    throw error;
+                }
+            } else {
+                logMessage('Remote repository exists. Cloning it.');
+                const cloneSuccess = await this.cloneExistingRemoteRepository();
+
+                if (cloneSuccess) {
+                    await this.loadAndDecryptRemoteData();
+                } else {
+                    logMessageRed('Cloning failed. Initialization incomplete.');
+                    throw new Error("Failed to clone existing repository.");
+                }
+            }
+        }
+        logMessageGreen('=== Repository initialization complete ===');
     }
 
     /**
@@ -47,7 +83,7 @@ export class GitHubSyncProvider implements IStorageProvider {
      */
     public async checkRemoteRepositoryExists(): Promise<boolean> {
         try {
-            const result = await this.execCmd(this.gitPath, ['ls-remote', this.gitRemoteUrl], process.cwd());
+            const result = await this.execCmd(this.gitPath, ['ls-remote', this.gitRemoteUrl], process.cwd(), true);
             logMessageGreen(`リモートリポジトリが存在します: ${this.gitRemoteUrl}`);
             return true;
         } catch (error) {
@@ -62,7 +98,7 @@ export class GitHubSyncProvider implements IStorageProvider {
      */
     public async checkRemoteRepositoryIsEmpty(): Promise<boolean> {
         try {
-            const result = await this.execCmd(this.gitPath, ['ls-remote', this.gitRemoteUrl], process.cwd());
+            const result = await this.execCmd(this.gitPath, ['ls-remote', this.gitRemoteUrl], process.cwd(), true);
             // ls-remoteの結果が空文字列または空行のみの場合は空のリポジトリ
             const output = result.stdout.trim();
             if (!output) {
@@ -173,8 +209,12 @@ export class GitHubSyncProvider implements IStorageProvider {
 
         // ローカルリポジトリが存在しない場合はクローン
         try {
+            const parentDir = path.dirname(objectDir);
+            if (!fs.existsSync(parentDir)) {
+                fs.mkdirSync(parentDir, { recursive: true });
+            }
             // クローン先ディレクトリの親ディレクトリで実行し、クローン先のディレクトリ名を指定
-            await this.execCmd(this.gitPath, ['clone', this.gitRemoteUrl, path.basename(objectDir)], path.dirname(objectDir));
+            await this.execCmd(this.gitPath, ['clone', this.gitRemoteUrl, path.basename(objectDir)], parentDir);
             logMessageGreen('既存リモートリポジトリをクローンしました。');
             return true;
         } catch (error) {
@@ -292,6 +332,7 @@ export class GitHubSyncProvider implements IStorageProvider {
             // 各ファイルを復号化・復元
             for (const fileEntry of latestIndex.files) {
                 if (!fileEntry.deleted) {
+                    logMessage(`復号化・復元中: ${fileEntry.path}`);
                     await localObjectManager.decryptAndRestoreFile(fileEntry);
                 }
             }
@@ -312,49 +353,28 @@ export class GitHubSyncProvider implements IStorageProvider {
      * @returns {Promise<boolean>} リモートに更新があった場合はtrue、なかった場合はfalse
      */
     public async download(branchName: string): Promise<boolean> {
-        logMessage('=== 新しい同期処理フローを開始 ===');
+        logMessage('=== Starting sync process ===');
 
-        // Phase 1: リモートリポジトリの存在確認
-        const remoteExists = await this.checkRemoteRepositoryExists();
+        if (!await this.isInitialized()) {
+            logMessageRed('Repository not initialized. Please initialize it first.');
+            // Or, we could automatically call this.initialize() here.
+            // For now, let's just return false.
+            return false;
+        }
 
-        if (!remoteExists) {
-            // Phase 2A: 新規リモートリポジトリの初期化
-            logMessage('リモートリポジトリが存在しないため、新規初期化を実行します。');
-            await this.initializeNewRemoteRepository();
-            return false; // 新規作成なので更新はなし
-        } else {
-            // Phase 1.5: リモートリポジトリが空かどうかを確認
-            const isEmpty = await this.checkRemoteRepositoryIsEmpty();
-
-            if (isEmpty) {
-                // 空のリポジトリの場合は新規初期化と同じ処理
-                logMessage('=== Phase 2A: 空のリモートリポジトリ処理 ===');
-                logMessage('空のリモートリポジトリのため、ワークスペースファイルを暗号化してアップロードします。');
-
-                // ローカルリポジトリを初期化
-                await this.initializeEmptyRemoteRepository();
-
-                try {
-                    await this.encryptAndUploadWorkspaceFiles();
-                    logMessageGreen('空のリモートリポジトリにワークスペースファイルをアップロードしました。');
-                } catch (error) {
-                    logMessage(`ワークスペースファイルのアップロードに失敗しました: ${error}`);
-                }
-                return false; // 新規作成なので更新はなし
-            } else {
-                // Phase 2B: 既存リモートリポジトリのクローン
-                logMessage('=== Phase 2B: 既存リモートリポジトリ処理 ===');
-                const cloneSuccess = await this.cloneExistingRemoteRepository();
-
-                if (cloneSuccess) {
-                    // Phase 3B: リモートデータの復号化・展開
-                    await this.loadAndDecryptRemoteData();
-                    return true; // 既存データを復元したので更新あり
-                } else {
-                    logMessage('クローンに失敗したため、同期処理を中断します。');
-                    return false; // クローン失敗なので更新なし
-                }
-            }
+        // Logic to download/pull changes from the remote repository.
+        // This is a simplified version. The actual implementation would
+        // involve fetching and merging the specified branch.
+        try {
+            const objectDir = getRemotesDirUri().fsPath;
+            await this.execCmd(this.gitPath, ['fetch', 'origin', branchName], objectDir);
+            await this.execCmd(this.gitPath, ['checkout', branchName], objectDir);
+            await this.execCmd(this.gitPath, ['pull', 'origin', branchName], objectDir);
+            logMessageGreen(`Successfully synced with remote branch: ${branchName}`);
+            return true;
+        } catch (error) {
+            logMessageRed(`Error during sync: ${error}`);
+            return false;
         }
     }
 
@@ -394,18 +414,28 @@ export class GitHubSyncProvider implements IStorageProvider {
 
     /**
      * Gitコマンドを実行するヘルパー関数
+     * @param cmd コマンド
+     * @param args 引数
+     * @param cwd 実行ディレクトリ
+     * @param silent trueの場合、エラーログを出力しない（エラーが想定される場合に使用）
      */
-    private async execCmd(cmd: string, args: string[], cwd: string): Promise<{ stdout: string, stderr: string }> {
-        logMessage(`Executing: ${cmd} ${args.join(' ')} in ${cwd}`);
+    private async execCmd(cmd: string, args: string[], cwd: string, silent: boolean = false): Promise<{ stdout: string, stderr: string }> {
+        if (!silent) {
+            logMessage(`Executing: ${cmd} ${args.join(' ')} in ${cwd}`);
+        }
         return new Promise((resolve, reject) => {
             cp.execFile(cmd, args, { cwd: cwd }, (error, stdout, stderr) => {
                 if (error) {
-                    logMessageRed(`Execution failed: ${error}`);
+                    if (!silent) {
+                        logMessageRed(`Execution failed: ${error}`);
+                    }
                     reject(new Error(`execFile error:${cmd} ${args.join(' ')} \nstdout: '${stdout}'\nstderr: '${stderr}'`));
                 } else {
-                    logMessage(`Execution success: ${path.basename(cmd)} ${args.join(' ')} `);
-                    if (stdout) { logMessage(`stdout: ${stdout}`); }
-                    if (stderr) { logMessageRed(`stderr: ${stderr}`); }
+                    if (!silent) {
+                        logMessage(`Execution success: ${path.basename(cmd)} ${args.join(' ')} `);
+                        if (stdout) { logMessage(`stdout: ${stdout}`); }
+                        if (stderr) { logMessageRed(`stderr: ${stderr}`); }
+                    }
                     resolve({ stdout, stderr });
                 }
             });
@@ -417,7 +447,7 @@ export class GitHubSyncProvider implements IStorageProvider {
     */
     private async isGitRepository(dir: string): Promise<boolean> {
         try {
-            await this.execCmd(this.gitPath, ['rev-parse', '--is-inside-work-tree'], dir);
+            await this.execCmd(this.gitPath, ['rev-parse', '--is-inside-work-tree'], dir, true);
             return true;
         } catch (error) {
             return false;
@@ -433,7 +463,7 @@ export class GitHubSyncProvider implements IStorageProvider {
         const gitattributesUri = vscode.Uri.joinPath(currentRemotesDirUri, '.gitattributes');
         await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
         try {
-            await this.execCmd(this.gitPath, ['ls-remote', this.gitRemoteUrl], dir);
+            await this.execCmd(this.gitPath, ['ls-remote', this.gitRemoteUrl], dir, true);
             await this.execCmd(this.gitPath, ['clone', this.gitRemoteUrl], dir);
             return;
         } catch (error) {
@@ -457,7 +487,7 @@ export class GitHubSyncProvider implements IStorageProvider {
     private async remoteBranchExists(dir: string, branchName: string): Promise<boolean> {
         try {
             // origin/branchName が存在するか
-            await this.execCmd(this.gitPath, ['rev-parse', '--verify', `origin/${branchName}`], dir);
+            await this.execCmd(this.gitPath, ['rev-parse', '--verify', `origin/${branchName}`], dir, true);
             return true;
         } catch {
             return false;
@@ -487,7 +517,7 @@ export class GitHubSyncProvider implements IStorageProvider {
      */
     private async localBranchExists(dir: string, branchName: string): Promise<boolean> {
         try {
-            const result = await this.execCmd(this.gitPath, ['rev-parse', '--verify', branchName], dir);
+            const result = await this.execCmd(this.gitPath, ['rev-parse', '--verify', branchName], dir, true);
             return !!result.stdout.trim();
         } catch {
             return false;
