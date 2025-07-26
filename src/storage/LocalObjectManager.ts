@@ -12,7 +12,7 @@ import { v7 as uuidv7 } from "uuid";
 import * as path from "path";
 
 const secureNotesDir = ".secureNotes";
-const objectDirName = "objects";
+const ignorePath = [`${secureNotesDir}/**`, `**/node_modules/**`, `.vscode/**`];
 const remotesDirName = "remotes";
 const indexDirName = "indexes";
 const filesDirName = "files";
@@ -353,7 +353,12 @@ export class LocalObjectManager {
       Buffer.from(encryptedIndex),
       options.encryptionKey
     );
-    return JSON.parse(index.toString());
+    const indexFile: IndexFile = JSON.parse(index.toString());
+
+    // files配列をpath順にソート
+    indexFile.files.sort((a, b) => a.path.localeCompare(b.path));
+
+    return indexFile;
   }
 
   /**
@@ -798,7 +803,7 @@ export class LocalObjectManager {
     for (const folder of workspaceFolders) {
       const filesInFolder = await vscode.workspace.findFiles(
         new vscode.RelativePattern(folder, "**/*"),
-        `{**/node_modules/**,${secureNotesDir}/**}`
+        `{${ignorePath.join(",")}}`,
       );
 
       for (const fileUri of filesInFolder) {
@@ -874,8 +879,14 @@ export class LocalObjectManager {
     const dirPath = vscode.Uri.joinPath(indexDirUri, dirName);
     await vscode.workspace.fs.createDirectory(dirPath);
 
+    // files配列をpath順にソートしてから保存
+    const sortedIndexFile: IndexFile = {
+      ...indexFile,
+      files: [...indexFile.files].sort((a, b) => a.path.localeCompare(b.path))
+    };
+
     const indexContent = Buffer.from(
-      JSON.stringify(indexFile, null, 2),
+      JSON.stringify(sortedIndexFile, null, 2),
       "utf-8"
     );
     const encryptedIndex = this.encryptContent(indexContent, encryptionKey);
