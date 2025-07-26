@@ -13,6 +13,22 @@ import * as path from "path";
 
 const secureNotesDir = ".secureNotes";
 const ignorePath = [`${secureNotesDir}/**`, `**/node_modules/**`, `.vscode/**`];
+
+/**
+ * ファイルパスがignorePathに含まれるかどうかをチェックする関数
+ */
+function isIgnoredPath(filePath: string): boolean {
+  const patterns = [
+    secureNotesDir,
+    'node_modules',
+    '.vscode'
+  ];
+  
+  return patterns.some(pattern => {
+    // パターンがファイルパスに含まれているかチェック
+    return filePath.includes(pattern) || filePath.startsWith(pattern + '/');
+  });
+}
 const remotesDirName = "remotes";
 const indexDirName = "indexes";
 const filesDirName = "files";
@@ -428,11 +444,18 @@ export class LocalObjectManager {
     conflictFileName?: string
   ): Promise<void> {
     try {
+      const savePath = conflictFileName ? conflictFileName : filePath;
+      
+      // ignorePathに含まれるファイルは復元しない
+      if (isIgnoredPath(savePath)) {
+        logMessage(`Skipped restoring ignored file: ${savePath}`);
+        return;
+      }
+
       const decryptedContent = await this.decryptFileFromLocalObject(
         fileHash,
         options
       );
-      const savePath = conflictFileName ? conflictFileName : filePath;
 
       // ローカルファイルパスを取得
       const rootUri = getRootUri();
@@ -970,6 +993,13 @@ export class LocalObjectManager {
       if (newFileEntry.deleted) {
         continue;
       }
+      
+      // ignorePathに含まれるファイルは復元しない
+      if (isIgnoredPath(filePath)) {
+        logMessage(`reflectFileChanges: Skipped ignored file -> ${filePath}`);
+        continue;
+      }
+      
       if (!oldMap.has(filePath) || oldMap.get(filePath)?.deleted) {
         // 新規ファイルをローカルへ復元
         // まだローカルに実ファイルが無い場合、.secureNotes/remotes/... から復号して作成する
