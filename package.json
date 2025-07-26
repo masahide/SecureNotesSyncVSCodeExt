@@ -143,21 +143,21 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "pnpm run package",
+    "vscode:prepublish": "npm run package",
     "compile": "webpack",
     "watch": "webpack --watch",
     "package": "webpack --mode production --devtool hidden-source-map",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "lint": "eslint src",
     "test": "xvfb-run -a vscode-test",
     "test:headless": "xvfb-run -a vscode-test",
     "test:local": "vscode-test",
-    "test:sync": "pnpm run compile-tests && node ./out/test/alternative-test-runner.js",
-    "test:incremental": "pnpm run compile-tests && pnpm run compile",
+    "test:sync": "npm run compile-tests && node ./out/test/alternative-test-runner.js",
+    "test:incremental": "npm run compile-tests && npm run compile",
     "test:unit": "tsx src/test/unit-test.ts",
-    "test:fast": "pnpm run test:unit && pnpm run lint"
+    "test:fast": "npm run test:unit && npm run lint"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
