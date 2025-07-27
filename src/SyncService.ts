@@ -346,6 +346,7 @@ export class SyncService implements ISyncService {
 
     // ファイル変更を反映
     const previousIndex = await this.dependencies.localObjectManager.loadWsIndex(options);
+    logMessage(`finalizeSync: Reflecting file changes - previousIndex: ${previousIndex.uuid} (${previousIndex.files.length} files), finalIndex: ${finalIndex.uuid} (${finalIndex.files.length} files), forceCheckout: false`);
     await this.dependencies.localObjectManager.reflectFileChanges(
       previousIndex,
       finalIndex,
