@@ -23,7 +23,7 @@ function isIgnoredPath(filePath: string): boolean {
     'node_modules',
     '.vscode'
   ];
-  
+
   return patterns.some(pattern => {
     // パターンがファイルパスに含まれているかチェック
     return filePath.includes(pattern) || filePath.startsWith(pattern + '/');
@@ -445,7 +445,7 @@ export class LocalObjectManager {
   ): Promise<void> {
     try {
       const savePath = conflictFileName ? conflictFileName : filePath;
-      
+
       // ignorePathに含まれるファイルは復元しない
       if (isIgnoredPath(savePath)) {
         logMessage(`Skipped restoring ignored file: ${savePath}`);
@@ -993,16 +993,17 @@ export class LocalObjectManager {
       if (newFileEntry.deleted) {
         continue;
       }
-      
+
       // ignorePathに含まれるファイルは復元しない
       if (isIgnoredPath(filePath)) {
         logMessage(`reflectFileChanges: Skipped ignored file -> ${filePath}`);
         continue;
       }
-      
-      if (!oldMap.has(filePath) || oldMap.get(filePath)?.deleted) {
-        // 新規ファイルをローカルへ復元
-        // まだローカルに実ファイルが無い場合、.secureNotes/remotes/... から復号して作成する
+
+      const oldFileEntry = oldMap.get(filePath);
+
+      // ファイルが新規追加された場合、または削除されていたファイルが復活した場合のみ復元
+      if (!oldFileEntry || oldFileEntry.deleted) {
         logMessage(`reflectFileChanges: File added -> ${filePath}`);
         await LocalObjectManager.fetchDecryptAndSaveFile(
           filePath,
@@ -1010,6 +1011,19 @@ export class LocalObjectManager {
           options
         );
       }
+      // ファイルが更新された場合（ハッシュ値が異なる場合）のみ復元
+      else if (oldFileEntry.hash !== newFileEntry.hash) {
+        logMessage(`reflectFileChanges: File updated -> ${filePath} (hash changed)`);
+        await LocalObjectManager.fetchDecryptAndSaveFile(
+          filePath,
+          newFileEntry.hash,
+          options
+        );
+      }
+      /*else {
+        // ハッシュ値が同じ場合は復元をスキップ
+        logMessage(`reflectFileChanges: File unchanged -> ${filePath} (hash match, skipping restore)`);
+      }*/
     }
 
     // 2) 削除されたファイルの反映
@@ -1033,6 +1047,12 @@ export class LocalObjectManager {
     }
   }
   private static async removeFile(filePath: string): Promise<void> {
+    // ignorePathに含まれるファイルは削除しない
+    if (isIgnoredPath(filePath)) {
+      logMessage(`reflectFileChanges: Skipped removing ignored file -> ${filePath}`);
+      return;
+    }
+
     // ローカルワークスペースから削除
     const rootUri = getRootUri();
     const localUri = vscode.Uri.joinPath(rootUri, filePath);

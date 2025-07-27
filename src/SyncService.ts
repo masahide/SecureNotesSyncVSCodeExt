@@ -119,10 +119,16 @@ export class SyncService implements ISyncService {
       const currentBranch = await getCurrentBranchName();
 
       // 1. 既存リモートリポジトリをクローン/更新
-      await (this.dependencies.storageProvider as GitHubSyncProvider).cloneExistingRemoteRepository();
+      const hasRemoteChanges = await (this.dependencies.storageProvider as GitHubSyncProvider).cloneExistingRemoteRepository();
+      logMessage(`Remote repository changes detected: ${hasRemoteChanges}`);
 
-      // 2. リモートデータを復号化・展開
-      await (this.dependencies.storageProvider as GitHubSyncProvider).loadAndDecryptRemoteData();
+      // 2. リモートデータを復号化・展開（リモートに変更がある場合のみ）
+      if (hasRemoteChanges) {
+        logMessage("Remote changes detected. Loading and decrypting remote data...");
+        await (this.dependencies.storageProvider as GitHubSyncProvider).loadAndDecryptRemoteData();
+      } else {
+        logMessage("No remote changes detected. Skipping decryption process.");
+      }
 
       // 3. 従来の増分同期処理を実行（リモートダウンロードはスキップ）
       const syncResult = await this.performTraditionalIncrementalSync(options, currentBranch, true);
@@ -149,16 +155,26 @@ export class SyncService implements ISyncService {
 
     // 2. 新しいローカルインデックスを生成
     const newLocalIndex = await this.generateNewLocalIndex(previousIndex, options);
-    logMessage("New local index file created.");
+    
+    // 2.1. 実際にファイルに変更があるかチェック
+    const hasLocalChanges = this.hasFileChanges(previousIndex, newLocalIndex);
+    if (!hasLocalChanges) {
+      logMessage("No local file changes detected. Using previous index.");
+    } else {
+      logMessage("Local file changes detected. New local index file created.");
+    }
 
     // 3. リモートからダウンロードして更新があるかチェック
-    const hasRemoteUpdates = skipRemoteDownload ? true : await this.dependencies.storageProvider.download(currentBranch);
+    const hasRemoteUpdates = skipRemoteDownload ? false : await this.dependencies.storageProvider.download(currentBranch);
+    logMessage(`Remote updates detected: ${hasRemoteUpdates}, Skip remote download: ${skipRemoteDownload}`);
 
-    let finalIndex = newLocalIndex;
-    let updated = hasRemoteUpdates;
+    let finalIndex = hasLocalChanges ? newLocalIndex : previousIndex;
+    let updated = hasRemoteUpdates || hasLocalChanges;
+    logMessage(`Final update decision: hasLocalChanges=${hasLocalChanges}, hasRemoteUpdates=${hasRemoteUpdates}, updated=${updated}`);
 
     // 4. リモート更新がある場合は競合検出・解決
     if (hasRemoteUpdates) {
+      logMessage("Processing remote updates...");
       const mergeResult = await this.handleRemoteUpdates(previousIndex, newLocalIndex, options);
       if (!mergeResult.success) {
         showInfo("Sync aborted due to unresolved conflicts.");
@@ -166,18 +182,23 @@ export class SyncService implements ISyncService {
       }
       finalIndex = mergeResult.mergedIndex;
       updated = true;
+      logMessage(`After remote merge: finalIndex UUID=${finalIndex.uuid}, updated=${updated}`);
     }
 
     // 5. ファイルを暗号化保存
     const filesUpdated = await this.saveEncryptedFiles(finalIndex, previousIndex, options);
+    logMessage(`Files encryption result: filesUpdated=${filesUpdated}`);
     updated = updated || filesUpdated;
+    logMessage(`Updated after file encryption: ${updated}`);
 
     // 6. 更新があった場合のみアップロード
     if (updated) {
+      logMessage(`Proceeding with finalization: finalIndex UUID=${finalIndex.uuid}`);
       await this.finalizeSync(finalIndex, currentBranch, options);
       return true;
     }
 
+    logMessage("No updates detected. Skipping upload.");
     return false;
   }
 
@@ -212,6 +233,31 @@ export class SyncService implements ISyncService {
     return await this.dependencies.localObjectManager.generateLocalIndexFile(previousIndex, options);
   }
 
+  /**
+   * 前回のインデックスと新しいインデックスを比較してファイルに変更があるかチェック
+   */
+  private hasFileChanges(previousIndex: IndexFile, newIndex: IndexFile): boolean {
+    // ファイル数が異なる場合は変更あり
+    if (previousIndex.files.length !== newIndex.files.length) {
+      return true;
+    }
+
+    // 各ファイルのハッシュ値を比較
+    const previousFileMap = new Map<string, string>();
+    for (const file of previousIndex.files) {
+      previousFileMap.set(file.path, file.hash);
+    }
+
+    for (const file of newIndex.files) {
+      const previousHash = previousFileMap.get(file.path);
+      if (!previousHash || previousHash !== file.hash) {
+        return true; // ファイルが新規追加されたか、ハッシュ値が変更された
+      }
+    }
+
+    return false; // 変更なし
+  }
+
 
   /**
    * リモート更新がある場合の競合検出・解決処理
@@ -223,6 +269,7 @@ export class SyncService implements ISyncService {
   ): Promise<{ success: boolean; mergedIndex: IndexFile }> {
     // リモートインデックスを読み込み
     const remoteIndex = await this.dependencies.localObjectManager.loadRemoteIndex(options);
+    logMessage(`Remote index loaded: UUID=${remoteIndex.uuid}, files=${remoteIndex.files.length}`);
 
     // 競合を検出
     const conflicts = await this.dependencies.localObjectManager.detectConflicts(
@@ -230,24 +277,35 @@ export class SyncService implements ISyncService {
       newLocalIndex,
       remoteIndex
     );
+    logMessage(`Conflicts detected: ${conflicts.length} conflicts`);
 
     // 競合がある場合は解決
     if (conflicts.length > 0) {
+      logMessage(`Resolving ${conflicts.length} conflicts...`);
       const conflictsResolved = await this.dependencies.localObjectManager.resolveConflicts(
         conflicts,
         options
       );
       if (!conflictsResolved) {
+        logMessage("Conflict resolution failed");
         return { success: false, mergedIndex: newLocalIndex };
       }
+      logMessage("Conflicts resolved successfully");
     }
 
-    // ローカルとリモートの変更をマージ
-    logMessage("Merging local and remote changes...");
+    // 競合がない場合は、リモートインデックスをそのまま使用
+    if (conflicts.length === 0) {
+      logMessage("No conflicts detected. Using remote index as-is.");
+      return { success: true, mergedIndex: remoteIndex };
+    }
+
+    // ローカルとリモートの変更をマージ（競合解決後）
+    logMessage("Merging local and remote changes after conflict resolution...");
     const mergedIndex = await this.dependencies.localObjectManager.generateLocalIndexFile(
       previousIndex,
       options
     );
+    logMessage(`Merged index created: UUID=${mergedIndex.uuid}, files=${mergedIndex.files.length}`);
 
     return { success: true, mergedIndex };
   }

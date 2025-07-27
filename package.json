@@ -102,47 +102,47 @@
     "commands": [
       {
         "command": "secureNotes.sync",
-        "title": "Sync"
+        "title": "SecureNotes: Sync"
       },
       {
         "command": "secureNotes.initializeNewRepository",
-        "title": "Initialize New Repository"
+        "title": "SecureNotes: Initialize New Repository"
       },
       {
         "command": "secureNotes.importExistingRepository",
-        "title": "Import Existing Repository"
+        "title": "SecureNotes: Import Existing Repository"
       },
       {
         "command": "secureNotes.previewIndex",
-        "title": "Preview Index"
+        "title": "SecureNotes: Preview Index"
       },
       {
         "command": "secureNotes.createBranchFromIndex",
-        "title": "Create Branch from Index"
+        "title": "SecureNotes: Create Branch from Index"
       },
       {
         "command": "secureNotes.checkoutBranch",
-        "title": "Checkout Branch"
+        "title": "SecureNotes: Checkout Branch"
       },
       {
         "command": "secureNotes.setAESKey",
-        "title": "Set AES Key"
+        "title": "SecureNotes: Set AES Key"
       },
       {
         "command": "secureNotes.generateAESKey",
-        "title": "Generate AES Key"
+        "title": "SecureNotes: Generate AES Key"
       },
       {
         "command": "secureNotes.copyAESKeyToClipboard",
-        "title": "Copy AES Key to Clipboard"
+        "title": "SecureNotes: Copy AES Key to Clipboard"
       },
       {
         "command": "secureNotes.refreshAESKey",
-        "title": "Refresh AES Key"
+        "title": "SecureNotes: Refresh AES Key"
       },
       {
         "command": "secureNotes.insertCurrentTime",
-        "title": "Insert Current Time"
+        "title": "SecureNotes: Insert Current Time"
       }
     ]
   },

@@ -186,7 +186,7 @@ export class GitHubSyncProvider implements IStorageProvider {
     /**
      * 既存リモートリポジトリのクローンまたは更新
      * 既にローカルリポジトリが存在する場合はpullで更新、存在しない場合はクローン
-     * @returns {Promise<boolean>} クローンに成功した場合はtrue
+     * @returns {Promise<boolean>} 更新があった場合はtrue
      */
     public async cloneExistingRemoteRepository(): Promise<boolean> {
         const objectDir = getRemotesDirUri().fsPath;
@@ -197,16 +197,24 @@ export class GitHubSyncProvider implements IStorageProvider {
         if (isExistingRepo) {
             // 既存のローカルリポジトリがある場合はpullで更新
             try {
-                const remoteResult = await this.execCmd(this.gitPath, ['remote', 'get-url', 'origin'], objectDir);
-                if (remoteResult.stdout.trim() !== this.gitRemoteUrl) {
-                    logMessage(`リモートURLが異なります。再クローンを実行します。`);
-                    fs.rmSync(objectDir, { recursive: true, force: true });
-                    await this.execCmd(this.gitPath, ['clone', this.gitRemoteUrl, objectDir], path.dirname(objectDir));
-                } else {
-                    await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
-                    // メインブランチに追従するように変更
-                    await this.execCmd(this.gitPath, ['reset', '--hard', 'origin/main'], objectDir);
+                // fetch前の現在のコミットハッシュを取得
+                const beforeHash = await this.getCurrentCommitHash(objectDir);
+                logMessage(`Current commit hash before fetch: ${beforeHash}`);
+
+                await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
+                
+                // fetch後のリモートのコミットハッシュを取得
+                const afterHash = await this.getRemoteCommitHash(objectDir, 'origin/main');
+                logMessage(`Remote commit hash after fetch: ${afterHash}`);
+
+                // ハッシュが同じ場合は更新なし
+                if (beforeHash === afterHash) {
+                    logMessage('No remote updates detected. Repository is up to date.');
+                    return false;
                 }
+
+                // メインブランチに追従するように変更
+                await this.execCmd(this.gitPath, ['reset', '--hard', 'origin/main'], objectDir);
                 logMessageGreen('既存ローカルリポジトリを更新しました。');
                 return true;
             } catch (error) {
@@ -337,11 +345,23 @@ export class GitHubSyncProvider implements IStorageProvider {
             // ワークスペースインデックスを更新
             await localObjectManager.updateWorkspaceIndex(latestIndex);
 
-            // 各ファイルを復号化・復元
+            // 現在のワークスペースインデックスを取得
+            const currentWsIndex = await LocalObjectManager.loadWsIndex({
+                encryptionKey: this.encryptionKey!,
+                environmentId: 'default'
+            });
+
+            // 各ファイルを復号化・復元（差分があるファイルのみ）
             for (const fileEntry of latestIndex.files) {
                 if (!fileEntry.deleted) {
-                    logMessage(`復号化・復元中: ${fileEntry.path}`);
-                    await localObjectManager.decryptAndRestoreFile(fileEntry);
+                    // 現在のワークスペースインデックスから同じパスのファイルを検索
+                    const currentFileEntry = currentWsIndex.files.find(f => f.path === fileEntry.path);
+
+                    // ファイルが新規追加された場合、または内容が変更された場合のみ復元
+                    if (!currentFileEntry || currentFileEntry.hash !== fileEntry.hash) {
+                        logMessage(`復号化・復元中: ${fileEntry.path} (${!currentFileEntry ? 'new file' : 'hash changed'})`);
+                        await localObjectManager.decryptAndRestoreFile(fileEntry);
+                    }
                 }
             }
 
@@ -545,6 +565,32 @@ export class GitHubSyncProvider implements IStorageProvider {
         // コミット
         await this.execCmd(this.gitPath, ['commit', '-m', message], dir);
         return true;
+    }
+
+    /**
+     * 現在のコミットハッシュを取得
+     */
+    private async getCurrentCommitHash(dir: string): Promise<string> {
+        try {
+            const result = await this.execCmd(this.gitPath, ['rev-parse', 'HEAD'], dir, true);
+            return result.stdout.trim();
+        } catch (error) {
+            logMessage(`Failed to get current commit hash: ${error}`);
+            return '';
+        }
+    }
+
+    /**
+     * リモートブランチのコミットハッシュを取得
+     */
+    private async getRemoteCommitHash(dir: string, remoteBranch: string): Promise<string> {
+        try {
+            const result = await this.execCmd(this.gitPath, ['rev-parse', remoteBranch], dir, true);
+            return result.stdout.trim();
+        } catch (error) {
+            logMessage(`Failed to get remote commit hash for ${remoteBranch}: ${error}`);
+            return '';
+        }
     }
 }
 
