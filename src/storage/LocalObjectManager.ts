@@ -1028,11 +1028,17 @@ export class LocalObjectManager {
 
     // 2) 削除されたファイルの反映
     // oldIndex にはあるが newIndex では削除フラグがあるファイル
+    let forceCheckoutDeletions = 0;
+    let normalDeletions = 0;
+    let missingButNotDeleting = 0;
+    let deletedTimestampMismatch = 0;
+
     for (const [filePath, oldFileEntry] of oldMap.entries()) {
       const newfile = newMap.get(filePath);
       if (forceCheckout) {
         if (!newfile || newfile.deleted) {
           // 強制チェックアウトの場合、newIndexに存在しないファイルは削除
+          forceCheckoutDeletions++;
           this.removeFile(filePath);
         }
       } else {
@@ -1041,9 +1047,28 @@ export class LocalObjectManager {
           newfile.deleted &&
           newfile.timestamp === oldFileEntry.timestamp // 削除フラグが立っているがタイムスタンプが同じ場合
         ) {
+          normalDeletions++;
           this.removeFile(filePath);
+        } else if (!newfile) {
+          missingButNotDeleting++;
+        } else if (newfile.deleted) {
+          deletedTimestampMismatch++;
         }
       }
+    }
+
+    // 削除統計をログ出力
+    if (forceCheckoutDeletions > 0) {
+      logMessage(`reflectFileChanges: Force checkout deletions: ${forceCheckoutDeletions} files`);
+    }
+    if (normalDeletions > 0) {
+      logMessage(`reflectFileChanges: Normal deletions: ${normalDeletions} files`);
+    }
+    if (missingButNotDeleting > 0) {
+      logMessage(`reflectFileChanges: Files missing in newIndex but not deleting: ${missingButNotDeleting} files`);
+    }
+    if (deletedTimestampMismatch > 0) {
+      logMessage(`reflectFileChanges: Files marked as deleted but timestamp mismatch: ${deletedTimestampMismatch} files`);
     }
   }
   private static async removeFile(filePath: string): Promise<void> {
@@ -1070,9 +1095,9 @@ export class LocalObjectManager {
         recursive: false,
         useTrash: false,
       });
-      logMessage(`reflectFileChanges: File removed -> ${filePath}`);
+      // 個別の削除ログは削除（統計で表示するため）
     } catch (error: any) {
-      // 存在しない場合などは単にログ出力
+      // エラーの場合のみログ出力
       logMessage(`warning: deleting file: ${filePath}. ${error.message}`);
     }
   }
