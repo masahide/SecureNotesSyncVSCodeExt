@@ -130,8 +130,8 @@ export class SyncService implements ISyncService {
         logMessage("No remote changes detected. Skipping decryption process.");
       }
 
-      // 3. 従来の増分同期処理を実行（リモートダウンロードはスキップ）
-      const syncResult = await this.performTraditionalIncrementalSync(options, currentBranch, true);
+      // 3. 従来の増分同期処理を実行（リモートダウンロードはスキップ、ただしリモート変更情報を渡す）
+      const syncResult = await this.performTraditionalIncrementalSync(options, currentBranch, true, hasRemoteChanges);
 
       showInfo("既存リポジトリからデータを復元し、増分同期を完了しました。");
       return syncResult;
@@ -147,8 +147,9 @@ export class SyncService implements ISyncService {
    * @param options 同期オプション
    * @param currentBranch 現在のブランチ名
    * @param skipRemoteDownload リモートダウンロードをスキップするかどうか
+   * @param hasActualRemoteChanges 実際にリモートに変更があるかどうか
    */
-  private async performTraditionalIncrementalSync(options: SyncOptions, currentBranch: string, skipRemoteDownload: boolean = false): Promise<boolean> {
+  private async performTraditionalIncrementalSync(options: SyncOptions, currentBranch: string, skipRemoteDownload: boolean = false, hasActualRemoteChanges: boolean = false): Promise<boolean> {
     // 1. 前回のインデックスを読み込み
     const previousIndex = await this.loadPreviousIndex(options);
     logMessage(`Loaded previous index file: ${previousIndex.uuid}`);
@@ -165,8 +166,8 @@ export class SyncService implements ISyncService {
     }
 
     // 3. リモートからダウンロードして更新があるかチェック
-    const hasRemoteUpdates = skipRemoteDownload ? false : await this.dependencies.storageProvider.download(currentBranch);
-    logMessage(`Remote updates detected: ${hasRemoteUpdates}, Skip remote download: ${skipRemoteDownload}`);
+    const hasRemoteUpdates = skipRemoteDownload ? hasActualRemoteChanges : await this.dependencies.storageProvider.download(currentBranch);
+    logMessage(`Remote updates detected: ${hasRemoteUpdates}, Skip remote download: ${skipRemoteDownload}, Actual remote changes: ${hasActualRemoteChanges}`);
 
     let finalIndex = hasLocalChanges ? newLocalIndex : previousIndex;
     let updated = hasRemoteUpdates || hasLocalChanges;
