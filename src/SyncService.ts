@@ -336,6 +336,7 @@ export class SyncService implements ISyncService {
   ): Promise<void> {
     // ワークスペースインデックス更新前の状態を保存
     const previousIndex = await this.dependencies.localObjectManager.loadWsIndex(options);
+    logMessage(`finalizeSync: Before update - previousIndex: ${previousIndex.uuid} (${previousIndex.files.length} files), finalIndex: ${finalIndex.uuid} (${finalIndex.files.length} files)`);
 
     // インデックスファイルを保存
     await this.dependencies.localObjectManager.saveIndexFile(
@@ -346,6 +347,7 @@ export class SyncService implements ISyncService {
 
     // ワークスペースインデックスを保存
     await this.dependencies.localObjectManager.saveWsIndexFile(finalIndex, options);
+    logMessage(`finalizeSync: After saveWsIndexFile - finalIndex: ${finalIndex.uuid}`);
 
     // ファイル変更を反映（更新前のインデックスと比較）
     logMessage(`finalizeSync: Reflecting file changes - previousIndex: ${previousIndex.uuid} (${previousIndex.files.length} files), finalIndex: ${finalIndex.uuid} (${finalIndex.files.length} files), forceCheckout: false`);
