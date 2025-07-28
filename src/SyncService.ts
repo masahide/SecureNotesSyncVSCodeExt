@@ -156,7 +156,7 @@ export class SyncService implements ISyncService {
 
     // 2. 新しいローカルインデックスを生成
     const newLocalIndex = await this.generateNewLocalIndex(previousIndex, options);
-    
+
     // 2.1. 実際にファイルに変更があるかチェック
     const hasLocalChanges = this.hasFileChanges(previousIndex, newLocalIndex);
     if (!hasLocalChanges) {

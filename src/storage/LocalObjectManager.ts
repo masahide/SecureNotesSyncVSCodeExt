@@ -11,6 +11,23 @@ import {
 import { v7 as uuidv7 } from "uuid";
 import * as path from "path";
 
+/**
+ * ファイルパスを正規化してUnix形式（/区切り）に統一する
+ * Windows環境でも常に/区切りを使用することで、クロスプラットフォーム互換性を確保
+ */
+function normalizeFilePath(filePath: string): string {
+  // Windows形式のパス区切り文字（\）をUnix形式（/）に変換
+  return filePath.replace(/\\/g, '/');
+}
+
+/**
+ * ワークスペースからの相対パスを取得し、正規化する
+ */
+function getRelativePath(workspaceUri: vscode.Uri, fileUri: vscode.Uri): string {
+  const relativePath = path.relative(workspaceUri.fsPath, fileUri.fsPath);
+  return normalizeFilePath(relativePath);
+}
+
 const secureNotesDir = ".secureNotes";
 const ignorePath = [`${secureNotesDir}/**`, `**/node_modules/**`, `.vscode/**`];
 
@@ -317,7 +334,15 @@ export class LocalObjectManager {
     try {
       const wsIndexUri = getWsIndexUri();
       const content = await vscode.workspace.fs.readFile(wsIndexUri);
-      return JSON.parse(content.toString()) as IndexFile;
+      const indexFile = JSON.parse(content.toString()) as IndexFile;
+      
+      // 既存のファイルパスを正規化（後方互換性のため）
+      indexFile.files = indexFile.files.map(file => ({
+        ...file,
+        path: normalizeFilePath(file.path)
+      }));
+      
+      return indexFile;
     } catch (error) {
       logMessage(`Latest index file not found. Creating new index`);
       return {
@@ -343,7 +368,15 @@ export class LocalObjectManager {
         Buffer.from(encrypedUuid),
         options.encryptionKey
       );
-      return this.loadIndex(uuid.toString(), options);
+      const indexFile = await this.loadIndex(uuid.toString(), options);
+      
+      // 既存のファイルパスを正規化（後方互換性のため）
+      indexFile.files = indexFile.files.map(file => ({
+        ...file,
+        path: normalizeFilePath(file.path)
+      }));
+      
+      return indexFile;
     } catch (error) {
       logMessage(`Remote index file not found. Creating new index`);
       return {
@@ -370,6 +403,12 @@ export class LocalObjectManager {
       options.encryptionKey
     );
     const indexFile: IndexFile = JSON.parse(index.toString());
+
+    // 既存のファイルパスを正規化（後方互換性のため）
+    indexFile.files = indexFile.files.map(file => ({
+      ...file,
+      path: normalizeFilePath(file.path)
+    }));
 
     // files配列をpath順にソート
     indexFile.files.sort((a, b) => a.path.localeCompare(b.path));
@@ -457,12 +496,9 @@ export class LocalObjectManager {
         options
       );
 
-      // ローカルファイルパスを取得
+      // ローカルファイルパスを取得（正規化されたパスをローカルシステム用に変換）
       const rootUri = getRootUri();
-      const localUri = vscode.Uri.joinPath(
-        vscode.Uri.file(rootUri.fsPath),
-        savePath
-      );
+      const localUri = vscode.Uri.joinPath(rootUri, savePath);
 
       // ローカルファイルに保存
       await vscode.workspace.fs.writeFile(localUri, decryptedContent);
@@ -492,14 +528,8 @@ export class LocalObjectManager {
 
     // ローカルファイルのURIを取得
     const rootUri = getRootUri();
-    const localUri = vscode.Uri.joinPath(
-      vscode.Uri.file(rootUri.fsPath),
-      filePath
-    );
-    const conflictUri = vscode.Uri.joinPath(
-      vscode.Uri.file(rootUri.fsPath),
-      conflictFileName
-    );
+    const localUri = vscode.Uri.joinPath(rootUri, filePath);
+    const conflictUri = vscode.Uri.joinPath(rootUri, conflictFileName);
 
     try {
       // コンフリクトファイルのディレクトリを作成
@@ -600,14 +630,8 @@ export class LocalObjectManager {
 
             // ローカルファイルのURIを取得
             const rootUri = getRootUri();
-            const localUri = vscode.Uri.joinPath(
-              vscode.Uri.file(rootUri.fsPath),
-              conflict.filePath
-            );
-            const deletedUri = vscode.Uri.joinPath(
-              vscode.Uri.file(rootUri.fsPath),
-              deletedFileName
-            );
+            const localUri = vscode.Uri.joinPath(rootUri, conflict.filePath);
+            const deletedUri = vscode.Uri.joinPath(rootUri, deletedFileName);
 
             try {
               // 削除済みファイルのディレクトリを作成
@@ -831,8 +855,8 @@ export class LocalObjectManager {
 
       for (const fileUri of filesInFolder) {
         const stat = await vscode.workspace.fs.stat(fileUri);
-        // ワークスペースフォルダからの相対パスを正しく取得
-        const relativePath = path.relative(folder.uri.fsPath, fileUri.fsPath);
+        // ワークスペースフォルダからの相対パスを正規化して取得
+        const relativePath = getRelativePath(folder.uri, fileUri);
 
         filesMap.set(relativePath, {
           path: relativePath,
