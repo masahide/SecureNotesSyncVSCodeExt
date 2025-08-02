@@ -39,9 +39,10 @@ export class ContainerBuilder {
     );
 
     // ローカルオブジェクトマネージャー（シングルトン）
-    this.container.registerSingleton<typeof LocalObjectManager>(
+    this.container.registerSingleton<LocalObjectManager>(
       ServiceKeys.LOCAL_OBJECT_MANAGER,
-      () => LocalObjectManager
+      (context: vscode.ExtensionContext, encryptionKey: string) => new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, encryptionKey),
+      [ServiceKeys.EXTENSION_CONTEXT, ServiceKeys.ENCRYPTION_KEY]
     );
 
     return this;
@@ -87,8 +88,8 @@ export class ContainerBuilder {
     // Sync Service（スコープド - リクエストごとに新しいインスタンス）
     this.container.registerScoped<ISyncService>(
       ServiceKeys.SYNC_SERVICE,
-      (factory: ISyncServiceFactory, config: any) => factory.createSyncService(config),
-      [ServiceKeys.SYNC_SERVICE_FACTORY]
+      (factory: ISyncServiceFactory, config: any, context: vscode.ExtensionContext) => factory.createSyncService(config, context),
+      [ServiceKeys.SYNC_SERVICE_FACTORY, ServiceKeys.EXTENSION_CONTEXT]
     );
 
     return this;
@@ -165,7 +166,7 @@ export class ContainerBuilder {
  * テスト用のモックファクトリー
  */
 class MockSyncServiceFactory implements ISyncServiceFactory {
-  createSyncService(config: any): ISyncService {
+  createSyncService(config: any, context: vscode.ExtensionContext): ISyncService {
     return {
       isRepositoryInitialized: async () => true,
       initializeNewStorage: async () => true,

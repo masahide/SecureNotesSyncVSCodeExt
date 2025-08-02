@@ -8,7 +8,7 @@ import which from 'which';
 import * as fs from 'fs';
 
 // 動的にremotesDirUriを取得する関数
-function getRemotesDirUri(): any {
+function getRemotesDirUri(): vscode.Uri {
     const vscode = require('vscode');
     const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
     if (!workspaceUri) {
@@ -43,52 +43,55 @@ export class GitHubSyncProvider implements IStorageProvider {
     public async initialize(): Promise<void> {
         logMessage('=== Initializing repository ===');
 
-        const remoteExists = await this.checkRemoteRepositoryExists();
+        const { exists, isEmpty } = await this.getRemoteState();
 
-        if (!remoteExists) {
+        if (!exists) {
             logMessage('Remote repository does not exist. Initializing a new one.');
             await this.initializeNewRemoteRepository();
+        } else if (isEmpty) {
+            logMessage('Remote repository is empty. Initializing for an empty remote.');
+            await this.initializeEmptyRemoteRepository();
+            try {
+                await this.encryptAndUploadWorkspaceFiles();
+                logMessageGreen('Workspace files uploaded to empty remote repository.');
+            } catch (error) {
+                logMessage(`Failed to upload workspace files: ${error}`);
+                // Propagate error to let the caller know initialization failed.
+                throw error;
+            }
         } else {
-            const isEmpty = await this.checkRemoteRepositoryIsEmpty();
+            logMessage('Remote repository exists. Cloning it.');
+            const cloneSuccess = await this.cloneExistingRemoteStorage();
 
-            if (isEmpty) {
-                logMessage('Remote repository is empty. Initializing for an empty remote.');
-                await this.initializeEmptyRemoteRepository();
-                try {
-                    await this.encryptAndUploadWorkspaceFiles();
-                    logMessageGreen('Workspace files uploaded to empty remote repository.');
-                } catch (error) {
-                    logMessage(`Failed to upload workspace files: ${error}`);
-                    // Propagate error to let the caller know initialization failed.
-                    throw error;
-                }
+            if (cloneSuccess) {
+                await this.loadAndDecryptRemoteData();
             } else {
-                logMessage('Remote repository exists. Cloning it.');
-                const cloneSuccess = await this.cloneExistingRemoteStorage();
-
-                if (cloneSuccess) {
-                    await this.loadAndDecryptRemoteData();
-                } else {
-                    logMessageRed('Cloning failed. Initialization incomplete.');
-                    throw new Error("Failed to clone existing repository.");
-                }
+                logMessageRed('Cloning failed. Initialization incomplete.');
+                throw new Error("Failed to clone existing repository.");
             }
         }
         logMessageGreen('=== Repository initialization complete ===');
     }
 
     /**
-     * リモートリポジトリの存在確認
-     * @returns {Promise<boolean>} リモートリポジトリが存在する場合はtrue
+     * リモートリポジトリの状態（存在するか、空か）を取得します。
+     * @returns {Promise<{exists: boolean, isEmpty: boolean}>}
      */
-    public async checkRemoteRepositoryExists(): Promise<boolean> {
+    private async getRemoteState(): Promise<{ exists: boolean, isEmpty: boolean }> {
         try {
             const result = await this.execCmd(this.gitPath, ['ls-remote', this.gitRemoteUrl], process.cwd(), true);
-            logMessageGreen(`リモートリポジトリが存在します: ${this.gitRemoteUrl}`);
-            return true;
+            const output = result.stdout.trim();
+            if (!output) {
+                // `ls-remote` が成功しても出力が空の場合は、リポジトリは存在するが空であることを意味します。
+                logMessage('Remote repository exists but is empty.');
+                return { exists: true, isEmpty: true };
+            }
+            logMessage(`Remote repository has data. Branches: ${output.split('\n').length}`);
+            return { exists: true, isEmpty: false };
         } catch (error) {
-            logMessage(`リモートリポジトリが存在しません: ${this.gitRemoteUrl}`);
-            return false;
+            // `ls-remote` が失敗した場合、リモートリポジトリが存在しないと判断します。
+            logMessage(`Remote repository does not exist: ${this.gitRemoteUrl}`);
+            return { exists: false, isEmpty: true };
         }
     }
 
@@ -97,28 +100,8 @@ export class GitHubSyncProvider implements IStorageProvider {
      * @returns {Promise<boolean>} リモートリポジトリにデータが存在する場合はtrue
      */
     public async hasRemoteData(): Promise<boolean> {
-        return !(await this.checkRemoteRepositoryIsEmpty());
-    }
-
-    /**
-     * リモートリポジトリが空かどうかを確認
-     * @returns {Promise<boolean>} リモートリポジトリが空の場合はtrue
-     */
-    public async checkRemoteRepositoryIsEmpty(): Promise<boolean> {
-        try {
-            const result = await this.execCmd(this.gitPath, ['ls-remote', this.gitRemoteUrl], process.cwd(), true);
-            // ls-remoteの結果が空文字列または空行のみの場合は空のリポジトリ
-            const output = result.stdout.trim();
-            if (!output) {
-                logMessage('リモートリポジトリは空です。');
-                return true;
-            }
-            logMessage(`リモートリポジトリにはデータが存在します。ブランチ数: ${output.split('\n').length}`);
-            return false;
-        } catch (error) {
-            logMessage(`リモートリポジトリの状態確認に失敗しました: ${error}`);
-            return true; // エラーの場合は空として扱う
-        }
+        const { exists, isEmpty } = await this.getRemoteState();
+        return exists && !isEmpty;
     }
 
     /**
@@ -189,6 +172,11 @@ export class GitHubSyncProvider implements IStorageProvider {
      * @returns {Promise<boolean>} 更新があった場合はtrue
      */
     public async cloneExistingRemoteStorage(): Promise<boolean> {
+        const { exists, isEmpty } = await this.getRemoteState();
+        if (!exists || isEmpty) {
+            throw new Error("リモートストレージにデータが存在しません。新規ストレージを作成する場合は 'Initialize New Storage' を使用してください。");
+        }
+
         const objectDir = getRemotesDirUri().fsPath;
 
         // 既存のローカルストレージが存在するかチェック
@@ -202,7 +190,7 @@ export class GitHubSyncProvider implements IStorageProvider {
                 logMessage(`Current commit hash before fetch: ${beforeHash}`);
 
                 await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
-                
+
                 // fetch後のリモートのコミットハッシュを取得
                 const afterHash = await this.getRemoteCommitHash(objectDir, 'origin/main');
                 logMessage(`Remote commit hash after fetch: ${afterHash}`);
@@ -252,19 +240,11 @@ export class GitHubSyncProvider implements IStorageProvider {
                     return;
                 }
 
-                // MockContextを作成
-                const mockContext = {
-                    secrets: {
-                        get: async (key: string) => this.encryptionKey,
-                        store: async (key: string, value: string) => { },
-                        delete: async (key: string) => { }
-                    }
-                } as any;
-
                 const { LocalObjectManager } = await import('./LocalObjectManager');
                 const localObjectManager = new LocalObjectManager(
                     workspaceUri.fsPath,
-                    mockContext
+                    vscode.extensions.getExtension('rovodev.secure-notes-sync')!.exports.context, // FIXME: this is a hack
+                    this.encryptionKey
                 );
 
                 const indexFile = await localObjectManager.encryptAndSaveWorkspaceFiles();
@@ -316,19 +296,11 @@ export class GitHubSyncProvider implements IStorageProvider {
                 return;
             }
 
-            // MockContextを作成
-            const mockContext = {
-                secrets: {
-                    get: async (key: string) => this.encryptionKey,
-                    store: async (key: string, value: string) => { },
-                    delete: async (key: string) => { }
-                }
-            } as any;
-
             const { LocalObjectManager } = await import('./LocalObjectManager');
             const localObjectManager = new LocalObjectManager(
                 workspaceUri.fsPath,
-                mockContext
+                vscode.extensions.getExtension('rovodev.secure-notes-sync')!.exports.context, // FIXME: this is a hack
+                this.encryptionKey
             );
 
             // リモートインデックスファイルを読み込み
@@ -346,7 +318,7 @@ export class GitHubSyncProvider implements IStorageProvider {
             await localObjectManager.updateWorkspaceIndex(latestIndex);
 
             // 現在のワークスペースインデックスを取得
-            const currentWsIndex = await LocalObjectManager.loadWsIndex({
+            const currentWsIndex = await localObjectManager.loadWsIndex({
                 encryptionKey: this.encryptionKey!,
                 environmentId: 'default'
             });

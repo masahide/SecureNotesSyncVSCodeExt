@@ -3,6 +3,7 @@ import { LocalObjectManager } from "./storage/LocalObjectManager";
 import { IndexFile } from "./types";
 import { getAESKey } from "./extension";
 import { logMessage, showError } from "./logger";
+import { IBranchTreeViewProvider } from "./interfaces/IBranchTreeViewProvider";
 
 /**
  * ブランチ単位・Index履歴表示用の TreeViewProvider
@@ -10,7 +11,7 @@ import { logMessage, showError } from "./logger";
  *  - 各ブランチの Index 履歴(下位レベル)
  */
 export class BranchTreeViewProvider
-    implements vscode.TreeDataProvider<BranchItem | IndexItem> {
+    implements vscode.TreeDataProvider<BranchItem | IndexItem>, IBranchTreeViewProvider {
     private _onDidChangeTreeData: vscode.EventEmitter<
         BranchItem | IndexItem | undefined | void
     > = new vscode.EventEmitter<BranchItem | IndexItem | undefined | void>();
@@ -18,7 +19,7 @@ export class BranchTreeViewProvider
         BranchItem | IndexItem | undefined | void
     > = this._onDidChangeTreeData.event;
 
-    constructor(private context: vscode.ExtensionContext) { }
+    constructor(private context: vscode.ExtensionContext) { } 
 
     /**
      * TreeViewを再描画するためのリフレッシュ
@@ -94,9 +95,10 @@ export class BranchTreeViewProvider
             return [];
         }
         const branchName = branchItem.branchName;
+        const localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, this.context, aesKey);
 
         // 1) HEADのUUIDを読む
-        const headUuid = await LocalObjectManager.readBranchRef(branchName, aesKey);
+        const headUuid = await localObjectManager.readBranchRef(branchName);
         if (!headUuid) {
             // ブランチにまだIndexが無い場合
             return [];
@@ -108,7 +110,7 @@ export class BranchTreeViewProvider
 
         try {
             while (currentUuid) {
-                const idxFile = await LocalObjectManager.loadIndex(currentUuid, {
+                const idxFile = await localObjectManager.loadIndex(currentUuid, {
                     environmentId: "",
                     encryptionKey: aesKey,
                 });
@@ -174,7 +176,7 @@ export class IndexItem extends vscode.TreeItem {
 
         // tooltip にはUUID全部や親UUIDなどを入れてもよい
         this.tooltip = `UUID: ${indexFile.uuid}\nParent: ${indexFile.parentUuids.join(
-            ","
+            "," 
         )}`;
     }
 }

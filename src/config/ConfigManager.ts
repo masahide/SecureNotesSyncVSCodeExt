@@ -2,6 +2,7 @@
 
 import * as vscode from 'vscode';
 import { SyncConfig, StorageConfig } from '../interfaces/ISyncServiceFactory';
+import { IBranchTreeViewProvider } from '../interfaces/IBranchTreeViewProvider';
 import * as config from '../config';
 
 /**
@@ -16,7 +17,7 @@ export class ConfigManager {
   static async createSyncConfig(
     context: vscode.ExtensionContext,
     encryptionKey: string,
-    branchProvider?: any
+    branchProvider?: IBranchTreeViewProvider
   ): Promise<SyncConfig> {
     const gitRemoteUrl = config.getGitRemoteUrl();
     if (!gitRemoteUrl) {

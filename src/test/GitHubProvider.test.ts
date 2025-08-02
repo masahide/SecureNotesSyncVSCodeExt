@@ -405,7 +405,7 @@ suite('GitHubProvider Test Suite', () => {
 
   suite('Sync Process Redesign Tests', () => {
     suite('Phase 1: Remote Repository Existence Check', () => {
-      test('checkRemoteRepositoryExists - repository exists', async () => {
+      test('getRemoteState - repository exists', async () => {
         const env = initializeTestEnvironment();
         try {
           // Given: リモートリポジトリが存在する
@@ -416,16 +416,17 @@ suite('GitHubProvider Test Suite', () => {
           const provider = new GitHubSyncProvider(env.testRepoUrl);
           
           // When: リモートリポジトリの存在確認を実行
-          const exists = await provider.checkRemoteRepositoryExists();
+          const { exists, isEmpty } = await (provider as any).getRemoteState();
 
           // Then: 存在することが確認される
           assert.strictEqual(exists, true);
+          assert.strictEqual(isEmpty, true);
         } finally {
           cleanupTestEnvironment();
         }
       });
 
-      test('checkRemoteRepositoryExists - repository does not exist', async () => {
+      test('getRemoteState - repository does not exist', async () => {
         const env = initializeTestEnvironment();
         try {
           // Given: リモートリポジトリが存在しない
@@ -433,10 +434,11 @@ suite('GitHubProvider Test Suite', () => {
           const provider = new GitHubSyncProvider(nonExistentUrl);
 
           // When: リモートリポジトリの存在確認を実行
-          const exists = await provider.checkRemoteRepositoryExists();
+          const { exists, isEmpty } = await (provider as any).getRemoteState();
 
           // Then: 存在しないことが確認される
           assert.strictEqual(exists, false);
+          assert.strictEqual(isEmpty, true);
         } finally {
           cleanupTestEnvironment();
         }

@@ -1,22 +1,26 @@
 import * as vscode from "vscode";
 import { logMessage, showInfo, showError } from "./logger";
 import { LocalObjectManager, getCurrentBranchName } from "./storage/LocalObjectManager";
-import { GitHubSyncProvider } from "./storage/GithubProvider";
 import { IStorageProvider } from "./storage/IStorageProvider";
 import { IndexFile } from "./types";
 import { ISyncService, SyncOptions } from "./interfaces/ISyncService";
+import { IBranchTreeViewProvider } from "./interfaces/IBranchTreeViewProvider";
 
 export interface SyncDependencies {
-  localObjectManager: typeof LocalObjectManager;
+  localObjectManager: LocalObjectManager;
   storageProvider: IStorageProvider;
-  branchProvider?: any; // BranchTreeViewProvider
+  branchProvider?: IBranchTreeViewProvider;
 }
 
 export class SyncService implements ISyncService {
   private dependencies: SyncDependencies;
+  private localObjectManager: LocalObjectManager;
+  private syncOptions: SyncOptions;
 
-  constructor(dependencies: SyncDependencies) {
+  constructor(dependencies: SyncDependencies, context: vscode.ExtensionContext, syncOptions: SyncOptions) {
     this.dependencies = dependencies;
+    this.syncOptions = syncOptions;
+    this.localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, syncOptions.encryptionKey);
   }
 
   /**
@@ -30,30 +34,20 @@ export class SyncService implements ISyncService {
 
   /**
    * 新規リモートストレージを作成して初期化する
-   * @param options 同期オプション
    * @returns 初期化が成功した場合はtrue
    */
-  async initializeNewStorage(options: SyncOptions): Promise<boolean> {
+  async initializeNewStorage(): Promise<boolean> {
     try {
       logMessage('=== Starting new repository initialization ===');
-
-      // リモートストレージが既に存在するかチェック
-      if (await this.isRepositoryInitialized()) {
-        const hasRemoteData = await this.dependencies.storageProvider.hasRemoteData();
-        if (hasRemoteData) {
-          showError("リモートストレージに既にデータが存在します。既存ストレージを取り込む場合は 'Import Existing Storage' を使用してください。");
-          return false;
-        }
-      }
 
       // 新規リポジトリとして初期化
       await this.dependencies.storageProvider.initialize();
 
       // ローカルファイルを暗号化してアップロード
       const currentBranch = await getCurrentBranchName() || 'main';
-      const initialIndex = await this.dependencies.localObjectManager.generateInitialIndex(options);
-      await this.dependencies.localObjectManager.saveIndexFile(initialIndex, currentBranch, options.encryptionKey);
-      await this.dependencies.localObjectManager.saveWsIndexFile(initialIndex, options);
+      const initialIndex = await this.localObjectManager.generateInitialIndex(this.syncOptions);
+      await this.localObjectManager.saveIndexFile(initialIndex, currentBranch);
+      await this.localObjectManager.saveWsIndexFile(initialIndex, this.syncOptions);
       await this.dependencies.storageProvider.upload(currentBranch);
 
       showInfo("新規リポジトリが正常に作成され、初期化されました。");
@@ -66,19 +60,11 @@ export class SyncService implements ISyncService {
 
   /**
    * 既存のリモートストレージを取り込んで初期化する
-   * @param options 同期オプション
    * @returns 初期化が成功した場合はtrue
    */
-  async importExistingStorage(options: SyncOptions): Promise<boolean> {
+  async importExistingStorage(): Promise<boolean> {
     try {
       logMessage('=== Starting existing repository import ===');
-
-      // リモートデータの存在確認
-      const hasRemoteData = await this.dependencies.storageProvider.hasRemoteData();
-      if (!hasRemoteData) {
-        showError("リモートストレージにデータが存在しません。新規ストレージを作成する場合は 'Initialize New Storage' を使用してください。");
-        return false;
-      }
 
       // 既存リモートストレージをクローン/更新
       await this.dependencies.storageProvider.cloneExistingRemoteStorage();
@@ -87,12 +73,12 @@ export class SyncService implements ISyncService {
       await this.dependencies.storageProvider.loadAndDecryptRemoteData();
 
       // リモートの最新インデックスを取得してローカルに設定
-      const remoteIndex = await this.dependencies.localObjectManager.loadRemoteIndex(options);
-      await this.dependencies.localObjectManager.saveWsIndexFile(remoteIndex, options);
+      const remoteIndex = await this.localObjectManager.loadRemoteIndex(this.syncOptions);
+      await this.localObjectManager.saveWsIndexFile(remoteIndex, this.syncOptions);
 
       // ファイルをワークスペースに展開
-      const emptyIndex = await this.dependencies.localObjectManager.generateEmptyIndex(options);
-      await this.dependencies.localObjectManager.reflectFileChanges(emptyIndex, remoteIndex, options, true);
+      const emptyIndex = await this.localObjectManager.generateEmptyIndex(this.syncOptions);
+      await this.localObjectManager.reflectFileChanges(emptyIndex, remoteIndex, true, this.syncOptions);
 
       // ブランチプロバイダーを更新
       if (this.dependencies.branchProvider) {
@@ -109,10 +95,9 @@ export class SyncService implements ISyncService {
 
   /**
    * 既存リポジトリとの増分同期処理
-   * @param options 同期オプション
    * @returns 同期が実行されたかどうか
    */
-  async performIncrementalSync(options: SyncOptions): Promise<boolean> {
+  async performIncrementalSync(): Promise<boolean> {
     try {
       logMessage('=== 増分同期処理フローを開始 ===');
 
@@ -131,7 +116,7 @@ export class SyncService implements ISyncService {
       }
 
       // 3. 従来の増分同期処理を実行（リモートダウンロードはスキップ、ただしリモート変更情報を渡す）
-      const syncResult = await this.performTraditionalIncrementalSync(options, currentBranch, true, hasRemoteChanges);
+      const syncResult = await this.performTraditionalIncrementalSync(this.syncOptions, currentBranch, true, hasRemoteChanges);
 
       showInfo("既存ストレージからデータを復元し、増分同期を完了しました。");
       return syncResult;
@@ -224,14 +209,14 @@ export class SyncService implements ISyncService {
    * 前回のインデックスファイルを読み込み
    */
   private async loadPreviousIndex(options: SyncOptions): Promise<IndexFile> {
-    return await this.dependencies.localObjectManager.loadWsIndex(options);
+    return await this.localObjectManager.loadWsIndex(options);
   }
 
   /**
    * 新しいローカルインデックスを生成
    */
   private async generateNewLocalIndex(previousIndex: IndexFile, options: SyncOptions): Promise<IndexFile> {
-    return await this.dependencies.localObjectManager.generateLocalIndexFile(previousIndex, options);
+    return await this.localObjectManager.generateLocalIndexFile(previousIndex, options);
   }
 
   /**
@@ -269,11 +254,11 @@ export class SyncService implements ISyncService {
     options: SyncOptions
   ): Promise<{ success: boolean; mergedIndex: IndexFile }> {
     // リモートインデックスを読み込み
-    const remoteIndex = await this.dependencies.localObjectManager.loadRemoteIndex(options);
+    const remoteIndex = await this.localObjectManager.loadRemoteIndex(options);
     logMessage(`Remote index loaded: UUID=${remoteIndex.uuid}, files=${remoteIndex.files.length}`);
 
     // 競合を検出
-    const conflicts = await this.dependencies.localObjectManager.detectConflicts(
+    const conflicts = await this.localObjectManager.detectConflicts(
       previousIndex,
       newLocalIndex,
       remoteIndex
@@ -283,7 +268,7 @@ export class SyncService implements ISyncService {
     // 競合がある場合は解決
     if (conflicts.length > 0) {
       logMessage(`Resolving ${conflicts.length} conflicts...`);
-      const conflictsResolved = await this.dependencies.localObjectManager.resolveConflicts(
+      const conflictsResolved = await this.localObjectManager.resolveConflicts(
         conflicts,
         options
       );
@@ -302,7 +287,7 @@ export class SyncService implements ISyncService {
 
     // ローカルとリモートの変更をマージ（競合解決後）
     logMessage("Merging local and remote changes after conflict resolution...");
-    const mergedIndex = await this.dependencies.localObjectManager.generateLocalIndexFile(
+    const mergedIndex = await this.localObjectManager.generateLocalIndexFile(
       previousIndex,
       options
     );
@@ -319,7 +304,7 @@ export class SyncService implements ISyncService {
     previousIndex: IndexFile,
     options: SyncOptions
   ): Promise<boolean> {
-    return await this.dependencies.localObjectManager.saveEncryptedObjects(
+    return await this.localObjectManager.saveEncryptedObjects(
       indexFile.files,
       previousIndex,
       options
@@ -335,27 +320,26 @@ export class SyncService implements ISyncService {
     options: SyncOptions
   ): Promise<void> {
     // ワークスペースインデックス更新前の状態を保存
-    const previousIndex = await this.dependencies.localObjectManager.loadWsIndex(options);
+    const previousIndex = await this.localObjectManager.loadWsIndex(options);
     logMessage(`finalizeSync: Before update - previousIndex: ${previousIndex.uuid} (${previousIndex.files.length} files), finalIndex: ${finalIndex.uuid} (${finalIndex.files.length} files)`);
 
     // インデックスファイルを保存
-    await this.dependencies.localObjectManager.saveIndexFile(
+    await this.localObjectManager.saveIndexFile(
       finalIndex,
-      currentBranch,
-      options.encryptionKey
+      currentBranch
     );
 
     // ワークスペースインデックスを保存
-    await this.dependencies.localObjectManager.saveWsIndexFile(finalIndex, options);
+    await this.localObjectManager.saveWsIndexFile(finalIndex, options);
     logMessage(`finalizeSync: After saveWsIndexFile - finalIndex: ${finalIndex.uuid}`);
 
     // ファイル変更を反映（更新前のインデックスと比較）
     logMessage(`finalizeSync: Reflecting file changes - previousIndex: ${previousIndex.uuid} (${previousIndex.files.length} files), finalIndex: ${finalIndex.uuid} (${finalIndex.files.length} files), forceCheckout: false`);
-    await this.dependencies.localObjectManager.reflectFileChanges(
+    await this.localObjectManager.reflectFileChanges(
       previousIndex,
       finalIndex,
-      options,
-      false
+      false,
+      options
     );
 
     // ブランチプロバイダーを更新
@@ -366,6 +350,28 @@ export class SyncService implements ISyncService {
     // ストレージにアップロード
     await this.dependencies.storageProvider.upload(currentBranch);
     showInfo("Merge completed successfully.");
+  }
+
+  /**
+   * 同期オプションを更新する
+   * @param options 新しい同期オプション
+   */
+  updateSyncOptions(context: vscode.ExtensionContext, options: SyncOptions): void {
+    this.syncOptions = options;
+    // LocalObjectManagerの暗号化キーも更新
+    this.localObjectManager = new LocalObjectManager(
+      vscode.workspace.workspaceFolders![0].uri.fsPath,
+      context,
+      options.encryptionKey
+    );
+  }
+
+  /**
+   * 現在の同期オプションを取得する
+   * @returns 現在の同期オプション
+   */
+  getSyncOptions(): SyncOptions {
+    return { ...this.syncOptions };
   }
 }
 

@@ -8,6 +8,7 @@ import {
 } from "./storage/LocalObjectManager";
 import { IndexFile } from "./types";
 import { ISyncService } from "./interfaces/ISyncService";
+import { IBranchTreeViewProvider } from "./interfaces/IBranchTreeViewProvider";
 import { ContainerBuilder } from "./container/ContainerBuilder";
 import { ServiceLocator } from "./container/ServiceLocator";
 import { registerManualSyncTestCommand } from "./test/manual-sync-test";
@@ -29,7 +30,7 @@ let lastWindowActivationTime = 0;
 /**
  * 同期サービスの共通初期化処理
  */
-async function initializeSyncService(context: vscode.ExtensionContext, branchProvider: BranchTreeViewProvider) {
+async function initializeSyncService(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider) {
   const encryptKey = await getAESKey(context);
   if (!encryptKey) {
     showError("AES Key not set");
@@ -41,7 +42,7 @@ async function initializeSyncService(context: vscode.ExtensionContext, branchPro
   configManager.validateConfig(syncConfig);
 
   const syncServiceFactory = ServiceLocator.getSyncServiceFactory();
-  const syncService = syncServiceFactory.createSyncService(syncConfig);
+  const syncService = syncServiceFactory.createSyncService(syncConfig, context);
 
   const options = {
     environmentId: syncConfig.environmentId!,
@@ -109,7 +110,7 @@ interface RepositoryInitializationConfig {
  */
 async function handleRepositoryInitialization(
   context: vscode.ExtensionContext,
-  branchProvider: BranchTreeViewProvider,
+  branchProvider: IBranchTreeViewProvider,
   config: RepositoryInitializationConfig
 ) {
   return executeSyncOperation(async () => {
@@ -168,25 +169,25 @@ async function handleGenerateAESKey(context: vscode.ExtensionContext) {
 }
 
 
-async function handleInitializeNewRepository(context: vscode.ExtensionContext, branchProvider: BranchTreeViewProvider) {
+async function handleInitializeNewRepository(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider) {
   return handleRepositoryInitialization(context, branchProvider, {
     confirmationMessage: "ローカルリポジトリが既に存在します。新規リポジトリとして再初期化しますか？ (現在のローカルデータは削除されます)",
     cancelMessage: "新規リポジトリの初期化をキャンセルしました。",
     errorPrefix: "New repository initialization failed",
-    operation: (syncService, options) => syncService.initializeNewStorage(options)
+    operation: (syncService, options) => syncService.initializeNewStorage()
   });
 }
 
-async function handleImportExistingRepository(context: vscode.ExtensionContext, branchProvider: BranchTreeViewProvider) {
+async function handleImportExistingRepository(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider) {
   return handleRepositoryInitialization(context, branchProvider, {
     confirmationMessage: "ローカルリポジトリが既に存在します。既存リモートリポジトリで上書きしますか？ (現在のローカルデータは削除されます)",
     cancelMessage: "既存リポジトリの取り込みをキャンセルしました。",
     errorPrefix: "Existing repository import failed",
-    operation: (syncService, options) => syncService.importExistingStorage(options)
+    operation: (syncService, options) => syncService.importExistingStorage()
   });
 }
 
-async function handleSyncNotes(context: vscode.ExtensionContext, branchProvider: BranchTreeViewProvider) {
+async function handleSyncNotes(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider) {
   return executeSyncOperation(async () => {
     const serviceData = await initializeSyncService(context, branchProvider);
     if (!serviceData) { return false; }
@@ -199,7 +200,7 @@ async function handleSyncNotes(context: vscode.ExtensionContext, branchProvider:
       return false;
     }
 
-    return await syncService.performIncrementalSync(options);
+    return await syncService.performIncrementalSync();
   }, "Sync failed");
 }
 
@@ -250,7 +251,7 @@ async function handleInsertCurrentTime() {
   });
 }
 
-async function handleCreateBranchFromIndex(encryptKey: string, branchItem?: any, branchProvider?: BranchTreeViewProvider) {
+async function handleCreateBranchFromIndex(context: vscode.ExtensionContext, encryptKey: string, branchItem?: any, branchProvider?: IBranchTreeViewProvider) {
   if (!branchItem || !branchItem.indexFile) {
     vscode.window.showErrorMessage("No index selected.");
     return;
@@ -270,7 +271,8 @@ async function handleCreateBranchFromIndex(encryptKey: string, branchItem?: any,
   }
 
   const newIndexFile: IndexFile = { ...baseIndex };
-  await LocalObjectManager.saveBranchRef(newBranch, newIndexFile.uuid, encryptKey);
+  const localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, encryptKey);
+  await localObjectManager.saveBranchRef(newBranch, newIndexFile.uuid);
   vscode.window.showInformationMessage(`Created new branch '${newBranch}' from index UUID: ${newIndexFile.uuid}`);
   branchProvider?.refresh();
 }
@@ -282,8 +284,9 @@ async function handleCheckoutBranch(context: vscode.ExtensionContext, encryptKey
       return false;
     }
     const branchName = branchItem.branchName;
+    const localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, encryptKey);
 
-    const latestIndexUuid = await LocalObjectManager.readBranchRef(branchName, encryptKey);
+    const latestIndexUuid = await localObjectManager.readBranchRef(branchName);
     if (!latestIndexUuid) {
       showError(`Branch ${branchName} has no index.`);
       return false;
@@ -296,10 +299,10 @@ async function handleCheckoutBranch(context: vscode.ExtensionContext, encryptKey
       encryptionKey: encryptKey,
     };
 
-    const targetIndex = await LocalObjectManager.loadIndex(latestIndexUuid, options);
-    const currentWsIndex = await LocalObjectManager.loadWsIndex(options);
-    await LocalObjectManager.reflectFileChanges(currentWsIndex, targetIndex, options, true);
-    await LocalObjectManager.saveWsIndexFile(targetIndex, options);
+    const targetIndex = await localObjectManager.loadIndex(latestIndexUuid, options);
+    const currentWsIndex = await localObjectManager.loadWsIndex(options);
+    await localObjectManager.reflectFileChanges(currentWsIndex, targetIndex, true, options);
+    await localObjectManager.saveWsIndexFile(targetIndex, options);
     await setCurrentBranchName(branchName);
     showInfo(`Checked out branch: ${branchName}`);
     return true;
@@ -387,7 +390,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("secureNotes.copyAESKeyToClipboard", () => handleCopyAESKeyToClipboard(context)),
     vscode.commands.registerCommand("secureNotes.refreshAESKey", () => handleRefreshAESKey(context)),
     vscode.commands.registerCommand("secureNotes.insertCurrentTime", handleInsertCurrentTime),
-    vscode.commands.registerCommand("secureNotes.createBranchFromIndex", commandWithKey(context, (key, item) => handleCreateBranchFromIndex(key, item, branchProvider))),
+    vscode.commands.registerCommand("secureNotes.createBranchFromIndex", commandWithKey(context, (key, item) => handleCreateBranchFromIndex(context, key, item, branchProvider))),
     vscode.commands.registerCommand("secureNotes.checkoutBranch", commandWithKey(context, (key, item) => handleCheckoutBranch(context, key, item))),
     vscode.commands.registerCommand('secureNotes.previewIndex', (indexFile: IndexFile) => {
       const content = JSON.stringify(indexFile, null, 2);

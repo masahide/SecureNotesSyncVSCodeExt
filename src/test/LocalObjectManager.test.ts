@@ -66,6 +66,12 @@ suite('LocalObjectManager Test Suite', () => {
     }
   } as any;
 
+  let localObjectManager: LocalObjectManager;
+
+  setup(() => {
+    localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext, testOptions.encryptionKey);
+  });
+
   // テスト後のクリーンアップ
   teardown(() => {
     // 一時ファイルの削除
@@ -109,7 +115,7 @@ suite('LocalObjectManager Test Suite', () => {
       });
       
       // ファイルが存在しない場合のテスト
-      const index = await LocalObjectManager.loadWsIndex(testOptions);
+      const index = await localObjectManager.loadWsIndex(testOptions);
       
       // ファイルが存在しない場合は空のインデックスが返される
       assert.strictEqual(index.uuid, '', 'ファイル不存在時は空のUUIDが返される');
@@ -147,7 +153,7 @@ suite('LocalObjectManager Test Suite', () => {
     };
 
     try {
-      const newIndex = await LocalObjectManager.generateLocalIndexFile(previousIndex, testOptions);
+      const newIndex = await localObjectManager.generateLocalIndexFile(previousIndex, testOptions);
       
       // 基本的な構造の検証
       assert.ok(newIndex, '新しいインデックスが生成されること');
@@ -191,7 +197,7 @@ suite('LocalObjectManager Test Suite', () => {
     };
 
     try {
-      const result = await LocalObjectManager.saveEncryptedObjects(testFiles, previousIndex, testOptions);
+      const result = await localObjectManager.saveEncryptedObjects(testFiles, previousIndex, testOptions);
       
       // 戻り値の検証
       assert.ok(typeof result === 'boolean', '結果がbooleanで返されること');
@@ -214,7 +220,7 @@ suite('LocalObjectManager Test Suite', () => {
         timestamp: Date.now()
       };
 
-      const result = await LocalObjectManager.saveEncryptedObjects(testFiles, previousIndexWithFile, testOptions);
+      const result = await localObjectManager.saveEncryptedObjects(testFiles, previousIndexWithFile, testOptions);
       
       // 既存ファイルの場合はfalseが返される（更新なし）
       assert.strictEqual(result, false, '既存ファイルの場合は更新なしでfalseが返される');
@@ -256,7 +262,7 @@ suite('LocalObjectManager Test Suite', () => {
       timestamp: Date.now()
     };
 
-    const conflicts = LocalObjectManager.detectConflicts(previousIndex, localIndex, remoteIndex);
+    const conflicts = localObjectManager.detectConflicts(previousIndex, localIndex, remoteIndex);
     
     // 基本的な検証
     assert.ok(Array.isArray(conflicts), '競合リストが配列で返されること');
@@ -287,7 +293,7 @@ suite('LocalObjectManager Test Suite', () => {
       timestamp: Date.now()
     };
 
-    const remoteConflicts = LocalObjectManager.detectConflicts(previousIndex, localUnchangedIndex, remoteUpdatedIndex);
+    const remoteConflicts = localObjectManager.detectConflicts(previousIndex, localUnchangedIndex, remoteUpdatedIndex);
     assert.strictEqual(remoteConflicts.length, 1, 'リモート更新の競合が1つ検出される');
     assert.strictEqual(remoteConflicts[0].UpdateType, 'remoteUpdate', '競合タイプがremoteUpdateであること');
 
@@ -303,7 +309,7 @@ suite('LocalObjectManager Test Suite', () => {
       timestamp: Date.now()
     };
 
-    const addConflicts = LocalObjectManager.detectConflicts(previousIndex, localWithNewFile, remoteIndex);
+    const addConflicts = localObjectManager.detectConflicts(previousIndex, localWithNewFile, remoteIndex);
     const newFileConflict = addConflicts.find(c => c.filePath === 'newfile.txt');
     assert.ok(newFileConflict, '新規ファイルの競合が検出される');
     assert.strictEqual(newFileConflict.UpdateType, 'localAdd', '競合タイプがlocalAddであること');
@@ -317,7 +323,7 @@ suite('LocalObjectManager Test Suite', () => {
       timestamp: Date.now()
     };
 
-    const deleteConflicts = LocalObjectManager.detectConflicts(previousIndex, localWithDeletedFile, remoteIndex);
+    const deleteConflicts = localObjectManager.detectConflicts(previousIndex, localWithDeletedFile, remoteIndex);
     assert.strictEqual(deleteConflicts.length, 1, '削除の競合が1つ検出される');
     assert.strictEqual(deleteConflicts[0].UpdateType, 'localDelete', '競合タイプがlocalDeleteであること');
   });
@@ -346,7 +352,7 @@ suite('LocalObjectManager Test Suite', () => {
     };
 
     try {
-      await LocalObjectManager.reflectFileChanges(previousIndex, newIndexWithAddedFile, testOptions, false);
+      await localObjectManager.reflectFileChanges(previousIndex, newIndexWithAddedFile, false, testOptions);
       assert.ok(true, 'ファイル追加の変更反映が完了すること');
     } catch (error) {
       // ファイルが存在しない、暗号化されたファイルが見つからない等のエラー
@@ -365,7 +371,7 @@ suite('LocalObjectManager Test Suite', () => {
     };
 
     try {
-      await LocalObjectManager.reflectFileChanges(previousIndex, newIndexWithDeletedFile, testOptions, false);
+      await localObjectManager.reflectFileChanges(previousIndex, newIndexWithDeletedFile, false, testOptions);
       assert.ok(true, 'ファイル削除の変更反映が完了すること');
     } catch (error) {
       assert.ok(true, 'テスト環境での制限を考慮');
@@ -381,7 +387,7 @@ suite('LocalObjectManager Test Suite', () => {
     };
 
     try {
-      await LocalObjectManager.reflectFileChanges(previousIndex, emptyIndex, testOptions, true);
+      await localObjectManager.reflectFileChanges(previousIndex, emptyIndex, true, testOptions);
       assert.ok(true, '強制チェックアウトでの変更反映が完了すること');
     } catch (error) {
       assert.ok(true, 'テスト環境での制限を考慮');
@@ -389,7 +395,7 @@ suite('LocalObjectManager Test Suite', () => {
 
     // 変更なしのテスト
     try {
-      await LocalObjectManager.reflectFileChanges(previousIndex, previousIndex, testOptions, false);
+      await localObjectManager.reflectFileChanges(previousIndex, previousIndex, false, testOptions);
       assert.ok(true, '変更なしの場合も正常に完了すること');
     } catch (error) {
       assert.ok(true, 'テスト環境での制限を考慮');
@@ -419,9 +425,6 @@ suite('LocalObjectManager Test Suite', () => {
           writable: true,
           configurable: true
         });
-
-        // Create LocalObjectManager instance
-        const localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext);
 
         // When: ワークスペースファイルの暗号化・保存を実行
         const indexFile = await localObjectManager.encryptAndSaveWorkspaceFiles();
@@ -467,7 +470,6 @@ suite('LocalObjectManager Test Suite', () => {
         const testFile = path.join(tempWorkspaceDir, relativePath);
         fs.writeFileSync(testFile, originalContent);
         
-        const localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext);
         const indexFile = await localObjectManager.encryptAndSaveWorkspaceFiles();
         
         // Delete the original file to test restoration
@@ -520,9 +522,6 @@ suite('LocalObjectManager Test Suite', () => {
           configurable: true
         });
 
-        // Create LocalObjectManager instance
-        const localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext);
-        
         // Create a test index file first
         const testIndex = await localObjectManager.encryptAndSaveWorkspaceFiles();
 
@@ -537,30 +536,28 @@ suite('LocalObjectManager Test Suite', () => {
       test('findLatestIndex - finds the most recent index', async () => {
         // Given: 複数のインデックスファイル
         const indexes: IndexFile[] = [
-          { 
-            uuid: 'index1', 
-            files: [], 
-            timestamp: new Date('2024-01-01T00:00:00Z').getTime(), 
-            parentUuids: [], 
-            environmentId: 'test' 
+          {
+            uuid: 'index1',
+            files: [],
+            timestamp: new Date('2024-01-01T00:00:00Z').getTime(),
+            parentUuids: [],
+            environmentId: 'test'
           },
-          { 
-            uuid: 'index2', 
-            files: [], 
-            timestamp: new Date('2024-01-02T00:00:00Z').getTime(), 
-            parentUuids: ['index1'], 
-            environmentId: 'test' 
+          {
+            uuid: 'index2',
+            files: [],
+            timestamp: new Date('2024-01-02T00:00:00Z').getTime(),
+            parentUuids: ['index1'],
+            environmentId: 'test'
           },
-          { 
-            uuid: 'index3', 
-            files: [], 
-            timestamp: new Date('2024-01-03T00:00:00Z').getTime(), 
-            parentUuids: ['index2'], 
-            environmentId: 'test' 
+          {
+            uuid: 'index3',
+            files: [],
+            timestamp: new Date('2024-01-03T00:00:00Z').getTime(),
+            parentUuids: ['index2'],
+            environmentId: 'test'
           }
         ];
-
-        const localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext);
 
         // When: 最新インデックスの特定を実行
         const latestIndex = await localObjectManager.findLatestIndex(indexes);
@@ -582,7 +579,6 @@ suite('LocalObjectManager Test Suite', () => {
           environmentId: 'test'
         };
 
-        const localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext);
 
         // When: ワークスペースインデックスの更新を実行
         await localObjectManager.updateWorkspaceIndex(newIndex);
@@ -639,8 +635,6 @@ suite('LocalObjectManager Test Suite', () => {
           fs.mkdirSync(path.dirname(filePath), { recursive: true });
           fs.writeFileSync(filePath, file.content);
         }
-
-        const localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext);
 
         // When: 暗号化・保存を実行
         const indexFile = await localObjectManager.encryptAndSaveWorkspaceFiles();

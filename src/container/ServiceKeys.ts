@@ -16,6 +16,7 @@ export const ServiceKeys = {
   
   // Configuration Services
   CONFIG_MANAGER: 'configManager',
+  ENCRYPTION_KEY: 'encryptionKey',
   
   // UI Services
   BRANCH_PROVIDER: 'branchProvider',

@@ -42,7 +42,7 @@ export async function runManualSyncTest(): Promise<void> {
       remoteUrl: gitRemoteUrl,
       encryptionKey: '0'.repeat(64)
     };
-    const syncService = factory.createSyncService(syncConfig);
+    const syncService = factory.createSyncService(syncConfig, vscode.extensions.getExtension('rovodev.secure-notes-sync')!.exports.context);
 
     // テストケース1: 基本的な増分同期
     logMessage('📝 テストケース1: 基本的な増分同期');

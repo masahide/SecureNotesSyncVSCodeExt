@@ -41,6 +41,7 @@ Module.prototype.require = function(id: string) {
 import { SyncService, SyncDependencies } from '../SyncService';
 import { SyncOptions } from '../interfaces/ISyncService';
 import { IndexFile, FileEntry } from '../types';
+import { IBranchTreeViewProvider } from '../interfaces/IBranchTreeViewProvider';
 
 // モックオブジェクト
 class MockLocalObjectManager {
@@ -205,7 +206,7 @@ class MockGitHubSyncProvider {
   }
 }
 
-class MockBranchProvider {
+class MockBranchProvider implements IBranchTreeViewProvider {
   refresh(): void {
     // Mock implementation
   }
@@ -224,6 +225,7 @@ suite('SyncService Test Suite', () => {
   let syncService: SyncService;
   let mockDependencies: SyncDependencies;
   let testOptions: SyncOptions;
+  let mockContext: vscode.ExtensionContext;
 
   setup(() => {
     // getCurrentBranchNameをモック関数に置き換え
@@ -235,13 +237,27 @@ suite('SyncService Test Suite', () => {
       writable: true
     });
 
+    mockContext = {
+      secrets: {
+        get: async (key: string) => '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        store: async (key: string, value: string) => {},
+        delete: async (key: string) => {}
+      },
+      globalState: {
+        get: (key: string) => undefined,
+        update: async (key: string, value: any) => {}
+      }
+    } as any;
+
+    const localObjectManager = new MockLocalObjectManager() as any;
+
     mockDependencies = {
-      localObjectManager: MockLocalObjectManager as any,
+      localObjectManager: localObjectManager,
       storageProvider: new MockGitHubSyncProvider('https://github.com/test/repo.git') as any,
       branchProvider: new MockBranchProvider()
     };
 
-    syncService = new SyncService(mockDependencies);
+    syncService = new SyncService(mockDependencies, mockContext, testOptions.encryptionKey);
 
     testOptions = {
       environmentId: 'test-env-id',
@@ -357,7 +373,7 @@ suite('SyncService Test Suite', () => {
       branchProvider: new MockBranchProvider()
     };
     
-    const errorSyncService = new SyncService(errorMockDependencies);
+    const errorSyncService = new SyncService(errorMockDependencies, mockContext, testOptions.encryptionKey);
 
     try {
       await errorSyncService.performIncrementalSync(testOptions);
@@ -370,12 +386,12 @@ suite('SyncService Test Suite', () => {
   test('増分同期処理 - ファイル更新なしの場合', async () => {
     // 新しいSyncServiceインスタンスを作成（他のテストの影響を避けるため）
     const cleanMockDependencies = {
-      localObjectManager: MockLocalObjectManager as any,
+      localObjectManager: new MockLocalObjectManager() as any,
       storageProvider: new MockGitHubSyncProvider('https://github.com/test/repo.git') as any,
       branchProvider: new MockBranchProvider()
     };
     
-    const cleanSyncService = new SyncService(cleanMockDependencies);
+    const cleanSyncService = new SyncService(cleanMockDependencies, mockContext, testOptions.encryptionKey);
     
     // ファイル更新がない場合のモック
     const mockLocalManager = cleanMockDependencies.localObjectManager as any;
@@ -401,8 +417,19 @@ suite('SyncService Integration Test Suite', () => {
       remoteUrl: 'https://github.com/test/repo.git',
       encryptionKey: '0'.repeat(64)
     };
+    const mockContext = {
+      secrets: {
+        get: async (key: string) => config.encryptionKey,
+        store: async (key: string, value: string) => {},
+        delete: async (key: string) => {}
+      },
+      globalState: {
+        get: (key: string) => undefined,
+        update: async (key: string, value: any) => {}
+      }
+    } as any;
     
-    const syncService = factory.createSyncService(config);
+    const syncService = factory.createSyncService(config, mockContext);
     
     assert.ok(syncService);
     assert.ok(syncService instanceof SyncService);

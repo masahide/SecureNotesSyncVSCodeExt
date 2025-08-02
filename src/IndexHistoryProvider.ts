@@ -47,7 +47,8 @@ export class IndexHistoryProvider implements vscode.TreeDataProvider<IndexItem> 
 
         const localObjectManager = new LocalObjectManager(
             workspaceFolder,
-            this.context
+            this.context,
+            encryptionKey
         );
 
         try {

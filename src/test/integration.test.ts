@@ -47,14 +47,14 @@ import { SyncService } from '../SyncService';
 import { SyncServiceFactory } from '../factories/SyncServiceFactory';
 
 // ヘルパー関数: createSyncServiceの代替
-function createTestSyncService(remoteUrl: string): SyncService {
+function createTestSyncService(remoteUrl: string, context: vscode.ExtensionContext): SyncService {
   const factory = new SyncServiceFactory();
   const config = {
     storageType: 'github' as const,
     remoteUrl,
     encryptionKey: '0'.repeat(64)
   };
-  return factory.createSyncService(config) as SyncService;
+  return factory.createSyncService(config, context) as SyncService;
 }
 
 suite('Integration Test Suite', () => {
@@ -62,6 +62,18 @@ suite('Integration Test Suite', () => {
     environmentId: 'integration-test-env',
     encryptionKey: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
   };
+
+  const mockContext = {
+    secrets: {
+      get: async (key: string) => testOptions.encryptionKey,
+      store: async (key: string, value: string) => {},
+      delete: async (key: string) => {}
+    },
+    globalState: {
+      get: (key: string) => undefined,
+      update: async (key: string, value: any) => {}
+    }
+  } as any;
 
   test('初回同期 - 空のリモートリポジトリ', async () => {
     // Phase 3A（新規リポジトリ作成）のテスト
@@ -71,7 +83,7 @@ suite('Integration Test Suite', () => {
     
     // 一時的なローカルリポジトリURLを使用（各テスト用にユニークなパス）
     const tempRepoPath = require('path').join(require('os').tmpdir(), `integration-empty-repo-${Date.now()}.git`);
-    const syncService = createTestSyncService(`file://${tempRepoPath}`);
+    const syncService = createTestSyncService(`file://${tempRepoPath}`, mockContext as any);
     
     // テスト用ファイルを作成
     const fs = require('fs');
@@ -148,7 +160,7 @@ suite('Integration Test Suite', () => {
       execSync('git commit -m "Initial commit"', { cwd: workDir, stdio: 'ignore' });
       execSync('git push origin main', { cwd: workDir, stdio: 'ignore' });
       
-      const syncService = createTestSyncService(`file://${tempRepoPath}`);
+      const syncService = createTestSyncService(`file://${tempRepoPath}`, mockContext as any);
       
       const result = await syncService.performIncrementalSync(testOptions);
       
@@ -202,7 +214,7 @@ suite('Integration Test Suite', () => {
       }
       
       const tempRepoPath = path.join(require('os').tmpdir(), `integration-multi-files-${Date.now()}.git`);
-      const syncService = createTestSyncService(`file://${tempRepoPath}`);
+      const syncService = createTestSyncService(`file://${tempRepoPath}`, mockContext as any);
       
       const result = await syncService.performIncrementalSync(testOptions);
       
@@ -282,7 +294,7 @@ suite('Integration Test Suite', () => {
     
     for (const invalidUrl of invalidUrls) {
       try {
-        const syncService = createTestSyncService(invalidUrl);
+        const syncService = createTestSyncService(invalidUrl, mockContext as any);
         const result = await syncService.performIncrementalSync(testOptions);
         
         // 無効なURLでも適切にエラーハンドリングされることを確認
@@ -307,7 +319,7 @@ suite('Integration Test Suite', () => {
     // タイムアウトのシミュレーション（非常に遅いURL）
     try {
       const timeoutUrl = 'https://httpstat.us/200?sleep=30000'; // 30秒待機
-      const syncService = createTestSyncService(timeoutUrl);
+      const syncService = createTestSyncService(timeoutUrl, mockContext as any);
       
       // タイムアウトが発生することを期待
       const startTime = Date.now();
@@ -361,7 +373,7 @@ suite('Integration Test Suite', () => {
       };
       
       const tempRepoPath = require('path').join(require('os').tmpdir(), `integration-invalid-key-${Date.now()}.git`);
-      const syncService = createTestSyncService(`file://${tempRepoPath}`);
+      const syncService = createTestSyncService(`file://${tempRepoPath}`, mockContext as any);
       
       try {
         await syncService.performIncrementalSync(invalidOptions);
@@ -394,7 +406,7 @@ suite('Integration Test Suite', () => {
       };
       
       const tempRepoPath = require('path').join(require('os').tmpdir(), `integration-valid-key-${Date.now()}.git`);
-      const syncService = createTestSyncService(`file://${tempRepoPath}`);
+      const syncService = createTestSyncService(`file://${tempRepoPath}`, mockContext as any);
       
       const result = await syncService.performIncrementalSync(validOptions);
       assert.strictEqual(typeof result, 'boolean', '正しいキーでは正常に処理されること');
@@ -424,7 +436,7 @@ suite('Integration Test Suite', () => {
     
     // 一時的なローカルリポジトリURLを使用（各テスト用にユニークなパス）
     const tempRepoPath = require('path').join(require('os').tmpdir(), `integration-workspace-error-repo-${Date.now()}.git`);
-    const syncService = createTestSyncService(`file://${tempRepoPath}`);
+    const syncService = createTestSyncService(`file://${tempRepoPath}`, mockContext as any);
     
     try {
       await syncService.performIncrementalSync(testOptions);
