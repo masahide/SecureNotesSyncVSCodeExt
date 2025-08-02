@@ -1,37 +1,76 @@
 # Secure Notes Sync - 同期処理詳細解析
 
-このドキュメントは、`src/SyncService.ts`に新設された`initializeRepository`と`performIncrementalSync`メソッド、および`src/storage/GithubProvider.ts`の各メソッドを中心とした、同期・初期化処理の詳細な内容を解析したものです。
+このドキュメントは、依存性注入アーキテクチャを採用した新しい`SyncService`実装と、`ISyncService`インターフェースに基づく同期・初期化処理の詳細な内容を解析したものです。
 
 ## 📋 概要
 
-同期処理は、責務の分離を目的として、以下の2つの主要なコマンドに分割されました。
+同期処理は、依存性注入パターンと責務の分離を目的として、以下の3つの主要なコマンドに分割されました。
 
-1.  **`initializeRepository`** - 新規または空のリモートリポジトリを初期化し、ローカルのワークスペースをアップロードします。
-2.  **`performIncrementalSync`** - 既存のリポジトリとローカルの変更点を同期します。
+1.  **`initializeNewRepository`** - 新規リモートリポジトリを作成し、ローカルのワークスペースをアップロードします。
+2.  **`importExistingRepository`** - 既存のリモートリポジトリを取り込み、ローカルに展開します。
+3.  **`performIncrementalSync`** - 既存のリポジトリとローカルの変更点を同期します。
 
-これにより、各処理の責務が明確になり、コードの保守性とユーザーエクスペリエンスが向上しました。
+これにより、各処理の責務が明確になり、依存性注入によるテスタビリティの向上、コードの保守性とユーザーエクスペリエンスが向上しました。
+
+## 🏗️ 依存性注入アーキテクチャ
+
+### サービス初期化フロー
+```mermaid
+graph TD
+    A[Extension Activation] --> B[ContainerBuilder.buildDefault]
+    B --> C[ServiceLocator.setContainer]
+    C --> D[Command Registration]
+    D --> E[initializeSyncService]
+    E --> F[ConfigManager.createSyncConfig]
+    F --> G[SyncServiceFactory.createSyncService]
+    G --> H[Service Ready]
+```
+
+### 依存関係
+- **ConfigManager**: 設定の構築と検証
+- **SyncServiceFactory**: 設定に基づくサービス生成
+- **ServiceLocator**: グローバルサービスアクセス
 
 ---
 
-## 🔄 `initializeRepository` 詳細解析
+## 🔄 `initializeNewRepository` 詳細解析
 
 **ファイル**: `src/SyncService.ts`
-**役割**: 新規または空のリポジトリの初期化
+**インターフェース**: `ISyncService.initializeNewRepository(options: SyncOptions)`
+**役割**: 新規リモートリポジトリの作成と初期化
 
 ### 📊 処理フロー概要
 
 ```mermaid
 graph TD
-    A[初期化コマンド実行] --> B{リモートリポジトリ存在確認};
-    B -->|No| C[新規リポジトリとして初期化];
-    B -->|Yes| D{リモートは空?};
-    D -->|Yes| E[空のリポジトリとして初期化];
-    D -->|No| F[エラー表示: 既にデータが存在];
-
-    C --> G[ローカルファイル暗号化 & Push];
-    E --> G;
+    A[新規初期化コマンド実行] --> B[initializeSyncService];
+    B --> C[confirmRepositoryReinitialization];
+    C --> D{継続確認};
+    D -->|No| E[キャンセル];
+    D -->|Yes| F[SyncService.initializeNewRepository];
+    F --> G[ローカルファイル暗号化 & Push];
     G --> H[完了];
-    F --> H;
+    E --> H;
+```
+
+## 🔄 `importExistingRepository` 詳細解析
+
+**ファイル**: `src/SyncService.ts`
+**インターフェース**: `ISyncService.importExistingRepository(options: SyncOptions)`
+**役割**: 既存リモートリポジトリの取り込みと展開
+
+### 📊 処理フロー概要
+
+```mermaid
+graph TD
+    A[既存取り込みコマンド実行] --> B[initializeSyncService];
+    B --> C[confirmRepositoryReinitialization];
+    C --> D{継続確認};
+    D -->|No| E[キャンセル];
+    D -->|Yes| F[SyncService.importExistingRepository];
+    F --> G[リモートデータ取得・復号・展開];
+    G --> H[完了];
+    E --> H;
 ```
 
 ### 🔍 段階別詳細解析
@@ -54,17 +93,47 @@ graph TD
 ## 🔄 `performIncrementalSync` 詳細解析
 
 **ファイル**: `src/SyncService.ts`
+**インターフェース**: `ISyncService.performIncrementalSync(options: SyncOptions)`
 **役割**: 既存リポジトリとの増分同期
 
 ### 📊 処理フロー概要
 
 ```mermaid
 graph TD
-    A[同期コマンド実行] --> B[ローカルリポジトリをクローン/プル];
-    B --> C[リモートデータを復号・展開];
-    C --> D[増分同期処理の実行];
-    D --> E[完了];
+    A[同期コマンド実行] --> B[initializeSyncService];
+    B --> C[isRepositoryInitialized確認];
+    C --> D{初期化済み?};
+    D -->|No| E[エラー: 未初期化];
+    D -->|Yes| F[SyncService.performIncrementalSync];
+    F --> G[ローカルリポジトリをクローン/プル];
+    G --> H[リモートデータを復号・展開];
+    H --> I[増分同期処理の実行];
+    I --> J[完了];
+    E --> J;
 ```
+
+### 🔍 共通ヘルパー関数
+
+#### `initializeSyncService`
+```typescript
+async function initializeSyncService(
+  context: vscode.ExtensionContext, 
+  branchProvider: BranchTreeViewProvider
+) {
+  const encryptKey = await getAESKey(context);
+  const configManager = ServiceLocator.getConfigManager();
+  const syncConfig = await configManager.createSyncConfig(context, encryptKey, branchProvider);
+  configManager.validateConfig(syncConfig);
+  
+  const syncServiceFactory = ServiceLocator.getSyncServiceFactory();
+  const syncService = syncServiceFactory.createSyncService(syncConfig);
+  
+  return { syncService, options: { environmentId: syncConfig.environmentId!, encryptionKey: encryptKey } };
+}
+```
+
+#### `handleRepositoryInitialization`
+関数型プログラミングのアプローチを採用し、操作を関数として注入する共通処理パターン。
 
 ### 🔍 段階別詳細解析
 

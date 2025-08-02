@@ -64,7 +64,7 @@ export class GitHubSyncProvider implements IStorageProvider {
                 }
             } else {
                 logMessage('Remote repository exists. Cloning it.');
-                const cloneSuccess = await this.cloneExistingRemoteRepository();
+                const cloneSuccess = await this.cloneExistingRemoteStorage();
 
                 if (cloneSuccess) {
                     await this.loadAndDecryptRemoteData();
@@ -184,18 +184,18 @@ export class GitHubSyncProvider implements IStorageProvider {
     }
 
     /**
-     * 既存リモートリポジトリのクローンまたは更新
-     * 既にローカルリポジトリが存在する場合はpullで更新、存在しない場合はクローン
+     * 既存リモートストレージのクローンまたは更新
+     * 既にローカルストレージが存在する場合はpullで更新、存在しない場合はクローン
      * @returns {Promise<boolean>} 更新があった場合はtrue
      */
-    public async cloneExistingRemoteRepository(): Promise<boolean> {
+    public async cloneExistingRemoteStorage(): Promise<boolean> {
         const objectDir = getRemotesDirUri().fsPath;
 
-        // 既存のローカルリポジトリが存在するかチェック
+        // 既存のローカルストレージが存在するかチェック
         const isExistingRepo = await this.isGitRepository(objectDir);
 
         if (isExistingRepo) {
-            // 既存のローカルリポジトリがある場合はpullで更新
+            // 既存のローカルストレージがある場合はpullで更新
             try {
                 // fetch前の現在のコミットハッシュを取得
                 const beforeHash = await this.getCurrentCommitHash(objectDir);
@@ -215,15 +215,15 @@ export class GitHubSyncProvider implements IStorageProvider {
 
                 // メインブランチに追従するように変更
                 await this.execCmd(this.gitPath, ['reset', '--hard', 'origin/main'], objectDir);
-                logMessageGreen('既存ローカルリポジトリを更新しました。');
+                logMessageGreen('既存ローカルストレージを更新しました。');
                 return true;
             } catch (error) {
-                logMessage(`既存リポジトリの更新に失敗しました: ${error}`);
+                logMessage(`既存ストレージの更新に失敗しました: ${error}`);
                 return false;
             }
         }
 
-        // ローカルリポジトリが存在しない場合はクローン
+        // ローカルストレージが存在しない場合はクローン
         try {
             const parentDir = path.dirname(objectDir);
             if (!fs.existsSync(parentDir)) {
@@ -231,7 +231,7 @@ export class GitHubSyncProvider implements IStorageProvider {
             }
             // クローン先ディレクトリの親ディレクトリで実行し、クローン先のディレクトリ名を指定
             await this.execCmd(this.gitPath, ['clone', this.gitRemoteUrl, path.basename(objectDir)], parentDir);
-            logMessageGreen('既存リモートリポジトリをクローンしました。');
+            logMessageGreen('既存リモートストレージをクローンしました。');
             return true;
         } catch (error) {
             logMessage(`クローンに失敗しました: ${error}`);

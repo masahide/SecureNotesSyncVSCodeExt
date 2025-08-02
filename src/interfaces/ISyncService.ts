@@ -19,18 +19,18 @@ export interface ISyncService {
   
 
   /**
-   * 新規リモートリポジトリを作成して初期化する
+   * 新規リモートストレージを作成して初期化する
    * @param options 同期オプション
    * @returns 初期化が成功した場合はtrue
    */
-  initializeNewRepository(options: SyncOptions): Promise<boolean>;
+  initializeNewStorage(options: SyncOptions): Promise<boolean>;
 
   /**
-   * 既存のリモートリポジトリを取り込んで初期化する
+   * 既存のリモートストレージを取り込んで初期化する
    * @param options 同期オプション
    * @returns 初期化が成功した場合はtrue
    */
-  importExistingRepository(options: SyncOptions): Promise<boolean>;
+  importExistingStorage(options: SyncOptions): Promise<boolean>;
 
   /**
    * 既存リポジトリとの増分同期処理

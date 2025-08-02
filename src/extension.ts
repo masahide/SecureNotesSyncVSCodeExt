@@ -173,7 +173,7 @@ async function handleInitializeNewRepository(context: vscode.ExtensionContext, b
     confirmationMessage: "ローカルリポジトリが既に存在します。新規リポジトリとして再初期化しますか？ (現在のローカルデータは削除されます)",
     cancelMessage: "新規リポジトリの初期化をキャンセルしました。",
     errorPrefix: "New repository initialization failed",
-    operation: (syncService, options) => syncService.initializeNewRepository(options)
+    operation: (syncService, options) => syncService.initializeNewStorage(options)
   });
 }
 
@@ -182,7 +182,7 @@ async function handleImportExistingRepository(context: vscode.ExtensionContext, 
     confirmationMessage: "ローカルリポジトリが既に存在します。既存リモートリポジトリで上書きしますか？ (現在のローカルデータは削除されます)",
     cancelMessage: "既存リポジトリの取り込みをキャンセルしました。",
     errorPrefix: "Existing repository import failed",
-    operation: (syncService, options) => syncService.importExistingRepository(options)
+    operation: (syncService, options) => syncService.importExistingStorage(options)
   });
 }
 
@@ -379,8 +379,8 @@ export async function activate(context: vscode.ExtensionContext) {
   vscode.window.createTreeView("secureNotes.indexHistory", { treeDataProvider: indexHistoryProvider });
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("secureNotes.initializeNewRepository", () => handleInitializeNewRepository(context, branchProvider)),
-    vscode.commands.registerCommand("secureNotes.importExistingRepository", () => handleImportExistingRepository(context, branchProvider)),
+    vscode.commands.registerCommand("secureNotes.initializeNewStorage", () => handleInitializeNewRepository(context, branchProvider)),
+    vscode.commands.registerCommand("secureNotes.importExistingStorage", () => handleImportExistingRepository(context, branchProvider)),
     vscode.commands.registerCommand("secureNotes.sync", () => handleSyncNotes(context, branchProvider)),
     vscode.commands.registerCommand("secureNotes.setAESKey", () => handleSetAESKey(context)),
     vscode.commands.registerCommand("secureNotes.generateAESKey", () => handleGenerateAESKey(context)),

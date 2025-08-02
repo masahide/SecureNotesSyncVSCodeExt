@@ -168,8 +168,8 @@ class MockSyncServiceFactory implements ISyncServiceFactory {
   createSyncService(config: any): ISyncService {
     return {
       isRepositoryInitialized: async () => true,
-      initializeNewRepository: async () => true,
-      importExistingRepository: async () => true,
+      initializeNewStorage: async () => true,
+      importExistingStorage: async () => true,
       performIncrementalSync: async () => true
     };
   }
@@ -179,7 +179,10 @@ class MockSyncServiceFactory implements ISyncServiceFactory {
       isInitialized: async () => true,
       initialize: async () => { },
       download: async () => true,
-      upload: async () => true
+      upload: async () => true,
+      hasRemoteData: async () => true,
+      cloneExistingRemoteStorage: async () => true,
+      loadAndDecryptRemoteData: async () => { }
     };
   }
 }

@@ -497,7 +497,7 @@ suite('GitHubProvider Test Suite', () => {
           const provider = new GitHubSyncProvider(env.testRepoUrl);
 
           // When: 既存リモートリポジトリのクローンを実行
-          await provider.cloneExistingRemoteRepository();
+          await provider.cloneExistingRemoteStorage();
 
           // Then: .secureNotesディレクトリが存在することを確認
           const secureNotesDir = path.join(env.currentTestWorkspaceDir, '.secureNotes');
@@ -530,7 +530,7 @@ suite('GitHubProvider Test Suite', () => {
           const provider = new GitHubSyncProvider(env.testRepoUrl);
           
           // 事前にクローンを実行
-          await provider.cloneExistingRemoteRepository();
+          await provider.cloneExistingRemoteStorage();
 
           // When: リモートデータの読み込み・復号化を実行
           await provider.loadAndDecryptRemoteData();

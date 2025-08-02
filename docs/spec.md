@@ -8,11 +8,15 @@ Secure Notes Syncは、VS Code拡張機能として動作し、ワークスペ�
 
 ### 1. **コア構成要素**
 
-- **拡張機能エントリポイント** (`extension.ts`): コマンド登録、イベント処理、UI連携。
+- **拡張機能エントリポイント** (`extension.ts`): コマンド登録、イベント処理、依存性注入コンテナの初期化。
+- **依存性注入システム** (`container/`): サービスの生成・管理・ライフサイクル制御を担当。
 - **同期サービス** (`SyncService.ts`): 同期処理と初期化処理のオーケストレーションを担当。
+- **同期サービスファクトリー** (`factories/SyncServiceFactory.ts`): 設定に基づく同期サービスの生成。
+- **設定管理** (`config/ConfigManager.ts`): VS Code設定から同期設定を構築・検証。
 - **ローカルオブジェクト管理** (`LocalObjectManager.ts`): ローカルでのファイル操作、インデックス生成、暗号化・復号化、競合解決。
 - **GitHub同期プロバイダ** (`GithubProvider.ts`): Git操作によるリモートリポジトリとの通信。
-- **ブランチツリービュー** (`BranchTreeViewProvider.ts`): UI表示とブランチ操作。
+- **ブランチツリービュー** (`BranchTreeViewProvider.ts`): ブランチ表示とブランチ操作。
+- **インデックス履歴ビュー** (`IndexHistoryProvider.ts`): インデックス履歴の表示と操作。
 - **ロガー** (`logger.ts`): ターミナル出力とエラー管理。
 
 ### 2. **データ構造**
@@ -56,6 +60,43 @@ interface FileEntry {
         ├── ab/                    # ハッシュ先頭2文字でディレクトリ分割
         │   └── cdef123456...      # 残りのハッシュ
         └── ...
+```
+
+### 4. **依存性注入アーキテクチャ**
+
+#### サービスコンテナ
+- **ServiceContainer**: シングルトン、スコープド、一時的なライフタイムを持つDIコンテナ
+- **ContainerBuilder**: コンテナ設定のためのフルエントビルダー
+- **ServiceLocator**: 型安全なグローバルサービスアクセスポイント
+- **ServiceKeys**: 型安全なサービスキー定数
+
+#### サービスライフサイクル
+```typescript
+// シングルトンサービス（拡張機能の生存期間中共有）
+- ConfigManager
+- LocalObjectManager
+- SyncServiceFactory
+
+// スコープドサービス（操作ごと）
+- SyncService インスタンス
+
+// 一時的サービス（毎回新しいインスタンス）
+- GitHubSyncProvider（設定に依存）
+```
+
+#### インターフェース設計
+```typescript
+interface ISyncService {
+  isRepositoryInitialized(): Promise<boolean>;
+  initializeNewRepository(options: SyncOptions): Promise<boolean>;
+  importExistingRepository(options: SyncOptions): Promise<boolean>;
+  performIncrementalSync(options: SyncOptions): Promise<boolean>;
+}
+
+interface ISyncServiceFactory {
+  createSyncService(config: SyncConfig): ISyncService;
+  createStorageProvider(config: StorageConfig, encryptionKey: string): IStorageProvider;
+}
 ```
 
 ## 主要機能と処理フロー

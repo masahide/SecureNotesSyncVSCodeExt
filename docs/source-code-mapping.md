@@ -8,17 +8,27 @@
 
 | 機能 | ファイル | 主な責務 |
 |------|----------|----------|
-| **拡張機能エントリポイント** | `src/extension.ts` | コマンド登録、イベント処理、AESキー管理、拡張機能の活性化・非活性化 |
+| **拡張機能エントリポイント** | `src/extension.ts` | コマンド登録、イベント処理、AESキー管理、依存性注入コンテナの初期化、拡張機能の活性化・非活性化 |
+| **依存性注入コンテナ** | `src/container/ServiceContainer.ts` | サービスの生成・管理・ライフサイクル制御 |
+| **コンテナビルダー** | `src/container/ContainerBuilder.ts` | フルエントAPIによるサービス登録とコンテナ構築 |
+| **サービスロケーター** | `src/container/ServiceLocator.ts` | グローバルサービスアクセスポイント |
+| **同期サービス** | `src/SyncService.ts` | 同期処理と初期化処理のオーケストレーション |
+| **同期サービスファクトリー** | `src/factories/SyncServiceFactory.ts` | 設定に基づく同期サービスの生成 |
+| **設定管理** | `src/config/ConfigManager.ts` | VS Code設定から同期設定を構築・検証 |
 | **ローカルオブジェクト管理** | `src/storage/LocalObjectManager.ts` | 暗号化・復号化、インデックス管理、競合解決、ファイル同期処理 |
 | **GitHub同期プロバイダ** | `src/storage/GithubProvider.ts` | Git操作によるリモート同期（fetch/merge/push） |
-| **ブランチツリービュー** | `src/BranchTreeViewProvider.ts` | UI表示とブランチ操作（TreeView実装） |
+| **ブランチツリービュー** | `src/BranchTreeViewProvider.ts` | ブランチ表示とブランチ操作（TreeView実装） |
+| **インデックス履歴ビュー** | `src/IndexHistoryProvider.ts` | インデックス履歴の表示と操作（TreeView実装） |
 | **ロガー** | `src/logger.ts` | ターミナル出力とエラー管理（ANSIカラー対応） |
 
 ### 📋 データ構造定義
 
 | 要素 | ファイル | 内容 |
 |------|----------|------|
-| **型定義** | `src/types.ts` | `IndexFile`, `FileEntry`, `UpdateFiles`インターフェース |
+| **型定義** | `src/types.ts` | `IndexFile`, `FileEntry`, `UpdateFiles`, `LocalObjectManagerOptions`インターフェース |
+| **同期サービスインターフェース** | `src/interfaces/ISyncService.ts` | `ISyncService`, `SyncOptions`インターフェース |
+| **ファクトリーインターフェース** | `src/interfaces/ISyncServiceFactory.ts` | `ISyncServiceFactory`, `SyncConfig`, `StorageConfig`インターフェース |
+| **サービスキー定数** | `src/container/ServiceKeys.ts` | 型安全なサービスキー定数定義 |
 | **ストレージインターフェース** | `src/storage/IStorageProvider.ts` | ストレージプロバイダの共通インターフェース |
 
 ---

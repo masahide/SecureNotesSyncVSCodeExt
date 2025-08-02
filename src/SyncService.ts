@@ -29,19 +29,19 @@ export class SyncService implements ISyncService {
 
 
   /**
-   * 新規リモートリポジトリを作成して初期化する
+   * 新規リモートストレージを作成して初期化する
    * @param options 同期オプション
    * @returns 初期化が成功した場合はtrue
    */
-  async initializeNewRepository(options: SyncOptions): Promise<boolean> {
+  async initializeNewStorage(options: SyncOptions): Promise<boolean> {
     try {
       logMessage('=== Starting new repository initialization ===');
 
-      // リモートリポジトリが既に存在するかチェック
+      // リモートストレージが既に存在するかチェック
       if (await this.isRepositoryInitialized()) {
-        const hasRemoteData = await (this.dependencies.storageProvider as GitHubSyncProvider).hasRemoteData();
+        const hasRemoteData = await this.dependencies.storageProvider.hasRemoteData();
         if (hasRemoteData) {
-          showError("リモートリポジトリに既にデータが存在します。既存リポジトリを取り込む場合は 'Import Existing Repository' を使用してください。");
+          showError("リモートストレージに既にデータが存在します。既存ストレージを取り込む場合は 'Import Existing Storage' を使用してください。");
           return false;
         }
       }
@@ -65,26 +65,26 @@ export class SyncService implements ISyncService {
   }
 
   /**
-   * 既存のリモートリポジトリを取り込んで初期化する
+   * 既存のリモートストレージを取り込んで初期化する
    * @param options 同期オプション
    * @returns 初期化が成功した場合はtrue
    */
-  async importExistingRepository(options: SyncOptions): Promise<boolean> {
+  async importExistingStorage(options: SyncOptions): Promise<boolean> {
     try {
       logMessage('=== Starting existing repository import ===');
 
       // リモートデータの存在確認
-      const hasRemoteData = await (this.dependencies.storageProvider as GitHubSyncProvider).hasRemoteData();
+      const hasRemoteData = await this.dependencies.storageProvider.hasRemoteData();
       if (!hasRemoteData) {
-        showError("リモートリポジトリにデータが存在しません。新規リポジトリを作成する場合は 'Initialize New Repository' を使用してください。");
+        showError("リモートストレージにデータが存在しません。新規ストレージを作成する場合は 'Initialize New Storage' を使用してください。");
         return false;
       }
 
-      // 既存リモートリポジトリをクローン/更新
-      await (this.dependencies.storageProvider as GitHubSyncProvider).cloneExistingRemoteRepository();
+      // 既存リモートストレージをクローン/更新
+      await this.dependencies.storageProvider.cloneExistingRemoteStorage();
 
       // リモートデータを復号化・展開
-      await (this.dependencies.storageProvider as GitHubSyncProvider).loadAndDecryptRemoteData();
+      await this.dependencies.storageProvider.loadAndDecryptRemoteData();
 
       // リモートの最新インデックスを取得してローカルに設定
       const remoteIndex = await this.dependencies.localObjectManager.loadRemoteIndex(options);
@@ -118,14 +118,14 @@ export class SyncService implements ISyncService {
 
       const currentBranch = await getCurrentBranchName();
 
-      // 1. 既存リモートリポジトリをクローン/更新
-      const hasRemoteChanges = await (this.dependencies.storageProvider as GitHubSyncProvider).cloneExistingRemoteRepository();
-      logMessage(`Remote repository changes detected: ${hasRemoteChanges}`);
+      // 1. 既存リモートストレージをクローン/更新
+      const hasRemoteChanges = await this.dependencies.storageProvider.cloneExistingRemoteStorage();
+      logMessage(`Remote storage changes detected: ${hasRemoteChanges}`);
 
       // 2. リモートデータを復号化・展開（リモートに変更がある場合のみ）
       if (hasRemoteChanges) {
         logMessage("Remote changes detected. Loading and decrypting remote data...");
-        await (this.dependencies.storageProvider as GitHubSyncProvider).loadAndDecryptRemoteData();
+        await this.dependencies.storageProvider.loadAndDecryptRemoteData();
       } else {
         logMessage("No remote changes detected. Skipping decryption process.");
       }
@@ -133,7 +133,7 @@ export class SyncService implements ISyncService {
       // 3. 従来の増分同期処理を実行（リモートダウンロードはスキップ、ただしリモート変更情報を渡す）
       const syncResult = await this.performTraditionalIncrementalSync(options, currentBranch, true, hasRemoteChanges);
 
-      showInfo("既存リポジトリからデータを復元し、増分同期を完了しました。");
+      showInfo("既存ストレージからデータを復元し、増分同期を完了しました。");
       return syncResult;
 
     } catch (error: any) {
