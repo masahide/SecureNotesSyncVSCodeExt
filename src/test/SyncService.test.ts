@@ -257,12 +257,12 @@ suite('SyncService Test Suite', () => {
       branchProvider: new MockBranchProvider()
     };
 
-    syncService = new SyncService(mockDependencies, mockContext, testOptions.encryptionKey);
-
     testOptions = {
       environmentId: 'test-env-id',
       encryptionKey: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
     };
+
+    syncService = new SyncService(mockDependencies, mockContext, testOptions);
   });
 
   teardown(() => {
@@ -278,7 +278,7 @@ suite('SyncService Test Suite', () => {
 
   test('増分同期処理 - リモート更新なしの場合', async () => {
     // リモート更新がない場合のテスト（新規リポジトリ）
-    const result = await syncService.performIncrementalSync(testOptions);
+    const result = await syncService.performIncrementalSync();
     
     // 新規リポジトリの場合はfalseが返される（再設計仕様）
     assert.strictEqual(result, false);
@@ -303,7 +303,7 @@ suite('SyncService Test Suite', () => {
       loadDataCalled = true;
     };
 
-    const result = await syncService.performIncrementalSync(testOptions);
+    const result = await syncService.performIncrementalSync();
     
     assert.strictEqual(result, true); // 既存リポジトリの場合はtrue
     assert.strictEqual(cloneCalled, true);
@@ -335,7 +335,7 @@ suite('SyncService Test Suite', () => {
       return true;
     };
 
-    const result = await syncService.performIncrementalSync(testOptions);
+    const result = await syncService.performIncrementalSync();
     
     assert.strictEqual(result, true); // 既存リポジトリの場合はtrue
     assert.strictEqual(detectConflictsCalled, true);
@@ -354,7 +354,7 @@ suite('SyncService Test Suite', () => {
     mockLocalManager.detectConflicts = async () => [{ type: 'conflict', file: 'test.txt' }];
     mockLocalManager.resolveConflicts = async () => false;
 
-    const result = await syncService.performIncrementalSync(testOptions);
+    const result = await syncService.performIncrementalSync();
     
     // 既存リポジトリの場合はtrueが返される
     assert.strictEqual(result, true);
@@ -373,10 +373,10 @@ suite('SyncService Test Suite', () => {
       branchProvider: new MockBranchProvider()
     };
     
-    const errorSyncService = new SyncService(errorMockDependencies, mockContext, testOptions.encryptionKey);
+    const errorSyncService = new SyncService(errorMockDependencies, mockContext, testOptions);
 
     try {
-      await errorSyncService.performIncrementalSync(testOptions);
+      await errorSyncService.performIncrementalSync();
       assert.fail('エラーが発生するはずです');
     } catch (error: any) {
       assert.strictEqual(error.message, 'Test error');
@@ -391,7 +391,7 @@ suite('SyncService Test Suite', () => {
       branchProvider: new MockBranchProvider()
     };
     
-    const cleanSyncService = new SyncService(cleanMockDependencies, mockContext, testOptions.encryptionKey);
+    const cleanSyncService = new SyncService(cleanMockDependencies, mockContext, testOptions);
     
     // ファイル更新がない場合のモック
     const mockLocalManager = cleanMockDependencies.localObjectManager as any;
@@ -400,7 +400,7 @@ suite('SyncService Test Suite', () => {
     const mockGitHubProvider = cleanMockDependencies.storageProvider as any;
     mockGitHubProvider.download = async () => false;
 
-    const result = await cleanSyncService.performIncrementalSync(testOptions);
+    const result = await cleanSyncService.performIncrementalSync();
     
     // 更新がないのでfalseが返される
     assert.strictEqual(result, false);

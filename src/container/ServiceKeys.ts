@@ -6,7 +6,6 @@
  */
 export const ServiceKeys = {
   // Core Services
-  SYNC_SERVICE: 'syncService',
   SYNC_SERVICE_FACTORY: 'syncServiceFactory',
   
   // Storage Services

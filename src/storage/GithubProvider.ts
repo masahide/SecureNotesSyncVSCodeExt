@@ -455,46 +455,6 @@ export class GitHubSyncProvider implements IStorageProvider {
     }
 
     /**
-   * Gitリポジトリを初期化し、remote originを追加する
-   */
-    private async initializeGitRepo(dir: string, branchName: string): Promise<void> {
-        // .gitattributesでバイナリ扱いとする（暗号化ファイルをテキスト差分しないため）
-        const currentRemotesDirUri = getRemotesDirUri();
-        const gitattributesUri = vscode.Uri.joinPath(currentRemotesDirUri, '.gitattributes');
-        await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
-        try {
-            await this.execCmd(this.gitPath, ['ls-remote', this.gitRemoteUrl], dir, true);
-            await this.execCmd(this.gitPath, ['clone', this.gitRemoteUrl], dir);
-            return;
-        } catch (error) {
-            logMessageRed(`リモートリポジトリが見つかりません 。URL: ${this.gitRemoteUrl}`);
-        }
-        await this.execCmd(this.gitPath, ['init'], dir);
-        await this.execCmd(this.gitPath, ['remote', 'add', 'origin', this.gitRemoteUrl], dir);
-        // リモートリポジトリが存在しない場合はfetchをスキップ
-        try {
-            await this.execCmd(this.gitPath, ['fetch', 'origin'], dir);
-        } catch (error) {
-            logMessage(`リモートfetchに失敗しました（新規リポジトリの可能性）: ${error}`);
-            // 新規リポジトリの場合、fetchが失敗するのは正常
-        }
-        logMessageGreen("Gitリポジトリを初期化しました。");
-    }
-
-    /**
-     * 指定ブランチが origin で存在するかどうか
-     */
-    private async remoteBranchExists(dir: string, branchName: string): Promise<boolean> {
-        try {
-            // origin/branchName が存在するか
-            await this.execCmd(this.gitPath, ['rev-parse', '--verify', `origin/${branchName}`], dir, true);
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    /**
      * createIfNotExist=trueの場合、指定ブランチが存在しなければ「git checkout -b branchName」で作成する。
      * 既にあれば「git checkout branchName」で移動する。
      * @param dir 

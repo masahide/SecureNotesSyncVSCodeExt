@@ -46,12 +46,12 @@ export async function runManualSyncTest(): Promise<void> {
 
     // テストケース1: 基本的な増分同期
     logMessage('📝 テストケース1: 基本的な増分同期');
-    const result1 = await syncService.performIncrementalSync(options);
+    const result1 = await syncService.performIncrementalSync();
     logMessage(`結果: ${result1 ? '成功' : '更新なし'}`);
 
     // テストケース2: 連続実行（2回目は更新なしになるはず）
     logMessage('📝 テストケース2: 連続実行');
-    const result2 = await syncService.performIncrementalSync(options);
+    const result2 = await syncService.performIncrementalSync();
     logMessage(`結果: ${result2 ? '成功' : '更新なし'}`);
 
     showInfo('手動同期テストが完了しました');

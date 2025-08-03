@@ -3,7 +3,7 @@
 import * as vscode from 'vscode';
 import { ServiceContainer, ServiceLifetime } from './ServiceContainer';
 import { ServiceKeys } from './ServiceKeys';
-import { ISyncService } from '../interfaces/ISyncService';
+import { ISyncService, SyncOptions } from '../interfaces/ISyncService';
 import { ISyncServiceFactory } from '../interfaces/ISyncServiceFactory';
 import { IStorageProvider } from '../storage/IStorageProvider';
 import { SyncServiceFactory } from '../factories/SyncServiceFactory';
@@ -38,12 +38,7 @@ export class ContainerBuilder {
       () => ConfigManager
     );
 
-    // ローカルオブジェクトマネージャー（シングルトン）
-    this.container.registerSingleton<LocalObjectManager>(
-      ServiceKeys.LOCAL_OBJECT_MANAGER,
-      (context: vscode.ExtensionContext, encryptionKey: string) => new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, encryptionKey),
-      [ServiceKeys.EXTENSION_CONTEXT, ServiceKeys.ENCRYPTION_KEY]
-    );
+    // LocalObjectManagerは動的に登録されるため、ここでは登録しない
 
     return this;
   }
@@ -85,13 +80,7 @@ export class ContainerBuilder {
    * 同期サービスを登録
    */
   registerSyncServices(): ContainerBuilder {
-    // Sync Service（スコープド - リクエストごとに新しいインスタンス）
-    this.container.registerScoped<ISyncService>(
-      ServiceKeys.SYNC_SERVICE,
-      (factory: ISyncServiceFactory, config: any, context: vscode.ExtensionContext) => factory.createSyncService(config, context),
-      [ServiceKeys.SYNC_SERVICE_FACTORY, ServiceKeys.EXTENSION_CONTEXT]
-    );
-
+    // SyncServiceは動的にファクトリーから作成されるため、ここでは登録しない
     return this;
   }
 
@@ -171,7 +160,9 @@ class MockSyncServiceFactory implements ISyncServiceFactory {
       isRepositoryInitialized: async () => true,
       initializeNewStorage: async () => true,
       importExistingStorage: async () => true,
-      performIncrementalSync: async () => true
+      performIncrementalSync: async () => true,
+      updateSyncOptions: (context: vscode.ExtensionContext, options: SyncOptions) => {},
+      getSyncOptions: (): SyncOptions => ({ environmentId: 'test', encryptionKey: 'test' })
     };
   }
 

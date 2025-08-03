@@ -92,7 +92,7 @@ suite('Integration Test Suite', () => {
     fs.writeFileSync(testFile, '# Test Note\nThis is a test note for integration testing.');
     
     try {
-      const result = await syncService.performIncrementalSync(testOptions);
+      const result = await syncService.performIncrementalSync();
       
       // 新規リポジトリの場合、結果はfalse（更新なし）が期待される
       assert.strictEqual(typeof result, 'boolean', '同期結果がbooleanで返されること');
@@ -162,7 +162,7 @@ suite('Integration Test Suite', () => {
       
       const syncService = createTestSyncService(`file://${tempRepoPath}`, mockContext as any);
       
-      const result = await syncService.performIncrementalSync(testOptions);
+      const result = await syncService.performIncrementalSync();
       
       // 既存リポジトリの場合、結果はtrue（更新あり）が期待される
       assert.strictEqual(typeof result, 'boolean', '同期結果がbooleanで返されること');
@@ -216,7 +216,7 @@ suite('Integration Test Suite', () => {
       const tempRepoPath = path.join(require('os').tmpdir(), `integration-multi-files-${Date.now()}.git`);
       const syncService = createTestSyncService(`file://${tempRepoPath}`, mockContext as any);
       
-      const result = await syncService.performIncrementalSync(testOptions);
+      const result = await syncService.performIncrementalSync();
       
       // 同期結果の検証
       assert.strictEqual(typeof result, 'boolean', '同期結果がbooleanで返されること');
@@ -295,7 +295,7 @@ suite('Integration Test Suite', () => {
     for (const invalidUrl of invalidUrls) {
       try {
         const syncService = createTestSyncService(invalidUrl, mockContext as any);
-        const result = await syncService.performIncrementalSync(testOptions);
+        const result = await syncService.performIncrementalSync();
         
         // 無効なURLでも適切にエラーハンドリングされることを確認
         assert.strictEqual(typeof result, 'boolean', '無効なURLでも結果が返されること');
@@ -323,7 +323,7 @@ suite('Integration Test Suite', () => {
       
       // タイムアウトが発生することを期待
       const startTime = Date.now();
-      await syncService.performIncrementalSync(testOptions);
+      await syncService.performIncrementalSync();
       const endTime = Date.now();
       
       // 30秒も待たずにエラーまたは完了することを確認
@@ -376,7 +376,7 @@ suite('Integration Test Suite', () => {
       const syncService = createTestSyncService(`file://${tempRepoPath}`, mockContext as any);
       
       try {
-        await syncService.performIncrementalSync(invalidOptions);
+        await syncService.performIncrementalSync();
         
         // 一部の無効なキーは初期段階では検出されない可能性がある
         console.log(`${scenario.name}: エラーが発生しなかった（初期段階では検出されない可能性）`);
@@ -408,7 +408,7 @@ suite('Integration Test Suite', () => {
       const tempRepoPath = require('path').join(require('os').tmpdir(), `integration-valid-key-${Date.now()}.git`);
       const syncService = createTestSyncService(`file://${tempRepoPath}`, mockContext as any);
       
-      const result = await syncService.performIncrementalSync(validOptions);
+      const result = await syncService.performIncrementalSync();
       assert.strictEqual(typeof result, 'boolean', '正しいキーでは正常に処理されること');
       
     } catch (error) {
@@ -439,7 +439,7 @@ suite('Integration Test Suite', () => {
     const syncService = createTestSyncService(`file://${tempRepoPath}`, mockContext as any);
     
     try {
-      await syncService.performIncrementalSync(testOptions);
+      await syncService.performIncrementalSync();
       assert.fail('ワークスペース不正でエラーが発生するはず');
     } catch (error) {
       assert.ok(true, 'ワークスペース不正で適切にエラーが発生');

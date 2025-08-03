@@ -11,6 +11,7 @@ import { ISyncService } from "./interfaces/ISyncService";
 import { IBranchTreeViewProvider } from "./interfaces/IBranchTreeViewProvider";
 import { ContainerBuilder } from "./container/ContainerBuilder";
 import { ServiceLocator } from "./container/ServiceLocator";
+import { ServiceKeys } from "./container/ServiceKeys";
 import { registerManualSyncTestCommand } from "./test/manual-sync-test";
 import * as crypto from "crypto";
 import { execFile } from "child_process";
@@ -271,7 +272,7 @@ async function handleCreateBranchFromIndex(context: vscode.ExtensionContext, enc
   }
 
   const newIndexFile: IndexFile = { ...baseIndex };
-  const localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, encryptKey);
+  const localObjectManager = ServiceLocator.getLocalObjectManager();
   await localObjectManager.saveBranchRef(newBranch, newIndexFile.uuid);
   vscode.window.showInformationMessage(`Created new branch '${newBranch}' from index UUID: ${newIndexFile.uuid}`);
   branchProvider?.refresh();
@@ -284,7 +285,7 @@ async function handleCheckoutBranch(context: vscode.ExtensionContext, encryptKey
       return false;
     }
     const branchName = branchItem.branchName;
-    const localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, encryptKey);
+    const localObjectManager = ServiceLocator.getLocalObjectManager();
 
     const latestIndexUuid = await localObjectManager.readBranchRef(branchName);
     if (!latestIndexUuid) {
@@ -374,6 +375,21 @@ export async function activate(context: vscode.ExtensionContext) {
   // 依存性注入コンテナを初期化
   const container = ContainerBuilder.buildDefault(context);
   ServiceLocator.setContainer(container);
+
+  // LocalObjectManagerを初期化してコンテナに登録
+  try {
+    const encryptKey = await getAESKey(context);
+    if (encryptKey && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+      const localObjectManager = new LocalObjectManager(
+        vscode.workspace.workspaceFolders[0].uri.fsPath,
+        context,
+        encryptKey
+      );
+      container.registerInstance(ServiceKeys.LOCAL_OBJECT_MANAGER, localObjectManager);
+    }
+  } catch (error) {
+    logMessage(`Failed to initialize LocalObjectManager: ${error}`);
+  }
 
   const branchProvider = ServiceLocator.getBranchProvider();
   vscode.window.createTreeView("secureNotes.branchList", { treeDataProvider: branchProvider });

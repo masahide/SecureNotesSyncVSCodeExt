@@ -136,11 +136,11 @@ export class SyncService implements ISyncService {
    */
   private async performTraditionalIncrementalSync(options: SyncOptions, currentBranch: string, skipRemoteDownload: boolean = false, hasActualRemoteChanges: boolean = false): Promise<boolean> {
     // 1. 前回のインデックスを読み込み
-    const previousIndex = await this.loadPreviousIndex(options);
+    const previousIndex = await this.localObjectManager.loadWsIndex(options);
     logMessage(`Loaded previous index file: ${previousIndex.uuid}`);
 
     // 2. 新しいローカルインデックスを生成
-    const newLocalIndex = await this.generateNewLocalIndex(previousIndex, options);
+    const newLocalIndex = await this.localObjectManager.generateLocalIndexFile(previousIndex, options);
 
     // 2.1. 実際にファイルに変更があるかチェック
     const hasLocalChanges = this.hasFileChanges(previousIndex, newLocalIndex);
@@ -172,7 +172,7 @@ export class SyncService implements ISyncService {
     }
 
     // 5. ファイルを暗号化保存
-    const filesUpdated = await this.saveEncryptedFiles(finalIndex, previousIndex, options);
+    const filesUpdated = await this.localObjectManager.saveEncryptedObjects(finalIndex.files, previousIndex, options);
     logMessage(`Files encryption result: filesUpdated=${filesUpdated}`);
     updated = updated || filesUpdated;
     logMessage(`Updated after file encryption: ${updated}`);
@@ -186,37 +186,6 @@ export class SyncService implements ISyncService {
 
     logMessage("No updates detected. Skipping upload.");
     return false;
-  }
-
-  /**
-   * MockContextを作成するヘルパーメソッド
-   */
-  private async createMockContext(encryptionKey: string): Promise<any> {
-    return {
-      secrets: {
-        get: async (key: string) => encryptionKey,
-        store: async (key: string, value: string) => { },
-        delete: async (key: string) => { }
-      },
-      workspaceState: {
-        get: (key: string) => undefined,
-        update: async (key: string, value: any) => { }
-      }
-    };
-  }
-
-  /**
-   * 前回のインデックスファイルを読み込み
-   */
-  private async loadPreviousIndex(options: SyncOptions): Promise<IndexFile> {
-    return await this.localObjectManager.loadWsIndex(options);
-  }
-
-  /**
-   * 新しいローカルインデックスを生成
-   */
-  private async generateNewLocalIndex(previousIndex: IndexFile, options: SyncOptions): Promise<IndexFile> {
-    return await this.localObjectManager.generateLocalIndexFile(previousIndex, options);
   }
 
   /**
@@ -294,21 +263,6 @@ export class SyncService implements ISyncService {
     logMessage(`Merged index created: UUID=${mergedIndex.uuid}, files=${mergedIndex.files.length}`);
 
     return { success: true, mergedIndex };
-  }
-
-  /**
-   * ファイルを暗号化して保存
-   */
-  private async saveEncryptedFiles(
-    indexFile: IndexFile,
-    previousIndex: IndexFile,
-    options: SyncOptions
-  ): Promise<boolean> {
-    return await this.localObjectManager.saveEncryptedObjects(
-      indexFile.files,
-      previousIndex,
-      options
-    );
   }
 
   /**

@@ -2,10 +2,10 @@
 
 import { ServiceContainer } from './ServiceContainer';
 import { ServiceKeys } from './ServiceKeys';
-import { ISyncService } from '../interfaces/ISyncService';
 import { ISyncServiceFactory } from '../interfaces/ISyncServiceFactory';
 import { ConfigManager } from '../config/ConfigManager';
 import { BranchTreeViewProvider } from '../BranchTreeViewProvider';
+import { LocalObjectManager } from '../storage/LocalObjectManager';
 
 /**
  * サービスロケーターパターンの実装
@@ -39,13 +39,6 @@ export class ServiceLocator {
   }
 
   /**
-   * 同期サービスを取得
-   */
-  static getSyncService(): ISyncService {
-    return ServiceLocator.resolve<ISyncService>(ServiceKeys.SYNC_SERVICE);
-  }
-
-  /**
    * 同期サービスファクトリーを取得
    */
   static getSyncServiceFactory(): ISyncServiceFactory {
@@ -64,6 +57,13 @@ export class ServiceLocator {
    */
   static getBranchProvider(): BranchTreeViewProvider {
     return ServiceLocator.resolve<BranchTreeViewProvider>(ServiceKeys.BRANCH_PROVIDER);
+  }
+
+  /**
+   * ローカルオブジェクトマネージャーを取得
+   */
+  static getLocalObjectManager(): LocalObjectManager {
+    return ServiceLocator.resolve<LocalObjectManager>(ServiceKeys.LOCAL_OBJECT_MANAGER);
   }
 
   /**
