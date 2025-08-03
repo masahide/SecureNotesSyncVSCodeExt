@@ -48,7 +48,7 @@ export class SyncServiceFactory implements ISyncServiceFactory {
         if (!config.github?.remoteUrl) {
           throw new Error('GitHub configuration requires remoteUrl');
         }
-        return new GitHubSyncProvider(config.github.remoteUrl, encryptionKey);
+        return new GitHubSyncProvider(config.github.remoteUrl, encryptionKey, vscode.workspace.workspaceFolders?.[0]?.uri);
 
       case 's3':
         // TODO: S3プロバイダーの実装

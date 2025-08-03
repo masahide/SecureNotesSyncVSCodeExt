@@ -70,7 +70,7 @@ export class ContainerBuilder {
     // GitHub Provider（一時的 - 設定に依存するため）
     this.container.registerTransient<GitHubSyncProvider>(
       ServiceKeys.GITHUB_PROVIDER,
-      (remoteUrl: string, encryptionKey: string) => new GitHubSyncProvider(remoteUrl, encryptionKey)
+      (remoteUrl: string, encryptionKey: string) => new GitHubSyncProvider(remoteUrl, encryptionKey, vscode.workspace.workspaceFolders?.[0]?.uri)
     );
 
     return this;

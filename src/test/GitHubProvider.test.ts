@@ -190,7 +190,7 @@ suite('GitHubProvider Test Suite', () => {
     try {
       // 存在しないリポジトリのURLを使用
       const nonExistentRepoUrl = `file://${path.join(env.tempDir, 'non-existent-repo.git')}`;
-      gitHubProvider = new GitHubSyncProvider(nonExistentRepoUrl);
+      gitHubProvider = new GitHubSyncProvider(nonExistentRepoUrl, undefined, mockWorkspaceFolder.uri);
 
       try {
         // downloadメソッドを使って間接的にリモート存在確認をテスト
@@ -223,7 +223,7 @@ suite('GitHubProvider Test Suite', () => {
       fs.mkdirSync(env.testRepoPath, { recursive: true });
       execSync('git init --bare', { cwd: env.testRepoPath, stdio: 'ignore' });
 
-      gitHubProvider = new GitHubSyncProvider(env.testRepoUrl);
+      gitHubProvider = new GitHubSyncProvider(env.testRepoUrl, undefined, mockWorkspaceFolder.uri);
 
       try {
         // downloadメソッドを使って既存リポジトリの処理をテスト
@@ -252,7 +252,7 @@ suite('GitHubProvider Test Suite', () => {
       // 存在しないリポジトリのURLを使用
       const newRepoPath = path.join(env.tempDir, 'new-repo.git');
       const newRepoUrl = `file://${newRepoPath}`;
-      gitHubProvider = new GitHubSyncProvider(newRepoUrl);
+      gitHubProvider = new GitHubSyncProvider(newRepoUrl, undefined, mockWorkspaceFolder.uri);
 
       try {
         // downloadメソッドを使って初期化処理をテスト
@@ -311,7 +311,7 @@ suite('GitHubProvider Test Suite', () => {
         }
       }
 
-      gitHubProvider = new GitHubSyncProvider(env.testRepoUrl);
+      gitHubProvider = new GitHubSyncProvider(env.testRepoUrl, undefined, mockWorkspaceFolder.uri);
 
       try {
         // 既存リポジトリに対するdownload処理をテスト
@@ -336,7 +336,7 @@ suite('GitHubProvider Test Suite', () => {
       fs.mkdirSync(env.testRepoPath, { recursive: true });
       execSync('git init --bare', { cwd: env.testRepoPath, stdio: 'ignore' });
 
-      gitHubProvider = new GitHubSyncProvider(env.testRepoUrl);
+      gitHubProvider = new GitHubSyncProvider(env.testRepoUrl, undefined, mockWorkspaceFolder.uri);
 
       try {
         const result = await gitHubProvider.download('main');
@@ -359,7 +359,7 @@ suite('GitHubProvider Test Suite', () => {
       fs.mkdirSync(env.testRepoPath, { recursive: true });
       execSync('git init --bare', { cwd: env.testRepoPath, stdio: 'ignore' });
 
-      gitHubProvider = new GitHubSyncProvider(env.testRepoUrl);
+      gitHubProvider = new GitHubSyncProvider(env.testRepoUrl, undefined, mockWorkspaceFolder.uri);
 
       try {
         const result = await gitHubProvider.upload('main');
@@ -382,7 +382,7 @@ suite('GitHubProvider Test Suite', () => {
       fs.mkdirSync(env.testRepoPath, { recursive: true });
       execSync('git init --bare', { cwd: env.testRepoPath, stdio: 'ignore' });
 
-      gitHubProvider = new GitHubSyncProvider(env.testRepoUrl);
+      gitHubProvider = new GitHubSyncProvider(env.testRepoUrl, undefined, mockWorkspaceFolder.uri);
 
       try {
         // 1. ダウンロード（内部で初期化も実行される）
@@ -413,7 +413,7 @@ suite('GitHubProvider Test Suite', () => {
           fs.mkdirSync(env.testRepoPath, { recursive: true });
           execSync('git init --bare', { cwd: env.testRepoPath, stdio: 'ignore' });
           
-          const provider = new GitHubSyncProvider(env.testRepoUrl);
+          const provider = new GitHubSyncProvider(env.testRepoUrl, undefined, mockWorkspaceFolder.uri);
           
           // When: リモートリポジトリの存在確認を実行
           const { exists, isEmpty } = await (provider as any).getRemoteState();
@@ -431,7 +431,7 @@ suite('GitHubProvider Test Suite', () => {
         try {
           // Given: リモートリポジトリが存在しない
           const nonExistentUrl = `file://${env.testRepoPath}/non-existent-repo.git`;
-          const provider = new GitHubSyncProvider(nonExistentUrl);
+          const provider = new GitHubSyncProvider(nonExistentUrl, undefined, mockWorkspaceFolder.uri);
 
           // When: リモートリポジトリの存在確認を実行
           const { exists, isEmpty } = await (provider as any).getRemoteState();
@@ -455,7 +455,7 @@ suite('GitHubProvider Test Suite', () => {
           execSync('git init --bare', { cwd: newRepoPath, stdio: 'ignore' });
           
           const newRepoUrl = `file://${newRepoPath}`;
-          const provider = new GitHubSyncProvider(newRepoUrl);
+          const provider = new GitHubSyncProvider(newRepoUrl, undefined, mockWorkspaceFolder.uri);
 
           // When: 新規リモートリポジトリの初期化を実行
           try {
@@ -496,7 +496,7 @@ suite('GitHubProvider Test Suite', () => {
           execSync('git commit -m "Initial commit"', { cwd: workDir, stdio: 'ignore' });
           execSync('git push origin main', { cwd: workDir, stdio: 'ignore' });
           
-          const provider = new GitHubSyncProvider(env.testRepoUrl);
+          const provider = new GitHubSyncProvider(env.testRepoUrl, undefined, mockWorkspaceFolder.uri);
 
           // When: 既存リモートリポジトリのクローンを実行
           await provider.cloneExistingRemoteStorage();
@@ -529,7 +529,7 @@ suite('GitHubProvider Test Suite', () => {
           execSync('git commit -m "Initial commit"', { cwd: workDir, stdio: 'ignore' });
           execSync('git push origin main', { cwd: workDir, stdio: 'ignore' });
           
-          const provider = new GitHubSyncProvider(env.testRepoUrl);
+          const provider = new GitHubSyncProvider(env.testRepoUrl, undefined, mockWorkspaceFolder.uri);
           
           // 事前にクローンを実行
           await provider.cloneExistingRemoteStorage();
@@ -556,7 +556,7 @@ suite('GitHubProvider Test Suite', () => {
           execSync('git init --bare', { cwd: newRepoPath, stdio: 'ignore' });
           
           const newRepoUrl = `file://${newRepoPath}`;
-          const provider = new GitHubSyncProvider(newRepoUrl);
+          const provider = new GitHubSyncProvider(newRepoUrl, undefined, mockWorkspaceFolder.uri);
 
           // Create test workspace files
           const testFile = path.join(env.currentTestWorkspaceDir, 'test.md');
@@ -601,7 +601,7 @@ suite('GitHubProvider Test Suite', () => {
           execSync('git commit -m "Initial commit"', { cwd: workDir, stdio: 'ignore' });
           execSync('git push origin main', { cwd: workDir, stdio: 'ignore' });
           
-          const provider = new GitHubSyncProvider(env.testRepoUrl);
+          const provider = new GitHubSyncProvider(env.testRepoUrl, undefined, mockWorkspaceFolder.uri);
 
           // When: 完全な同期フローを実行
           const result = await provider.download('main');

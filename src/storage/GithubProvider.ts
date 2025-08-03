@@ -7,36 +7,36 @@ import * as cp from 'child_process';
 import which from 'which';
 import * as fs from 'fs';
 
-// 動的にremotesDirUriを取得する関数
-function getRemotesDirUri(): vscode.Uri {
-    const vscode = require('vscode');
-    const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-    if (!workspaceUri) {
-        // テスト環境でワークスペースが設定されていない場合のフォールバック
-        const path = require('path');
-        const os = require('os');
-        const tempDir = path.join(os.tmpdir(), 'fallback-workspace');
-        return vscode.Uri.file(path.join(tempDir, '.secureNotes', 'remotes'));
-    }
-    return vscode.Uri.joinPath(workspaceUri, '.secureNotes', 'remotes');
-}
-
 export class GitHubSyncProvider implements IStorageProvider {
     private gitRemoteUrl: string;
     private gitPath: string;
     private encryptionKey?: string;
+    private workspaceUri: vscode.Uri;
 
-    constructor(gitRemoteUrl: string, encryptionKey?: string) {
+    constructor(gitRemoteUrl: string, encryptionKey?: string, workspaceUri?: vscode.Uri) {
         this.gitRemoteUrl = gitRemoteUrl;
         this.gitPath = findGitExecutable();
         this.encryptionKey = encryptionKey;
+        if (!workspaceUri) {
+            // テスト環境でワークスペースが設定されていない場合のフォールバック
+            const path = require('path');
+            const os = require('os');
+            const tempDir = path.join(os.tmpdir(), 'fallback-workspace');
+            this.workspaceUri = vscode.Uri.file(tempDir);
+        } else {
+            this.workspaceUri = workspaceUri;
+        }
         logMessage(`gitPath: ${this.gitPath}`);
-        const currentRemotesDirUri = getRemotesDirUri();
+        const currentRemotesDirUri = this.getRemotesDirUri();
         logMessage(`remotesDirPath: ${currentRemotesDirUri.fsPath}`);
     }
 
+    private getRemotesDirUri(): vscode.Uri {
+        return vscode.Uri.joinPath(this.workspaceUri, '.secureNotes', 'remotes');
+    }
+
     public async isInitialized(): Promise<boolean> {
-        const objectDir = getRemotesDirUri().fsPath;
+        const objectDir = this.getRemotesDirUri().fsPath;
         return await this.isGitRepository(objectDir);
     }
 
@@ -109,7 +109,7 @@ export class GitHubSyncProvider implements IStorageProvider {
      * ローカルでリポジトリを作成し、ワークスペースファイルを暗号化してリモートにプッシュ
      */
     public async initializeNewRemoteRepository(): Promise<void> {
-        const objectDir = getRemotesDirUri().fsPath;
+        const objectDir = this.getRemotesDirUri().fsPath;
 
         // 既存のディレクトリがあれば削除して作り直す
         if (fs.existsSync(objectDir)) {
@@ -118,7 +118,7 @@ export class GitHubSyncProvider implements IStorageProvider {
         fs.mkdirSync(objectDir, { recursive: true });
 
         // .gitattributesファイルを作成
-        const gitattributesUri = vscode.Uri.joinPath(getRemotesDirUri(), '.gitattributes');
+        const gitattributesUri = vscode.Uri.joinPath(this.getRemotesDirUri(), '.gitattributes');
         await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
 
         // Gitリポジトリを初期化
@@ -131,20 +131,20 @@ export class GitHubSyncProvider implements IStorageProvider {
      * 空のリモートリポジトリに対してローカルリポジトリを初期化
      */
     public async initializeEmptyRemoteRepository(): Promise<void> {
-        const objectDir = getRemotesDirUri().fsPath;
+        const objectDir = this.getRemotesDirUri().fsPath;
 
         // 既存の.secureNotesディレクトリを削除
         try {
-            await vscode.workspace.fs.delete(getRemotesDirUri(), { recursive: true, useTrash: false });
+            await vscode.workspace.fs.delete(this.getRemotesDirUri(), { recursive: true, useTrash: false });
         } catch (error) {
             // ディレクトリが存在しない場合は無視
         }
 
         // ディレクトリを作成
-        await vscode.workspace.fs.createDirectory(getRemotesDirUri());
+        await vscode.workspace.fs.createDirectory(this.getRemotesDirUri());
 
         // .gitattributesファイルを作成
-        const gitattributesUri = vscode.Uri.joinPath(getRemotesDirUri(), '.gitattributes');
+        const gitattributesUri = vscode.Uri.joinPath(this.getRemotesDirUri(), '.gitattributes');
         await vscode.workspace.fs.writeFile(gitattributesUri, new TextEncoder().encode('* binary'));
 
         // Gitリポジトリを初期化
@@ -177,7 +177,7 @@ export class GitHubSyncProvider implements IStorageProvider {
             throw new Error("リモートストレージにデータが存在しません。新規ストレージを作成する場合は 'Initialize New Storage' を使用してください。");
         }
 
-        const objectDir = getRemotesDirUri().fsPath;
+        const objectDir = this.getRemotesDirUri().fsPath;
 
         // 既存のローカルストレージが存在するかチェック
         const isExistingRepo = await this.isGitRepository(objectDir);
@@ -232,7 +232,7 @@ export class GitHubSyncProvider implements IStorageProvider {
      */
     public async encryptAndUploadWorkspaceFiles(): Promise<void> {
         try {
-            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+            const workspaceUri = this.workspaceUri;
             if (workspaceUri) {
                 // 暗号化キーを取得
                 if (!this.encryptionKey) {
@@ -251,12 +251,12 @@ export class GitHubSyncProvider implements IStorageProvider {
                 logMessage(`ワークスペースファイルを暗号化・保存: ${indexFile.files.length}ファイル`);
 
                 // 初期コミット&プッシュ
-                const objectDir = getRemotesDirUri().fsPath;
+                const objectDir = this.getRemotesDirUri().fsPath;
 
                 // 必要なディレクトリ構造を確保
-                const indexesDir = vscode.Uri.joinPath(getRemotesDirUri(), 'indexes');
-                const filesDir = vscode.Uri.joinPath(getRemotesDirUri(), 'files');
-                const refsDir = vscode.Uri.joinPath(getRemotesDirUri(), 'refs');
+                const indexesDir = vscode.Uri.joinPath(this.getRemotesDirUri(), 'indexes');
+                const filesDir = vscode.Uri.joinPath(this.getRemotesDirUri(), 'files');
+                const refsDir = vscode.Uri.joinPath(this.getRemotesDirUri(), 'refs');
 
                 await vscode.workspace.fs.createDirectory(indexesDir);
                 await vscode.workspace.fs.createDirectory(filesDir);
@@ -285,7 +285,7 @@ export class GitHubSyncProvider implements IStorageProvider {
     public async loadAndDecryptRemoteData(): Promise<void> {
         try {
             // LocalObjectManagerを使用してリモートデータを復号化・展開
-            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+            const workspaceUri = this.workspaceUri;
             if (!workspaceUri) {
                 throw new Error('ワークスペースフォルダが見つかりません');
             }
@@ -366,7 +366,7 @@ export class GitHubSyncProvider implements IStorageProvider {
         // This is a simplified version. The actual implementation would
         // involve fetching and merging the specified branch.
         try {
-            const objectDir = getRemotesDirUri().fsPath;
+            const objectDir = this.getRemotesDirUri().fsPath;
             await this.execCmd(this.gitPath, ['fetch', 'origin', branchName], objectDir);
             await this.execCmd(this.gitPath, ['checkout', branchName], objectDir);
             await this.execCmd(this.gitPath, ['pull', 'origin', branchName], objectDir);
@@ -386,7 +386,7 @@ export class GitHubSyncProvider implements IStorageProvider {
   * @returns {Promise<boolean>} pushしたらtrue、差分なければfalse
   */
     public async upload(branchName: string): Promise<boolean> {
-        const objectDir = getRemotesDirUri().fsPath;
+        const objectDir = this.getRemotesDirUri().fsPath;
 
         if (!await this.isGitRepository(objectDir)) {
             logMessage("Gitリポジトリではありません。アップロードをスキップします。");
