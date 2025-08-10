@@ -66,8 +66,8 @@ export class SyncService implements ISyncService {
     try {
       logMessage('=== Starting existing repository import ===');
 
-      // 既存リモートストレージをクローン/更新
-      await this.dependencies.storageProvider.cloneExistingRemoteStorage();
+      // 既存リモートストレージをクローン
+      await this.dependencies.storageProvider.cloneRemoteStorage();
 
       // リモートデータを復号化・展開
       await this.dependencies.storageProvider.loadAndDecryptRemoteData();
@@ -103,8 +103,8 @@ export class SyncService implements ISyncService {
 
       const currentBranch = await getCurrentBranchName();
 
-      // 1. 既存リモートストレージをクローン/更新
-      const hasRemoteChanges = await this.dependencies.storageProvider.cloneExistingRemoteStorage();
+      // 1. 既存リモートストレージをpull/更新
+      const hasRemoteChanges = await this.dependencies.storageProvider.pullRemoteChanges();
       logMessage(`Remote storage changes detected: ${hasRemoteChanges}`);
 
       // 2. リモートデータを復号化・展開（リモートに変更がある場合のみ）
@@ -115,7 +115,7 @@ export class SyncService implements ISyncService {
         logMessage("No remote changes detected. Skipping decryption process.");
       }
 
-      // 3. 従来の増分同期処理を実行（リモートダウンロードはスキップ、ただしリモート変更情報を渡す）
+      // 3. 増分同期処理を実行（リモートダウンロードはスキップ、ただしリモート変更情報を渡す）
       const syncResult = await this.performTraditionalIncrementalSync(this.syncOptions, currentBranch, true, hasRemoteChanges);
 
       showInfo("既存ストレージからデータを復元し、増分同期を完了しました。");

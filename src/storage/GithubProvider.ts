@@ -60,15 +60,8 @@ export class GitHubSyncProvider implements IStorageProvider {
                 throw error;
             }
         } else {
-            logMessage('Remote repository exists. Cloning it.');
-            const cloneSuccess = await this.cloneExistingRemoteStorage();
-
-            if (cloneSuccess) {
-                await this.loadAndDecryptRemoteData();
-            } else {
-                logMessageRed('Cloning failed. Initialization incomplete.');
-                throw new Error("Failed to clone existing repository.");
-            }
+            logMessageRed('Remote repository already exists and is not empty.');
+            throw new Error("Remote repository already exists. Use the 'Import Existing Repository' command instead.");
         }
         logMessageGreen('=== Repository initialization complete ===');
     }
@@ -167,11 +160,11 @@ export class GitHubSyncProvider implements IStorageProvider {
     }
 
     /**
-     * 既存リモートストレージのクローンまたは更新
-     * 既にローカルストレージが存在する場合はpullで更新、存在しない場合はクローン
-     * @returns {Promise<boolean>} 更新があった場合はtrue
+     * 既存リモートストレージをクローンする
+     * ローカルにリポジトリが既に存在する場合、それを削除してクローンし直す
+     * @returns {Promise<boolean>} クローンが成功した場合はtrue
      */
-    public async cloneExistingRemoteStorage(): Promise<boolean> {
+    public async cloneRemoteStorage(): Promise<boolean> {
         const { exists, isEmpty } = await this.getRemoteState();
         if (!exists || isEmpty) {
             throw new Error("リモートストレージにデータが存在しません。新規ストレージを作成する場合は 'Initialize New Storage' を使用してください。");
@@ -179,36 +172,10 @@ export class GitHubSyncProvider implements IStorageProvider {
 
         const objectDir = this.getRemotesDirUri().fsPath;
 
-        // 既存のローカルストレージが存在するかチェック
-        const isExistingRepo = await this.isGitRepository(objectDir);
-
-        if (isExistingRepo) {
-            // 既存のローカルストレージがある場合はpullで更新
-            try {
-                // fetch前の現在のコミットハッシュを取得
-                const beforeHash = await this.getCurrentCommitHash(objectDir);
-                logMessage(`Current commit hash before fetch: ${beforeHash}`);
-
-                await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
-
-                // fetch後のリモートのコミットハッシュを取得
-                const afterHash = await this.getRemoteCommitHash(objectDir, 'origin/main');
-                logMessage(`Remote commit hash after fetch: ${afterHash}`);
-
-                // ハッシュが同じ場合は更新なし
-                if (beforeHash === afterHash) {
-                    logMessage('No remote updates detected. Repository is up to date.');
-                    return false;
-                }
-
-                // メインブランチに追従するように変更
-                await this.execCmd(this.gitPath, ['reset', '--hard', 'origin/main'], objectDir);
-                logMessageGreen('既存ローカルストレージを更新しました。');
-                return true;
-            } catch (error) {
-                logMessage(`既存ストレージの更新に失敗しました: ${error}`);
-                return false;
-            }
+        // 既存のローカルストレージがあれば削除
+        if (fs.existsSync(objectDir)) {
+            logMessage(`Removing existing local repository at ${objectDir} for re-cloning.`);
+            fs.rmSync(objectDir, { recursive: true, force: true });
         }
 
         // ローカルストレージが存在しない場合はクローン
@@ -223,6 +190,44 @@ export class GitHubSyncProvider implements IStorageProvider {
             return true;
         } catch (error) {
             logMessage(`クローンに失敗しました: ${error}`);
+            return false;
+        }
+    }
+
+    /**
+     * 既存のローカルリポジトリをリモートの変更で更新（pull）
+     * @returns {Promise<boolean>} 更新があった場合はtrue
+     */
+    public async pullRemoteChanges(): Promise<boolean> {
+        const objectDir = this.getRemotesDirUri().fsPath;
+        if (!await this.isGitRepository(objectDir)) {
+            logMessage('Local repository does not exist. Cannot pull changes.');
+            return false;
+        }
+
+        try {
+            // fetch前の現在のコミットハッシュを取得
+            const beforeHash = await this.getCurrentCommitHash(objectDir);
+            logMessage(`Current commit hash before fetch: ${beforeHash}`);
+
+            await this.execCmd(this.gitPath, ['fetch', 'origin'], objectDir);
+
+            // fetch後のリモートのコミットハッシュを取得
+            const afterHash = await this.getRemoteCommitHash(objectDir, 'origin/main');
+            logMessage(`Remote commit hash after fetch: ${afterHash}`);
+
+            // ハッシュが同じ場合は更新なし
+            if (beforeHash === afterHash) {
+                logMessage('No remote updates detected. Repository is up to date.');
+                return false;
+            }
+
+            // メインブランチに追従するように変更
+            await this.execCmd(this.gitPath, ['reset', '--hard', 'origin/main'], objectDir);
+            logMessageGreen('既存ローカルストレージを更新しました。');
+            return true;
+        } catch (error) {
+            logMessage(`既存ストレージの更新に失敗しました: ${error}`);
             return false;
         }
     }

@@ -29,13 +29,7 @@ let lastWindowActivationTime = 0;
 /**
  * 同期サービスの共通初期化処理
  */
-async function initializeSyncService(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider) {
-  const encryptKey = await getAESKey(context);
-  if (!encryptKey) {
-    showError("AES Key not set");
-    return null;
-  }
-
+async function initializeSyncService(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider, encryptKey: string) {
   const configManager = ServiceLocator.getConfigManager();
   const syncConfig = await configManager.createSyncConfig(context, encryptKey, branchProvider);
   configManager.validateConfig(syncConfig);
@@ -110,15 +104,11 @@ interface RepositoryInitializationConfig {
 async function handleRepositoryInitialization(
   context: vscode.ExtensionContext,
   branchProvider: IBranchTreeViewProvider,
+  encryptKey: string,
   config: RepositoryInitializationConfig
 ) {
   return executeSyncOperation(async () => {
-    const serviceData = await initializeSyncService(context, branchProvider);
-    if (!serviceData) {
-      return false;
-    }
-
-    const { syncService, options } = serviceData;
+    const { syncService, options } = await initializeSyncService(context, branchProvider, encryptKey);
 
     const shouldProceed = await confirmRepositoryReinitialization(
       syncService,
@@ -168,8 +158,8 @@ async function handleGenerateAESKey(context: vscode.ExtensionContext) {
 }
 
 
-async function handleInitializeNewRepository(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider) {
-  return handleRepositoryInitialization(context, branchProvider, {
+async function handleInitializeNewRepository(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider, encryptKey: string) {
+  return handleRepositoryInitialization(context, branchProvider, encryptKey, {
     confirmationMessage: "ローカルリポジトリが既に存在します。新規リポジトリとして再初期化しますか？ (現在のローカルデータは削除されます)",
     cancelMessage: "新規リポジトリの初期化をキャンセルしました。",
     errorPrefix: "New repository initialization failed",
@@ -177,8 +167,8 @@ async function handleInitializeNewRepository(context: vscode.ExtensionContext, b
   });
 }
 
-async function handleImportExistingRepository(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider) {
-  return handleRepositoryInitialization(context, branchProvider, {
+async function handleImportExistingRepository(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider, encryptKey: string) {
+  return handleRepositoryInitialization(context, branchProvider, encryptKey, {
     confirmationMessage: "ローカルリポジトリが既に存在します。既存リモートリポジトリで上書きしますか？ (現在のローカルデータは削除されます)",
     cancelMessage: "既存リポジトリの取り込みをキャンセルしました。",
     errorPrefix: "Existing repository import failed",
@@ -186,12 +176,9 @@ async function handleImportExistingRepository(context: vscode.ExtensionContext, 
   });
 }
 
-async function handleSyncNotes(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider) {
+async function handleSyncNotes(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider, encryptKey: string) {
   return executeSyncOperation(async () => {
-    const serviceData = await initializeSyncService(context, branchProvider);
-    if (!serviceData) { return false; }
-
-    const { syncService, options } = serviceData;
+    const { syncService, options } = await initializeSyncService(context, branchProvider, encryptKey);
 
     const isInitialized = await syncService.isRepositoryInitialized();
     if (!isInitialized) {
@@ -396,9 +383,9 @@ export async function activate(context: vscode.ExtensionContext) {
   vscode.window.createTreeView("secureNotes.indexHistory", { treeDataProvider: indexHistoryProvider });
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("secureNotes.initializeNewStorage", () => handleInitializeNewRepository(context, branchProvider)),
-    vscode.commands.registerCommand("secureNotes.importExistingStorage", () => handleImportExistingRepository(context, branchProvider)),
-    vscode.commands.registerCommand("secureNotes.sync", () => handleSyncNotes(context, branchProvider)),
+    vscode.commands.registerCommand("secureNotes.initializeNewStorage", commandWithKey(context, (key) => handleInitializeNewRepository(context, branchProvider, key))),
+    vscode.commands.registerCommand("secureNotes.importExistingStorage", commandWithKey(context, (key) => handleImportExistingRepository(context, branchProvider, key))),
+    vscode.commands.registerCommand("secureNotes.sync", commandWithKey(context, (key) => handleSyncNotes(context, branchProvider, key))),
     vscode.commands.registerCommand("secureNotes.setAESKey", () => handleSetAESKey(context)),
     vscode.commands.registerCommand("secureNotes.generateAESKey", () => handleGenerateAESKey(context)),
     vscode.commands.registerCommand("secureNotes.copyAESKeyToClipboard", () => handleCopyAESKeyToClipboard(context)),

@@ -25,10 +25,16 @@ export interface IStorageProvider {
     hasRemoteData(): Promise<boolean>;
 
     /**
-     * 既存のリモートストレージをクローン/更新
-     * @returns 変更があった場合はtrue
+     * 既存のリモートストレージをクローンする
+     * @returns クローンが成功した場合はtrue
      */
-    cloneExistingRemoteStorage(): Promise<boolean>;
+    cloneRemoteStorage(): Promise<boolean>;
+
+    /**
+     * 既存のローカルリポジトリをリモートの変更で更新（pull）
+     * @returns 更新があった場合はtrue
+     */
+    pullRemoteChanges(): Promise<boolean>;
 
     /**
      * リモートデータを復号化・展開
