@@ -1,7 +1,5 @@
 import * as vscode from "vscode";
-import * as os from "os";
 import { logMessage, showInfo, showError, showOutputTerminal } from "./logger";
-import { BranchTreeViewProvider } from "./BranchTreeViewProvider";
 import {
   LocalObjectManager,
   setCurrentBranchName,
