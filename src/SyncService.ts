@@ -5,6 +5,8 @@ import { IStorageProvider } from "./storage/IStorageProvider";
 import { IndexFile } from "./types";
 import { ISyncService, SyncOptions } from "./interfaces/ISyncService";
 import { IBranchTreeViewProvider } from "./interfaces/IBranchTreeViewProvider";
+import { ServiceLocator } from "./container/ServiceLocator";
+import { ServiceKeys } from "./container/ServiceKeys";
 
 export interface SyncDependencies {
   localObjectManager: LocalObjectManager;
@@ -20,7 +22,14 @@ export class SyncService implements ISyncService {
   constructor(dependencies: SyncDependencies, context: vscode.ExtensionContext, syncOptions: SyncOptions) {
     this.dependencies = dependencies;
     this.syncOptions = syncOptions;
-    this.localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, syncOptions.encryptionKey);
+    // Prefer DI container; fallback to provided dependency or direct instantiation
+    if (ServiceLocator.isInitialized() && ServiceLocator.isRegistered(ServiceKeys.LOCAL_OBJECT_MANAGER)) {
+      this.localObjectManager = ServiceLocator.getLocalObjectManager();
+    } else if (dependencies.localObjectManager) {
+      this.localObjectManager = dependencies.localObjectManager;
+    } else {
+      this.localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, syncOptions.encryptionKey);
+    }
   }
 
   /**
@@ -69,9 +78,6 @@ export class SyncService implements ISyncService {
       // 既存リモートストレージをクローン
       await this.dependencies.storageProvider.cloneRemoteStorage();
 
-      // リモートデータを復号化・展開
-      await this.dependencies.storageProvider.loadAndDecryptRemoteData();
-
       // リモートの最新インデックスを取得してローカルに設定
       const remoteIndex = await this.localObjectManager.loadRemoteIndex(this.syncOptions);
       await this.localObjectManager.saveWsIndexFile(remoteIndex, this.syncOptions);
@@ -106,14 +112,6 @@ export class SyncService implements ISyncService {
       // 1. 既存リモートストレージをpull/更新
       const hasRemoteChanges = await this.dependencies.storageProvider.pullRemoteChanges();
       logMessage(`Remote storage changes detected: ${hasRemoteChanges}`);
-
-      // 2. リモートデータを復号化・展開（リモートに変更がある場合のみ）
-      if (hasRemoteChanges) {
-        logMessage("Remote changes detected. Loading and decrypting remote data...");
-        await this.dependencies.storageProvider.loadAndDecryptRemoteData();
-      } else {
-        logMessage("No remote changes detected. Skipping decryption process.");
-      }
 
       // 3. 増分同期処理を実行（リモートダウンロードはスキップ、ただしリモート変更情報を渡す）
       const syncResult = await this.performTraditionalIncrementalSync(this.syncOptions, currentBranch, true, hasRemoteChanges);
@@ -328,4 +326,3 @@ export class SyncService implements ISyncService {
     return { ...this.syncOptions };
   }
 }
-

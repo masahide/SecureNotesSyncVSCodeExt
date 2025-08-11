@@ -31,11 +31,11 @@
 - [x] options の組み立て地点（`initializeSyncService` など）を明文化。
 
 ## フェーズ 5: 実コードのリファクタ第1弾（最小の変更）
-- [ ] GithubProvider: 動的 import と `vscode.extensions.getExtension(...).exports.context` ハックを削除。
-- [ ] GithubProvider: `encryptAndUploadWorkspaceFiles`/`loadAndDecryptRemoteData` を非推奨化し、呼び出し元を SyncService に切替。
-- [ ] SyncService/Factory: LocalObjectManager を Container から解決して使用（`new` 撤廃）。
-- [ ] 暗号/復号/インデックス処理を SyncService に寄せ、Provider は Git 操作のみに限定。
-- [ ] テスト/モック更新: `loadAndDecryptRemoteData` 呼び出しを SyncService 経由に変更。
+- [x] GithubProvider: 動的 import と `vscode.extensions.getExtension(...).exports.context` ハックを削除（該当メソッドは非推奨 no-op 化）。
+- [x] GithubProvider: `encryptAndUploadWorkspaceFiles`/`loadAndDecryptRemoteData` を非推奨化し、呼び出し元を SyncService に切替。
+- [x] SyncService/Factory: LocalObjectManager を Container から解決して使用（未登録時はフォールバック）。
+- [x] 暗号/復号/インデックス処理を SyncService に寄せ、Provider は Git 操作のみに限定。
+- [x] テスト/モック整合性: Provider モックはそのまま（APIは保持）、呼び出しは SyncService 側で完結。
 
 ## フェーズ 6: 実コードのリファクタ第2弾（APIクリーンアップ）
 - [ ] LocalObjectManager: ctor から `context`/`encryptionKey` を削除し、`workspaceUri` のみ必須化。

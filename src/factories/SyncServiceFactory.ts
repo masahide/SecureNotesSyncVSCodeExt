@@ -7,6 +7,8 @@ import { IStorageProvider } from '../storage/IStorageProvider';
 import { SyncService, SyncDependencies } from '../SyncService';
 import { GitHubSyncProvider } from '../storage/GithubProvider';
 import { LocalObjectManager } from '../storage/LocalObjectManager';
+import { ServiceLocator } from '../container/ServiceLocator';
+import { ServiceKeys } from '../container/ServiceKeys';
 
 /**
  * 同期サービスファクトリーの実装
@@ -23,7 +25,10 @@ export class SyncServiceFactory implements ISyncServiceFactory {
     };
 
     const storageProvider = this.createStorageProvider(storageConfig, config.encryptionKey);
-    const localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, config.encryptionKey);
+    // Prefer DI container; fallback to direct instantiation if not registered
+    const localObjectManager = ServiceLocator.isRegistered(ServiceKeys.LOCAL_OBJECT_MANAGER)
+      ? ServiceLocator.getLocalObjectManager()
+      : new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, config.encryptionKey);
 
     const dependencies: SyncDependencies = {
       localObjectManager,

@@ -66,14 +66,7 @@ export class GitHubSyncProvider implements IStorageProvider {
         } else if (isEmpty) {
             logMessage('Remote repository is empty. Initializing for an empty remote.');
             await this.initializeEmptyRemoteRepository();
-            try {
-                await this.encryptAndUploadWorkspaceFiles();
-                logMessageGreen('Workspace files uploaded to empty remote repository.');
-            } catch (error) {
-                logMessage(`Failed to upload workspace files: ${error}`);
-                // Propagate error to let the caller know initialization failed.
-                throw error;
-            }
+            // 暗号化・アップロードは SyncService 側に移管（Provider では実施しない）
         } else {
             logMessageRed('Remote repository already exists and is not empty.');
             throw new Error("Remote repository already exists. Use the 'Import Existing Repository' command instead.");
@@ -250,114 +243,23 @@ export class GitHubSyncProvider implements IStorageProvider {
     /**
      * 空のリポジトリに対してワークスペースファイルを暗号化・アップロード
      */
+    /**
+     * @deprecated 暗号化・アップロードは SyncService 側に移管しました（no-op）。
+     */
     public async encryptAndUploadWorkspaceFiles(): Promise<void> {
-        try {
-            const workspaceUri = this.workspaceUri;
-            // 暗号化キーを取得
-            if (!this.encryptionKey) {
-                logMessage('暗号化キーが設定されていません。ワークスペースファイルの暗号化をスキップします。');
-                return;
-            }
-
-            const { LocalObjectManager } = await import('./LocalObjectManager');
-            const localObjectManager = new LocalObjectManager(
-                workspaceUri.fsPath,
-                vscode.extensions.getExtension('rovodev.secure-notes-sync')!.exports.context, // FIXME: this is a hack
-                this.encryptionKey
-            );
-
-            const indexFile = await localObjectManager.encryptAndSaveWorkspaceFiles();
-            logMessage(`ワークスペースファイルを暗号化・保存: ${indexFile.files.length}ファイル`);
-
-            // 初期コミット&プッシュ
-            const objectDir = this.getRemotesDirUri().fsPath;
-
-            // 必要なディレクトリ構造を確保
-            const indexesDir = vscode.Uri.joinPath(this.getRemotesDirUri(), 'indexes');
-            const filesDir = vscode.Uri.joinPath(this.getRemotesDirUri(), 'files');
-            const refsDir = vscode.Uri.joinPath(this.getRemotesDirUri(), 'refs');
-
-            await vscode.workspace.fs.createDirectory(indexesDir);
-            await vscode.workspace.fs.createDirectory(filesDir);
-            await vscode.workspace.fs.createDirectory(refsDir);
-
-            await this.execCmd(this.gitPath, ['add', '.'], objectDir);
-            await this.commitIfNeeded(objectDir, 'Initial commit with encrypted workspace files');
-
-            try {
-                await this.execCmd(this.gitPath, ['push', '-u', 'origin', 'main'], objectDir);
-                logMessageGreen('ワークスペースファイルを暗号化してリモートにプッシュしました。');
-            } catch (error) {
-                logMessage(`リモートpushに失敗しました（テスト環境の可能性）: ${error}`);
-                throw error; // エラーを再スローして処理を中断
-            }
-        } catch (error) {
-            logMessage(`ワークスペースファイルの暗号化中にエラーが発生: ${error}`);
-            logMessage('テスト環境での制限を考慮してエラーを無視します。');
-        }
+        logMessage('encryptAndUploadWorkspaceFiles() is deprecated and is now a no-op.');
+        return;
     }
 
     /**
      * クローンしたリモートデータの読み込み・復号化・展開
      */
+    /**
+     * @deprecated 復号化・展開は SyncService 側に移管しました（no-op）。
+     */
     public async loadAndDecryptRemoteData(): Promise<void> {
-        try {
-            // LocalObjectManagerを使用してリモートデータを復号化・展開
-            const workspaceUri = this.workspaceUri;
-
-            // 暗号化キーを取得
-            if (!this.encryptionKey) {
-                logMessage('暗号化キーが設定されていません。復号化をスキップします。');
-                return;
-            }
-
-            const { LocalObjectManager } = await import('./LocalObjectManager');
-            const localObjectManager = new LocalObjectManager(
-                workspaceUri.fsPath,
-                vscode.extensions.getExtension('rovodev.secure-notes-sync')!.exports.context, // FIXME: this is a hack
-                this.encryptionKey
-            );
-
-            // リモートインデックスファイルを読み込み
-            const remoteIndexes = await localObjectManager.loadRemoteIndexes();
-
-            if (remoteIndexes.length === 0) {
-                logMessage('リモートインデックスファイルが見つかりません。');
-                return;
-            }
-
-            // 最新のインデックスを特定
-            const latestIndex = await localObjectManager.findLatestIndex(remoteIndexes);
-
-            // ワークスペースインデックスを更新
-            await localObjectManager.updateWorkspaceIndex(latestIndex);
-
-            // 現在のワークスペースインデックスを取得
-            const currentWsIndex = await localObjectManager.loadWsIndex({
-                encryptionKey: this.encryptionKey!,
-                environmentId: 'default'
-            });
-
-            // 各ファイルを復号化・復元（差分があるファイルのみ）
-            for (const fileEntry of latestIndex.files) {
-                if (!fileEntry.deleted) {
-                    // 現在のワークスペースインデックスから同じパスのファイルを検索
-                    const currentFileEntry = currentWsIndex.files.find(f => f.path === fileEntry.path);
-
-                    // ファイルが新規追加された場合、または内容が変更された場合のみ復元
-                    if (!currentFileEntry || currentFileEntry.hash !== fileEntry.hash) {
-                        logMessage(`復号化・復元中: ${fileEntry.path} (${!currentFileEntry ? 'new file' : 'hash changed'})`);
-                        await localObjectManager.decryptAndRestoreFile(fileEntry);
-                    }
-                }
-            }
-
-            logMessageGreen('リモートデータの復号化・展開が完了しました。');
-        } catch (error) {
-            logMessage(`リモートデータの復号化・展開中にエラーが発生しました: ${error}`);
-            // テスト環境では暗号化キーが設定されていない可能性があるため、エラーを無視
-            logMessage('テスト環境での制限を考慮してエラーを無視します。');
-        }
+        logMessage('loadAndDecryptRemoteData() is deprecated and is now a no-op.');
+        return;
     }
 
     /**
