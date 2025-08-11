@@ -75,7 +75,7 @@
 
 #### Storage Operations
 1. Use `LocalObjectManager` for local encryption/decryption
-2. Use `GithubProvider` for remote Git operations
+2. Use `GitHubSyncProvider` (file: `src/storage/GithubProvider.ts`) for remote Git operations
 3. Follow the storage provider interface pattern
 4. Handle conflicts gracefully with user notification
 5. Handle Git operation failures gracefully, allowing the process to continue where possible.
@@ -155,3 +155,37 @@ This project prioritizes security and user data protection. When suggesting chan
 - Test thoroughly with encrypted data scenarios
 
 The codebase is well-structured with clear separation of concerns. The storage layer is abstracted to allow for different providers (currently GitHub), and the encryption layer ensures all sensitive data is protected before storage.
+
+## Configuration Schema
+
+### Required Settings
+- `SecureNotesSync.gitRemoteUrl` — GitHub repository URL (e.g., `git@github.com:user/repo.git`).
+
+### Optional Settings
+- `SecureNotesSync.enableAutoSync` — Enable auto sync on save (default: false).
+- `SecureNotesSync.inactivityTimeoutSec` — Sync on refocus if inactive for N seconds (default: 60).
+- `SecureNotesSync.saveSyncTimeoutSec` — Delay after save before sync (default: 5).
+- `SecureNotesSync.onePasswordUri` — `op://…` URI to fetch AES key via 1Password CLI.
+- `SecureNotesSync.onePasswordAccount` — 1Password account to use.
+- `SecureNotesSync.onePasswordCacheTimeout` — Key cache duration (e.g., `30d`).
+
+## Commands
+
+### Core Operations
+- `secureNotes.sync` — Manual sync with GitHub.
+- `secureNotes.initializeNewStorage` — Initialize new storage.
+- `secureNotes.importExistingStorage` — Import existing storage.
+- `secureNotes.previewIndex` — Preview current index JSON.
+
+### Branch & Index
+- `secureNotes.createBranchFromIndex` — Create a branch from selected index.
+- `secureNotes.checkoutBranch` — Switch to selected branch.
+
+### Key Management
+- `secureNotes.generateAESKey` — Generate a new AES key.
+- `secureNotes.setAESKey` — Manually set AES key.
+- `secureNotes.copyAESKeyToClipboard` — Copy current key to clipboard.
+- `secureNotes.refreshAESKey` — Refresh key from 1Password.
+
+### Utilities
+- `secureNotes.insertCurrentTime` — Insert a timestamp into the active editor.
