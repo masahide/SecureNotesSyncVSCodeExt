@@ -70,6 +70,10 @@ export class LocalObjectManager {
   private getRootUri(): vscode.Uri {
     return vscode.Uri.file(this.workspaceDir);
   }
+  private toRelPath(uri: vscode.Uri): string {
+    const rel = path.relative(this.workspaceDir, uri.fsPath);
+    return normalizeFilePath(rel || uri.fsPath);
+  }
   private getSecureNotesUri(): vscode.Uri {
     return vscode.Uri.joinPath(this.getRootUri(), secureNotesDir);
   }
@@ -246,7 +250,7 @@ export class LocalObjectManager {
       // objects directory に保存
       const encryptedFileUri = this.getHashFilePathUri(file.hash);
       await vscode.workspace.fs.writeFile(encryptedFileUri, encryptedContent);
-      logMessage(`save file:${file.path}, to:${encryptedFileUri.path}`);
+      logMessage(`save file:${file.path}, to:${this.toRelPath(encryptedFileUri)}`);
       updated = true;
     }
     return updated;
@@ -295,7 +299,7 @@ export class LocalObjectManager {
 
       return indexFile;
     } catch (error) {
-      logMessage(`Latest index file not found. Creating new index`);
+      logMessage(`Latest index file not found at: ${this.toRelPath(this.getWsIndexUri())}. Creating new index`);
       return {
         uuid: "",
         parentUuids: [],
@@ -330,7 +334,7 @@ export class LocalObjectManager {
 
       return indexFile;
     } catch (error) {
-      logMessage(`Remote index file not found. Creating new index`);
+      logMessage(`Remote ref not found at: ${this.toRelPath(this.getRemoteRefBranchUri())}. Creating new index`);
       return {
         uuid: "",
         parentUuids: [],

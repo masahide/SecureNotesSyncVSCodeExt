@@ -73,6 +73,7 @@
   - [x] ctor から `context`/`encryptionKey` を完全削除（破壊的変更）。
   - [x] `this.workspaceUri` 由来で全パス解決を統一（`getRootUri()` 参照を置換）。
   - [ ] 例外メッセージを `workspaceUri` 起点の相対パスで統一。
+    - [x] 主要箇所（wsIndex/refs 読み込み失敗、暗号化保存の出力先ログ）を相対表記に修正。
   - [ ] 公開メソッドが `LocalObjectManagerOptions` を受けるか確認し、未対応があれば追加。
 - [ ] `src/SyncService.ts`/`src/factories/SyncServiceFactory.ts`:
   - [x] `new LocalObjectManager(...)` を完全撤去し、ServiceLocator 経由に置換。
@@ -82,8 +83,8 @@
   - [x] コンストラクタから未使用の `encryptionKey` 引数を削除、呼び出し側（Factory/Tests）を更新。
   - [x] 呼び出し側の import/参照を削除しビルド通過を確認。
 - [ ] 破壊的変更の追従:
-  - [ ] 影響ファイルの網羅検索（`encryptAndUploadWorkspaceFiles`/`loadAndDecryptRemoteData`/`getRootUri`）。
-  - [ ] ドキュメントの該当記述を更新（本 todo, docs/github-provider-plan.md）。
+  - [x] 影響ファイルの網羅検索（`encryptAndUploadWorkspaceFiles`/`loadAndDecryptRemoteData`/`getRootUri`）。
+  - [x] ドキュメントの該当記述を更新（本 todo, docs/github-provider-plan.md）。
 
 ## フェーズ 7 詳細タスク（フォールバック削除）
 - [ ] `getRootUri()` を段階的に廃止：

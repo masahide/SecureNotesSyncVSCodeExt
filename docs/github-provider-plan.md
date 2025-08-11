@@ -1,4 +1,4 @@
-# GitHub Provider Responsibility Minimization (Phase 3)
+# GitHub Provider Responsibility Minimization (Phase 3 → 6 完了)
 
 目的: GitHub プロバイダーを Git I/O に特化させ、暗号/復号・インデックス操作は SyncService + LocalObjectManager に集約する。
 
@@ -6,7 +6,7 @@
 - Provider は Git 操作のみ担当（init/remote add/clone/fetch/reset/checkout/push）。
 - 暗号/復号（`encryptAndUploadWorkspaceFiles` / `loadAndDecryptRemoteData`）は SyncService 側で実施。
 - Provider から `LocalObjectManager` への依存は持たない（動的 import および `vscode.extensions.getExtension(...).exports.context` ハックは禁止）。
-- 本フェーズでは破壊的変更は行わず、呼び出し元の移動（オーケストレーション）で置き換える。完全削除はフェーズ6。
+- 本フェーズでは破壊的変更は行わず、呼び出し元の移動（オーケストレーション）で置き換える。暗号関連 API の完全削除はフェーズ6で実施済み。
 
 ## 対象フローと役割分担
 
@@ -53,3 +53,15 @@
 - 設計ドキュメント（本書）の合意。
 - todo.md のフェーズ3項目を「設計確定/影響洗い出し済み」としてチェック。
 
+---
+
+実装状況（サマリー）
+- フェーズ5: 呼び出し移行（暗号/復号を SyncService 側へ）完了。
+- フェーズ6: 破壊的変更を完了。
+  - IStorageProvider から暗号関連メソッドを削除。
+  - GitHubSyncProvider から暗号化責務と関連引数を削除（Git I/O のみに特化）。
+  - LocalObjectManager は `workspaceUri` 必須、鍵は options 渡しに一本化。
+
+今後（フェーズ8）
+- README/アーキテクチャ図の責務分離を更新。
+- ESLint/規約に dynamic import と `vscode.extensions.getExtension` 禁止を明記。
