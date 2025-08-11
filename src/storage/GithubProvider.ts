@@ -26,19 +26,13 @@ export class GitHubSyncProvider implements IStorageProvider {
      */
     private readonly workspaceUri: vscode.Uri;
 
-    constructor(gitRemoteUrl: string, workspaceUri?: vscode.Uri) {
+    constructor(gitRemoteUrl: string, workspaceUri: vscode.Uri) {
         this.gitRemoteUrl = gitRemoteUrl;
         this.gitPath = findGitExecutable();
         if (!workspaceUri) {
-            // テスト環境でワークスペースが設定されていない場合のフォールバック
-            const path = require('path');
-            const os = require('os');
-            const tempDir = path.join(os.tmpdir(), 'fallback-workspace');
-            this.workspaceUri = vscode.Uri.file(tempDir);
-            logMessage(`workspaceUri not provided. Using fallback directory: ${this.workspaceUri.fsPath}`);
-        } else {
-            this.workspaceUri = workspaceUri;
+            throw new Error('workspaceUri is required for GitHubSyncProvider');
         }
+        this.workspaceUri = workspaceUri;
         logMessage(`gitPath: ${this.gitPath}`);
         const currentRemotesDirUri = this.getRemotesDirUri();
         logMessage(`remotesDirPath: ${currentRemotesDirUri.fsPath}`);

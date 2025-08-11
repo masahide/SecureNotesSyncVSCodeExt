@@ -47,10 +47,10 @@
 進捗: LocalObjectManager のコンストラクタを `workspaceUri` のみ（+任意の environmentId）に簡素化し、`context`/`encryptionKey` を削除済み。内部のパス解決は `this.workspaceUri` ベースへ全面置換済み（`getRootUri()` 依存を撤去）。`loadRemoteIndexes`/`saveIndexFile`/`saveBranchRef`/`readBranchRef` へ options を導入し、呼び出し側も更新済み。
 
 ## フェーズ 7: フォールバック削除と不変条件の導入
-- [ ] workspaceUri フォールバック（temp ディレクトリ等）の削除。必須 DI に一本化。
-- [ ] 不変条件のテスト追加：
-  - [ ] LocalObjectManager: 生成後に workspaceUri が固定であること。
-  - [ ] GithubProvider: コンストラクタ以降に workspaceUri が変更されないこと。
+- [x] workspaceUri フォールバック（temp ディレクトリ等）の削除。必須 DI に一本化。
+- [x] 不変条件のテスト追加：
+  - [x] LocalObjectManager: 生成後に workspaceUri が固定であること（workspaceFolders を切替えても参照が変わらない）。
+  - [x] GithubProvider: コンストラクタ以降に workspaceUri が変更されないこと（コンストラクタ必須化＋内部値検証）。
 
 ## フェーズ 8: ドキュメント更新とルール化
 - [ ] README/docs 更新: 新アーキテクチャ図、責務分離、フロー（初期化/取り込み/同期）を更新。

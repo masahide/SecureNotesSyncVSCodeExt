@@ -8,7 +8,6 @@ import { ISyncServiceFactory } from '../interfaces/ISyncServiceFactory';
 import { IStorageProvider } from '../storage/IStorageProvider';
 import { SyncServiceFactory } from '../factories/SyncServiceFactory';
 import { GitHubSyncProvider } from '../storage/GithubProvider';
-import { LocalObjectManager } from '../storage/LocalObjectManager';
 import { ConfigManager } from '../config/ConfigManager';
 import { BranchTreeViewProvider } from '../BranchTreeViewProvider';
 
@@ -70,7 +69,12 @@ export class ContainerBuilder {
     // GitHub Provider（一時的 - 設定に依存するため）
     this.container.registerTransient<GitHubSyncProvider>(
       ServiceKeys.GITHUB_PROVIDER,
-      (remoteUrl: string) => new GitHubSyncProvider(remoteUrl, vscode.workspace.workspaceFolders?.[0]?.uri)
+      (remoteUrl: string) => {
+        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+          throw new Error('No workspace folder found for GitHub provider');
+        }
+        return new GitHubSyncProvider(remoteUrl, vscode.workspace.workspaceFolders[0].uri);
+      }
     );
 
     return this;
@@ -161,7 +165,7 @@ class MockSyncServiceFactory implements ISyncServiceFactory {
       initializeNewStorage: async () => true,
       importExistingStorage: async () => true,
       performIncrementalSync: async () => true,
-      updateSyncOptions: (context: vscode.ExtensionContext, options: SyncOptions) => {},
+      updateSyncOptions: (context: vscode.ExtensionContext, options: SyncOptions) => { },
       getSyncOptions: (): SyncOptions => ({ environmentId: 'test', encryptionKey: 'test' })
     };
   }
