@@ -7,11 +7,11 @@
 - [x] 目標設計を宣言（責務分離: Storage=Git I/O、LocalObjectManager=暗号/インデックス、SyncService=オーケストレーション、DI 一本化、workspaceUri/鍵の注入方針）。
 
 ## フェーズ 1: API 方針の確定（仕様・下準備）
-- [ ] IStorageProvider 仕様案を策定（`loadAndDecryptRemoteData()` を非推奨化し将来削除、暗号は SyncService 側へ移管）。
-- [ ] LocalObjectManager API 方針を確定：
-  - [ ] ctor は `workspaceUri` のみ必須、`context`/`encryptionKey` は受け取らない方針。
-  - [ ] すべてのメソッドで `LocalObjectManagerOptions { environmentId, encryptionKey }` を受ける形に統一。
-- [ ] workspaceUri 方針: すべて DI 注入。`getRootUri()` フォールバックは段階的に廃止。
+- [x] IStorageProvider 仕様案を策定（`loadAndDecryptRemoteData()` を非推奨化し将来削除、暗号は SyncService 側へ移管）。
+- [x] LocalObjectManager API 方針を確定：
+  - [x] ctor は `workspaceUri` のみ必須、`context`/`encryptionKey` は受け取らない方針。
+  - [x] すべてのメソッドで `LocalObjectManagerOptions { environmentId, encryptionKey }` を受ける形に統一。
+- [x] workspaceUri 方針: すべて DI 注入。`getRootUri()` フォールバックは段階的に廃止。
 
 ## フェーズ 2: DI 体制の整備（非破壊の導入）
 - [ ] Container/ServiceLocator に LocalObjectManager の解決経路を公式化（既存の registerInstance の方針を明確化）。
