@@ -1,4 +1,7 @@
 # Repository Guidelines
+## Agent Communication
+- Responses: 日本語で回答すること（ユーザーやテストで別言語が明示された場合を除く）。
+- 例外: コードの識別子・API 名や定数は従来どおり英語を維持。
 ## Project Structure & Module Organization
 - Source: `src/` (entry: `src/extension.ts`); services in `container/`, factories in `factories/`, contracts in `interfaces/`, storage in `storage/`, configuration in `config/`.
 - Views: `BranchTreeViewProvider.ts`, `IndexHistoryProvider.ts`.

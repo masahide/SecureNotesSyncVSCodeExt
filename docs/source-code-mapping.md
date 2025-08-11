@@ -43,7 +43,7 @@
 |------|-------------|------------------|
 | 活性化条件チェック | `package.json` | `activationEvents` |
 | 初期化処理 | `src/extension.ts` | `activate()` |
-| 環境ID生成 | `src/extension.ts` | `getOrCreateEnvironmentId()` |
+| 環境ID生成 | `src/config/ConfigManager.ts` | `getOrCreateEnvironmentId()` |
 | ログターミナル作成 | `src/logger.ts` | `showOutputTerminal()` |
 | コマンド登録 | `src/extension.ts` | `vscode.commands.registerCommand()` |
 | ブランチツリービュー初期化 | `src/BranchTreeViewProvider.ts` | `constructor()` |
@@ -97,9 +97,10 @@
 |------|-------------|------------------|
 | リモートダウンロード | `src/storage/GithubProvider.ts` | `download()` |
 | リモートアップロード | `src/storage/GithubProvider.ts` | `upload()` |
-| Gitリポジトリ初期化 | `src/storage/GithubProvider.ts` | `initializeGitRepo()` |
-| ブランチチェックアウト | `src/storage/GithubProvider.ts` | `checkoutBranch()` |
-| リモートブランチ存在確認 | `src/storage/GithubProvider.ts` | `remoteBranchExists()` |
+| 新規リポジトリ初期化 | `src/storage/GithubProvider.ts` | `initializeNewRemoteRepository()` |
+| 空リモート初期化 | `src/storage/GithubProvider.ts` | `initializeEmptyRemoteRepository()` |
+| リモート変更取得 | `src/storage/GithubProvider.ts` | `pullRemoteChanges()` |
+| リモートクローン | `src/storage/GithubProvider.ts` | `cloneRemoteStorage()` |
 | Gitコマンド実行 | `src/storage/GithubProvider.ts` | `execCmd()` |
 | Git実行ファイル検索 | `src/storage/GithubProvider.ts` | `findGitExecutable()` |
 
@@ -151,14 +152,17 @@
 
 | コマンド | 実装ファイル | 実装変数名 |
 |----------|-------------|-----------|
-| `extension.generateAESKey` | `src/extension.ts` | `generateAESKeyCommand` |
-| `extension.setAESKey` | `src/extension.ts` | `setAESKeyCommand` |
-| `extension.syncNotes` | `src/extension.ts` | `syncCommand` |
-| `extension.refreshAESKey` | `src/extension.ts` | `refreshAESKeyCommand` |
-| `extension.copyAESKeyToClipboard` | `src/extension.ts` | `copyAESKeyCommand` |
-| `extension.insertCurrentTime` | `src/extension.ts` | `insertCurrentTimeCommand` |
-| `extension.createBranchFromIndex` | `src/extension.ts` | `createBranchFromIndex` |
-| `extension.checkoutBranch` | `src/extension.ts` | `checkoutBranch` |
+| `secureNotes.generateAESKey` | `src/extension.ts` | `handleGenerateAESKey` |
+| `secureNotes.setAESKey` | `src/extension.ts` | `handleSetAESKey` |
+| `secureNotes.sync` | `src/extension.ts` | `handleSyncNotes` |
+| `secureNotes.refreshAESKey` | `src/extension.ts` | `handleRefreshAESKey` |
+| `secureNotes.copyAESKeyToClipboard` | `src/extension.ts` | `handleCopyAESKeyToClipboard` |
+| `secureNotes.insertCurrentTime` | `src/extension.ts` | `handleInsertCurrentTime` |
+| `secureNotes.createBranchFromIndex` | `src/extension.ts` | `handleCreateBranchFromIndex` |
+| `secureNotes.checkoutBranch` | `src/extension.ts` | `handleCheckoutBranch` |
+| `secureNotes.initializeNewStorage` | `src/extension.ts` | `handleInitializeNewRepository` |
+| `secureNotes.importExistingStorage` | `src/extension.ts` | `handleImportExistingRepository` |
+| `secureNotes.previewIndex` | `src/extension.ts` | inline handler |
 
 ---
 

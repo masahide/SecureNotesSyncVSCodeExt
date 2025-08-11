@@ -53,8 +53,8 @@ interface ISyncService {
 ### 5. コマンド体系の整理
 
 #### 更新されたコマンド
-- `secureNotes.initializeNewRepository`: 新規リポジトリ初期化
-- `secureNotes.importExistingRepository`: 既存リポジトリ取り込み
+- `secureNotes.initializeNewStorage`: 新規ストレージ初期化
+- `secureNotes.importExistingStorage`: 既存ストレージ取り込み
 - `secureNotes.sync`: 増分同期
 - `secureNotes.previewIndex`: インデックスプレビュー
 

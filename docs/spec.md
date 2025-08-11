@@ -88,13 +88,15 @@ interface FileEntry {
 ```typescript
 interface ISyncService {
   isRepositoryInitialized(): Promise<boolean>;
-  initializeNewRepository(options: SyncOptions): Promise<boolean>;
-  importExistingRepository(options: SyncOptions): Promise<boolean>;
-  performIncrementalSync(options: SyncOptions): Promise<boolean>;
+  initializeNewStorage(): Promise<boolean>;
+  importExistingStorage(): Promise<boolean>;
+  performIncrementalSync(): Promise<boolean>;
+  updateSyncOptions(context: vscode.ExtensionContext, options: SyncOptions): void;
+  getSyncOptions(): SyncOptions;
 }
 
 interface ISyncServiceFactory {
-  createSyncService(config: SyncConfig): ISyncService;
+  createSyncService(config: SyncConfig, context: vscode.ExtensionContext): ISyncService;
   createStorageProvider(config: StorageConfig, encryptionKey: string): IStorageProvider;
 }
 ```
@@ -184,7 +186,7 @@ graph TD
 
 コマンドが分離されたことにより、処理フローが明確になりました。
 
-#### A. 新規リポジトリ初期化フロー (`initializeNewRepository`)
+#### A. 新規ストレージ初期化フロー (`initializeNewStorage`)
 
 ```mermaid
 graph TD
@@ -202,7 +204,7 @@ graph TD
     E --> K[処理中断];
 ```
 
-#### B. 既存リポジトリ取り込みフロー (`importExistingRepository`)
+#### B. 既存ストレージ取り込みフロー (`importExistingStorage`)
 
 ```mermaid
 graph TD
@@ -375,9 +377,9 @@ graph TD
 
 ### 初期化コマンド
 
-#### `Secure Notes: Initialize New Repository`
-- **コマンドID**: `secureNotes.initializeNewRepository`
-- **目的**: 新規リモートリポジトリを作成して初期化
+#### `Secure Notes: Initialize New Storage`
+- **コマンドID**: `secureNotes.initializeNewStorage`
+- **目的**: 新規リモートストレージを作成して初期化
 - **使用場面**: 新しいプロジェクトを開始する場合
 - **処理内容**:
   - リモートリポジトリの存在・データ確認
@@ -385,9 +387,9 @@ graph TD
   - 新規リポジトリとして初期化
   - ローカルファイルを暗号化してプッシュ
 
-#### `Secure Notes: Import Existing Repository`
-- **コマンドID**: `secureNotes.importExistingRepository`
-- **目的**: 既存のリモートリポジトリを取り込んで初期化
+#### `Secure Notes: Import Existing Storage`
+- **コマンドID**: `secureNotes.importExistingStorage`
+- **目的**: 既存のリモートストレージを取り込んで初期化
 - **使用場面**: 既存プロジェクトに参加する場合
 - **処理内容**:
   - リモートリポジトリの存在・データ確認
@@ -509,3 +511,8 @@ graph TD
 - S3のオブジェクトストレージを直接操作
 
 現在の実装では、これらの概念をGitベースのワークフローに適応させ、より堅牢で標準的なバージョン管理システムを構築しています。
+### 表示系コマンド
+
+#### `Secure Notes: Preview Index`
+- **コマンドID**: `secureNotes.previewIndex`
+- **目的**: 指定したインデックスファイルの内容をJSONでプレビュー
