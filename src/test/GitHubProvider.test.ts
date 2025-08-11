@@ -475,7 +475,7 @@ suite('GitHubProvider Test Suite', () => {
     });
 
     suite('Phase 3: Existing Repository Clone', () => {
-      test('cloneExistingRemoteRepository - clones remote repository', async () => {
+      test('cloneRemoteStorage - clones remote repository', async () => {
         const env = initializeTestEnvironment();
         try {
           // Given: リモートリポジトリが存在する
@@ -499,7 +499,7 @@ suite('GitHubProvider Test Suite', () => {
           const provider = new GitHubSyncProvider(env.testRepoUrl, undefined, mockWorkspaceFolder.uri);
 
           // When: 既存リモートリポジトリのクローンを実行
-          await provider.cloneExistingRemoteStorage();
+          await provider.cloneRemoteStorage();
 
           // Then: .secureNotesディレクトリが存在することを確認
           const secureNotesDir = path.join(env.currentTestWorkspaceDir, '.secureNotes');
@@ -532,7 +532,7 @@ suite('GitHubProvider Test Suite', () => {
           const provider = new GitHubSyncProvider(env.testRepoUrl, undefined, mockWorkspaceFolder.uri);
           
           // 事前にクローンを実行
-          await provider.cloneExistingRemoteStorage();
+          await provider.cloneRemoteStorage();
 
           // When: リモートデータの読み込み・復号化を実行
           await provider.loadAndDecryptRemoteData();

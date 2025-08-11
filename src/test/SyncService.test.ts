@@ -193,7 +193,7 @@ class MockGitHubSyncProvider {
     // Mock implementation
   }
 
-  async cloneExistingRemoteRepository(): Promise<void> {
+  async cloneRemoteStorage(): Promise<void> {
     // Mock implementation - void return type
   }
 
@@ -295,7 +295,7 @@ suite('SyncService Test Suite', () => {
     let cloneCalled = false;
     let loadDataCalled = false;
     
-    mockGitHubProvider.cloneExistingRemoteRepository = async () => {
+    mockGitHubProvider.cloneRemoteStorage = async () => {
       cloneCalled = true;
     };
     

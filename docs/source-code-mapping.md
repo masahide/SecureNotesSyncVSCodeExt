@@ -104,6 +104,9 @@
 | Gitコマンド実行 | `src/storage/GithubProvider.ts` | `execCmd()` |
 | Git実行ファイル検索 | `src/storage/GithubProvider.ts` | `findGitExecutable()` |
 
+#### 実装メモ
+- `workspaceUri` はコンストラクタで必ず確定し、以降は不変（readonly）。各メソッドでの未定義チェックは不要。
+
 ### 6. ブランチ管理システム
 
 **spec.md 該当箇所**: 「ブランチ管理システム」

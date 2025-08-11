@@ -173,7 +173,8 @@ class MockSyncServiceFactory implements ISyncServiceFactory {
       download: async () => true,
       upload: async () => true,
       hasRemoteData: async () => true,
-      cloneExistingRemoteStorage: async () => true,
+      cloneRemoteStorage: async () => true,
+      pullRemoteChanges: async () => false,
       loadAndDecryptRemoteData: async () => { }
     };
   }

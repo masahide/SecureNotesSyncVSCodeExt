@@ -7,11 +7,25 @@ import * as cp from 'child_process';
 import which from 'which';
 import * as fs from 'fs';
 
+/**
+ * GitHubSyncProvider
+ *
+ * 責務:
+ *  - .secureNotes/remotes 直下を Git リポジトリとして操作
+ *  - リモートの初期化、取得、更新、push などの Git I/O を担当
+ *
+ * 不変条件:
+ *  - workspaceUri はコンストラクタ完了以降、常に有効で変更されない（readonly）
+ */
 export class GitHubSyncProvider implements IStorageProvider {
     private gitRemoteUrl: string;
     private gitPath: string;
     private encryptionKey?: string;
-    private workspaceUri: vscode.Uri;
+    /**
+     * workspaceUri はコンストラクタ完了以降、不変かつ常に有効。
+     * 未指定の場合はテスト用のフォールバックディレクトリを設定する。
+     */
+    private readonly workspaceUri: vscode.Uri;
 
     constructor(gitRemoteUrl: string, encryptionKey?: string, workspaceUri?: vscode.Uri) {
         this.gitRemoteUrl = gitRemoteUrl;
@@ -23,6 +37,7 @@ export class GitHubSyncProvider implements IStorageProvider {
             const os = require('os');
             const tempDir = path.join(os.tmpdir(), 'fallback-workspace');
             this.workspaceUri = vscode.Uri.file(tempDir);
+            logMessage(`workspaceUri not provided. Using fallback directory: ${this.workspaceUri.fsPath}`);
         } else {
             this.workspaceUri = workspaceUri;
         }
@@ -238,45 +253,43 @@ export class GitHubSyncProvider implements IStorageProvider {
     public async encryptAndUploadWorkspaceFiles(): Promise<void> {
         try {
             const workspaceUri = this.workspaceUri;
-            if (workspaceUri) {
-                // 暗号化キーを取得
-                if (!this.encryptionKey) {
-                    logMessage('暗号化キーが設定されていません。ワークスペースファイルの暗号化をスキップします。');
-                    return;
-                }
+            // 暗号化キーを取得
+            if (!this.encryptionKey) {
+                logMessage('暗号化キーが設定されていません。ワークスペースファイルの暗号化をスキップします。');
+                return;
+            }
 
-                const { LocalObjectManager } = await import('./LocalObjectManager');
-                const localObjectManager = new LocalObjectManager(
-                    workspaceUri.fsPath,
-                    vscode.extensions.getExtension('rovodev.secure-notes-sync')!.exports.context, // FIXME: this is a hack
-                    this.encryptionKey
-                );
+            const { LocalObjectManager } = await import('./LocalObjectManager');
+            const localObjectManager = new LocalObjectManager(
+                workspaceUri.fsPath,
+                vscode.extensions.getExtension('rovodev.secure-notes-sync')!.exports.context, // FIXME: this is a hack
+                this.encryptionKey
+            );
 
-                const indexFile = await localObjectManager.encryptAndSaveWorkspaceFiles();
-                logMessage(`ワークスペースファイルを暗号化・保存: ${indexFile.files.length}ファイル`);
+            const indexFile = await localObjectManager.encryptAndSaveWorkspaceFiles();
+            logMessage(`ワークスペースファイルを暗号化・保存: ${indexFile.files.length}ファイル`);
 
-                // 初期コミット&プッシュ
-                const objectDir = this.getRemotesDirUri().fsPath;
+            // 初期コミット&プッシュ
+            const objectDir = this.getRemotesDirUri().fsPath;
 
-                // 必要なディレクトリ構造を確保
-                const indexesDir = vscode.Uri.joinPath(this.getRemotesDirUri(), 'indexes');
-                const filesDir = vscode.Uri.joinPath(this.getRemotesDirUri(), 'files');
-                const refsDir = vscode.Uri.joinPath(this.getRemotesDirUri(), 'refs');
+            // 必要なディレクトリ構造を確保
+            const indexesDir = vscode.Uri.joinPath(this.getRemotesDirUri(), 'indexes');
+            const filesDir = vscode.Uri.joinPath(this.getRemotesDirUri(), 'files');
+            const refsDir = vscode.Uri.joinPath(this.getRemotesDirUri(), 'refs');
 
-                await vscode.workspace.fs.createDirectory(indexesDir);
-                await vscode.workspace.fs.createDirectory(filesDir);
-                await vscode.workspace.fs.createDirectory(refsDir);
+            await vscode.workspace.fs.createDirectory(indexesDir);
+            await vscode.workspace.fs.createDirectory(filesDir);
+            await vscode.workspace.fs.createDirectory(refsDir);
 
-                await this.execCmd(this.gitPath, ['add', '.'], objectDir);
-                await this.commitIfNeeded(objectDir, 'Initial commit with encrypted workspace files');
+            await this.execCmd(this.gitPath, ['add', '.'], objectDir);
+            await this.commitIfNeeded(objectDir, 'Initial commit with encrypted workspace files');
 
-                try {
-                    await this.execCmd(this.gitPath, ['push', '-u', 'origin', 'main'], objectDir);
-                    logMessageGreen('ワークスペースファイルを暗号化してリモートにプッシュしました。');
-                } catch (error) {
-                    logMessage(`リモートpushに失敗しました（テスト環境の可能性）: ${error}`);
-                    throw error; // エラーを再スローして処理を中断
-                }
+            try {
+                await this.execCmd(this.gitPath, ['push', '-u', 'origin', 'main'], objectDir);
+                logMessageGreen('ワークスペースファイルを暗号化してリモートにプッシュしました。');
+            } catch (error) {
+                logMessage(`リモートpushに失敗しました（テスト環境の可能性）: ${error}`);
+                throw error; // エラーを再スローして処理を中断
             }
         } catch (error) {
             logMessage(`ワークスペースファイルの暗号化中にエラーが発生: ${error}`);
@@ -291,9 +304,6 @@ export class GitHubSyncProvider implements IStorageProvider {
         try {
             // LocalObjectManagerを使用してリモートデータを復号化・展開
             const workspaceUri = this.workspaceUri;
-            if (!workspaceUri) {
-                throw new Error('ワークスペースフォルダが見つかりません');
-            }
 
             // 暗号化キーを取得
             if (!this.encryptionKey) {
