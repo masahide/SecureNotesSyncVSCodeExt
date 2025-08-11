@@ -14,21 +14,21 @@
 - [x] workspaceUri 方針: すべて DI 注入。`getRootUri()` フォールバックは段階的に廃止。
 
 ## フェーズ 2: DI 体制の整備（非破壊の導入）
-- [ ] Container/ServiceLocator に LocalObjectManager の解決経路を公式化（既存の registerInstance の方針を明確化）。
-- [ ] 生成タイミングの方針を docs に明記：
-  - [ ] 起動時に workspaceUri で 1 インスタンス登録（現状維持）。
-  - [ ] AES 鍵はインスタンス保持せず、呼び出し時に options で受け渡す。
+- [x] Container/ServiceLocator に LocalObjectManager の解決経路を公式化（既存の registerInstance の方針を明確化）。
+- [x] 生成タイミングの方針を docs に明記：
+  - [x] 起動時に workspaceUri で 1 インスタンス登録（現状維持）。
+  - [x] AES 鍵はインスタンス保持せず、呼び出し時に options で受け渡す。
 
 ## フェーズ 3: GitHub プロバイダーの責務最小化（呼び出し側移動の準備）
-- [ ] GithubProvider から LocalObjectManager 依存を撤去する計画を確定：
-  - [ ] `encryptAndUploadWorkspaceFiles`/`loadAndDecryptRemoteData` を SyncService へ移管（順序/例外方針を docs に明記）。
-  - [ ] Provider は Git 操作（init/clone/fetch/reset/push 等）のみ担当。
-- [ ] 実装影響範囲（テスト・モック・呼び出し箇所）を洗い出し。
+- [x] GithubProvider から LocalObjectManager 依存を撤去する計画を確定：
+  - [x] `encryptAndUploadWorkspaceFiles`/`loadAndDecryptRemoteData` を SyncService へ移管（順序/例外方針を docs に明記）。
+  - [x] Provider は Git 操作（init/clone/fetch/reset/push 等）のみ担当。
+- [x] 実装影響範囲（テスト・モック・呼び出し箇所）を洗い出し。
 
 ## フェーズ 4: SyncService/Factory の生成経路一本化
-- [ ] SyncServiceFactory/SyncService 内部の `new LocalObjectManager(...)` を廃止し、Container から取得する方針を定義。
-- [ ] AES 鍵・environmentId は `SyncService` から `LocalObjectManager` メソッド呼び出し毎に options で渡す設計を確定。
-- [ ] options の組み立て地点（`initializeSyncService` など）を明文化。
+- [x] SyncServiceFactory/SyncService 内部の `new LocalObjectManager(...)` を廃止し、Container から取得する方針を定義。
+- [x] AES 鍵・environmentId は `SyncService` から `LocalObjectManager` メソッド呼び出し毎に options で渡す設計を確定。
+- [x] options の組み立て地点（`initializeSyncService` など）を明文化。
 
 ## フェーズ 5: 実コードのリファクタ第1弾（最小の変更）
 - [ ] GithubProvider: 動的 import と `vscode.extensions.getExtension(...).exports.context` ハックを削除。
