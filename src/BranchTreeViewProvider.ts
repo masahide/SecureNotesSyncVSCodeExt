@@ -64,7 +64,8 @@ export class BranchTreeViewProvider
      */
     private async getBranchList(): Promise<BranchItem[]> {
         try {
-            const refsDir = LocalObjectManager.getRefsDirUri(); // => .secureNotes/remotes/refs
+            const localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri);
+            const refsDir = localObjectManager.getRefsDirUri(); // => .secureNotes/remotes/refs
             const entries = await vscode.workspace.fs.readDirectory(refsDir);
             const branchItems: BranchItem[] = [];
 
@@ -95,10 +96,10 @@ export class BranchTreeViewProvider
             return [];
         }
         const branchName = branchItem.branchName;
-        const localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, this.context, aesKey);
+        const localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri);
 
         // 1) HEADのUUIDを読む
-        const headUuid = await localObjectManager.readBranchRef(branchName);
+        const headUuid = await localObjectManager.readBranchRef(branchName, { encryptionKey: aesKey, environmentId: "" });
         if (!headUuid) {
             // ブランチにまだIndexが無い場合
             return [];

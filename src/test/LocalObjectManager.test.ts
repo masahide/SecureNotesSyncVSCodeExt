@@ -69,7 +69,7 @@ suite('LocalObjectManager Test Suite', () => {
   let localObjectManager: LocalObjectManager;
 
   setup(() => {
-    localObjectManager = new LocalObjectManager(tempWorkspaceDir, mockContext, testOptions.encryptionKey);
+    localObjectManager = new LocalObjectManager(vscode.Uri.file(tempWorkspaceDir), testOptions.environmentId);
   });
 
   // テスト後のクリーンアップ

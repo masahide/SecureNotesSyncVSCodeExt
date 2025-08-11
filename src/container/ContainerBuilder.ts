@@ -70,7 +70,7 @@ export class ContainerBuilder {
     // GitHub Provider（一時的 - 設定に依存するため）
     this.container.registerTransient<GitHubSyncProvider>(
       ServiceKeys.GITHUB_PROVIDER,
-      (remoteUrl: string, encryptionKey: string) => new GitHubSyncProvider(remoteUrl, encryptionKey, vscode.workspace.workspaceFolders?.[0]?.uri)
+      (remoteUrl: string) => new GitHubSyncProvider(remoteUrl, vscode.workspace.workspaceFolders?.[0]?.uri)
     );
 
     return this;
@@ -174,8 +174,7 @@ class MockSyncServiceFactory implements ISyncServiceFactory {
       upload: async () => true,
       hasRemoteData: async () => true,
       cloneRemoteStorage: async () => true,
-      pullRemoteChanges: async () => false,
-      loadAndDecryptRemoteData: async () => { }
+      pullRemoteChanges: async () => false
     };
   }
 }

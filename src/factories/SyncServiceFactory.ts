@@ -6,7 +6,6 @@ import { ISyncService, SyncOptions } from '../interfaces/ISyncService';
 import { IStorageProvider } from '../storage/IStorageProvider';
 import { SyncService, SyncDependencies } from '../SyncService';
 import { GitHubSyncProvider } from '../storage/GithubProvider';
-import { LocalObjectManager } from '../storage/LocalObjectManager';
 import { ServiceLocator } from '../container/ServiceLocator';
 import { ServiceKeys } from '../container/ServiceKeys';
 
@@ -25,10 +24,11 @@ export class SyncServiceFactory implements ISyncServiceFactory {
     };
 
     const storageProvider = this.createStorageProvider(storageConfig, config.encryptionKey);
-    // Prefer DI container; fallback to direct instantiation if not registered
-    const localObjectManager = ServiceLocator.isRegistered(ServiceKeys.LOCAL_OBJECT_MANAGER)
-      ? ServiceLocator.getLocalObjectManager()
-      : new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, config.encryptionKey);
+    // DI コンテナからの解決を必須化（フォールバック new を撤去）
+    if (!ServiceLocator.isRegistered(ServiceKeys.LOCAL_OBJECT_MANAGER)) {
+      throw new Error('LocalObjectManager is not registered in the container');
+    }
+    const localObjectManager = ServiceLocator.getLocalObjectManager();
 
     const dependencies: SyncDependencies = {
       localObjectManager,
@@ -53,7 +53,7 @@ export class SyncServiceFactory implements ISyncServiceFactory {
         if (!config.github?.remoteUrl) {
           throw new Error('GitHub configuration requires remoteUrl');
         }
-        return new GitHubSyncProvider(config.github.remoteUrl, encryptionKey, vscode.workspace.workspaceFolders?.[0]?.uri);
+        return new GitHubSyncProvider(config.github.remoteUrl, vscode.workspace.workspaceFolders?.[0]?.uri);
 
       case 's3':
         // TODO: S3プロバイダーの実装

@@ -22,13 +22,13 @@ export class SyncService implements ISyncService {
   constructor(dependencies: SyncDependencies, context: vscode.ExtensionContext, syncOptions: SyncOptions) {
     this.dependencies = dependencies;
     this.syncOptions = syncOptions;
-    // Prefer DI container; fallback to provided dependency or direct instantiation
+    // DI コンテナ or 依存注入を必須化（フォールバック new は撤去）
     if (ServiceLocator.isInitialized() && ServiceLocator.isRegistered(ServiceKeys.LOCAL_OBJECT_MANAGER)) {
       this.localObjectManager = ServiceLocator.getLocalObjectManager();
     } else if (dependencies.localObjectManager) {
       this.localObjectManager = dependencies.localObjectManager;
     } else {
-      this.localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri.fsPath, context, syncOptions.encryptionKey);
+      throw new Error('LocalObjectManager not available. Ensure it is registered in the container.');
     }
   }
 
@@ -55,7 +55,7 @@ export class SyncService implements ISyncService {
       // ローカルファイルを暗号化してアップロード
       const currentBranch = await getCurrentBranchName() || 'main';
       const initialIndex = await this.localObjectManager.generateInitialIndex(this.syncOptions);
-      await this.localObjectManager.saveIndexFile(initialIndex, currentBranch);
+      await this.localObjectManager.saveIndexFile(initialIndex, currentBranch, this.syncOptions);
       await this.localObjectManager.saveWsIndexFile(initialIndex, this.syncOptions);
       await this.dependencies.storageProvider.upload(currentBranch);
 
@@ -310,12 +310,10 @@ export class SyncService implements ISyncService {
    */
   updateSyncOptions(context: vscode.ExtensionContext, options: SyncOptions): void {
     this.syncOptions = options;
-    // LocalObjectManagerの暗号化キーも更新
-    this.localObjectManager = new LocalObjectManager(
-      vscode.workspace.workspaceFolders![0].uri.fsPath,
-      context,
-      options.encryptionKey
-    );
+    // LocalObjectManager は stateless のため再生成は不要だが、環境切替に備えて再解決も許容
+    if (ServiceLocator.isInitialized() && ServiceLocator.isRegistered(ServiceKeys.LOCAL_OBJECT_MANAGER)) {
+      this.localObjectManager = ServiceLocator.getLocalObjectManager();
+    }
   }
 
   /**

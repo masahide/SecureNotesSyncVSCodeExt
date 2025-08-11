@@ -36,8 +36,5 @@ export interface IStorageProvider {
      */
     pullRemoteChanges(): Promise<boolean>;
 
-    /**
-     * リモートデータを復号化・展開
-     */
-    loadAndDecryptRemoteData(): Promise<void>;
+    // 暗号/復号は SyncService + LocalObjectManager 側に集約
 }

@@ -35,6 +35,14 @@ async function initializeSyncService(context: vscode.ExtensionContext, branchPro
   configManager.validateConfig(syncConfig);
 
   const syncServiceFactory = ServiceLocator.getSyncServiceFactory();
+  // LocalObjectManager が未登録の場合は、ここで遅延登録して DI 経路を満たす
+  if (!ServiceLocator.isRegistered(ServiceKeys.LOCAL_OBJECT_MANAGER)) {
+    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+      throw new Error('No workspace folder found to initialize LocalObjectManager');
+    }
+    const lom = new LocalObjectManager(vscode.workspace.workspaceFolders[0].uri);
+    ServiceLocator.getContainer().registerInstance(ServiceKeys.LOCAL_OBJECT_MANAGER, lom);
+  }
   const syncService = syncServiceFactory.createSyncService(syncConfig, context);
 
   const options = {
@@ -258,7 +266,7 @@ async function handleCreateBranchFromIndex(context: vscode.ExtensionContext, enc
 
   const newIndexFile: IndexFile = { ...baseIndex };
   const localObjectManager = ServiceLocator.getLocalObjectManager();
-  await localObjectManager.saveBranchRef(newBranch, newIndexFile.uuid);
+  await localObjectManager.saveBranchRef(newBranch, newIndexFile.uuid, { encryptionKey: encryptKey, environmentId: "" });
   vscode.window.showInformationMessage(`Created new branch '${newBranch}' from index UUID: ${newIndexFile.uuid}`);
   branchProvider?.refresh();
 }
@@ -272,7 +280,7 @@ async function handleCheckoutBranch(context: vscode.ExtensionContext, encryptKey
     const branchName = branchItem.branchName;
     const localObjectManager = ServiceLocator.getLocalObjectManager();
 
-    const latestIndexUuid = await localObjectManager.readBranchRef(branchName);
+    const latestIndexUuid = await localObjectManager.readBranchRef(branchName, { encryptionKey: encryptKey, environmentId: "" });
     if (!latestIndexUuid) {
       showError(`Branch ${branchName} has no index.`);
       return false;
@@ -366,9 +374,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const encryptKey = await getAESKey(context);
     if (encryptKey && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
       const localObjectManager = new LocalObjectManager(
-        vscode.workspace.workspaceFolders[0].uri.fsPath,
-        context,
-        encryptKey
+        vscode.workspace.workspaceFolders[0].uri
       );
       container.registerInstance(ServiceKeys.LOCAL_OBJECT_MANAGER, localObjectManager);
     }

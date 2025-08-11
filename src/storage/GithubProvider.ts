@@ -20,17 +20,15 @@ import * as fs from 'fs';
 export class GitHubSyncProvider implements IStorageProvider {
     private gitRemoteUrl: string;
     private gitPath: string;
-    private encryptionKey?: string;
     /**
      * workspaceUri はコンストラクタ完了以降、不変かつ常に有効。
      * 未指定の場合はテスト用のフォールバックディレクトリを設定する。
      */
     private readonly workspaceUri: vscode.Uri;
 
-    constructor(gitRemoteUrl: string, encryptionKey?: string, workspaceUri?: vscode.Uri) {
+    constructor(gitRemoteUrl: string, workspaceUri?: vscode.Uri) {
         this.gitRemoteUrl = gitRemoteUrl;
         this.gitPath = findGitExecutable();
-        this.encryptionKey = encryptionKey;
         if (!workspaceUri) {
             // テスト環境でワークスペースが設定されていない場合のフォールバック
             const path = require('path');
@@ -243,24 +241,12 @@ export class GitHubSyncProvider implements IStorageProvider {
     /**
      * 空のリポジトリに対してワークスペースファイルを暗号化・アップロード
      */
-    /**
-     * @deprecated 暗号化・アップロードは SyncService 側に移管しました（no-op）。
-     */
-    public async encryptAndUploadWorkspaceFiles(): Promise<void> {
-        logMessage('encryptAndUploadWorkspaceFiles() is deprecated and is now a no-op.');
-        return;
-    }
+    // 暗号化・アップロードは SyncService 側に移管
 
     /**
      * クローンしたリモートデータの読み込み・復号化・展開
      */
-    /**
-     * @deprecated 復号化・展開は SyncService 側に移管しました（no-op）。
-     */
-    public async loadAndDecryptRemoteData(): Promise<void> {
-        logMessage('loadAndDecryptRemoteData() is deprecated and is now a no-op.');
-        return;
-    }
+    // 復号化・展開は SyncService 側に移管
 
     /**
      * 新しい設計による同期処理

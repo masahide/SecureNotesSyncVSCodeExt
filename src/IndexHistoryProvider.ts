@@ -37,23 +37,19 @@ export class IndexHistoryProvider implements vscode.TreeDataProvider<IndexItem> 
         }
         logMessage('IndexHistoryProvider: AES encryption key loaded successfully.');
 
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!workspaceFolder) {
+        const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceUri) {
             logMessage('IndexHistoryProvider: Workspace folder not found.');
             vscode.window.showErrorMessage('No workspace folder open.');
             return [];
         }
-        logMessage(`IndexHistoryProvider: Workspace folder: ${workspaceFolder}`);
+        logMessage(`IndexHistoryProvider: Workspace folder: ${workspaceUri.fsPath}`);
 
-        const localObjectManager = new LocalObjectManager(
-            workspaceFolder,
-            this.context,
-            encryptionKey
-        );
+        const localObjectManager = new LocalObjectManager(workspaceUri);
 
         try {
             logMessage('IndexHistoryProvider: Loading remote indexes...');
-            const indexes = await localObjectManager.loadRemoteIndexes();
+            const indexes = await localObjectManager.loadRemoteIndexes({ encryptionKey, environmentId: "" });
             logMessage(`IndexHistoryProvider: Found ${indexes.length} remote indexes.`);
 
             indexes.sort((a, b) => b.timestamp - a.timestamp);
