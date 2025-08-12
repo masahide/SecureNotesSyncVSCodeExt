@@ -30,10 +30,17 @@
   - 実装層で `vscode.extensions.getExtension(...).exports.context` を取得しない。
   - dynamic import による設計上不要な遅延依存を置かない（`await import('./LocalObjectManager')` を禁止）。
 
+## 規約（Lint で担保）
+- dynamic import 禁止（src 配下・テスト除外）
+  - ESLint: `no-restricted-syntax` にて `ImportExpression` をエラー化。
+- `vscode.extensions.getExtension` 使用禁止（src 配下・テスト除外）
+  - ESLint: `no-restricted-syntax` で `MemberExpression[object.object.name='vscode'][object.property.name='extensions'][property.name='getExtension']` をエラー化。
+- DI の徹底
+  - 工場/サービスは ServiceLocator 経由で取得し、グローバル参照を持たない。
+
 ## テスト方針
 - LocalObjectManager をモック/実体いずれでも、`workspaceUri` をテスト用一時ディレクトリとして明示注入。
 - IStorageProvider モックは Git I/O に限定（暗号/復号は SyncService+LocalObjectManager の責務）。
 
 ## マルチルート
 - 現段階では先頭ワークスペース（または設定で明示指定）を対象とする。マルチルート対応は別スコープで検討。
-

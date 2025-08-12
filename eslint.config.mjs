@@ -27,5 +27,25 @@ export default defineConfig([
             "no-throw-literal": "warn",
             semi: "warn",
         },
-    }
+    },
+    // Additional restrictions for production source (exclude tests)
+    {
+        files: ["src/**/*.ts"],
+        ignores: ["src/test/**"],
+        rules: {
+            // Forbid dynamic import() usage in source to keep DI/static deps
+            "no-restricted-syntax": [
+                "error",
+                {
+                    selector: "ImportExpression",
+                    message: "dynamic import 禁止（DI/静的依存に統一）",
+                },
+                {
+                    // Disallow vscode.extensions.getExtension(...) access in source
+                    selector: "MemberExpression[object.object.name='vscode'][object.property.name='extensions'][property.name='getExtension']",
+                    message: "vscode.extensions.getExtension の使用禁止（DI から取得すること）",
+                },
+            ],
+        },
+    },
 ]);

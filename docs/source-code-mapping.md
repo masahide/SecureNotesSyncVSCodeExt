@@ -12,11 +12,11 @@
 | **依存性注入コンテナ** | `src/container/ServiceContainer.ts` | サービスの生成・管理・ライフサイクル制御 |
 | **コンテナビルダー** | `src/container/ContainerBuilder.ts` | フルエントAPIによるサービス登録とコンテナ構築 |
 | **サービスロケーター** | `src/container/ServiceLocator.ts` | グローバルサービスアクセスポイント |
-| **同期サービス** | `src/SyncService.ts` | 同期処理と初期化処理のオーケストレーション |
+| **同期サービス** | `src/SyncService.ts` | 同期処理と初期化処理のオーケストレーション（暗号/復号・インデックス操作を担当） |
 | **同期サービスファクトリー** | `src/factories/SyncServiceFactory.ts` | 設定に基づく同期サービスの生成 |
 | **設定管理** | `src/config/ConfigManager.ts` | VS Code設定から同期設定を構築・検証 |
 | **ローカルオブジェクト管理** | `src/storage/LocalObjectManager.ts` | 暗号化・復号化、インデックス管理、競合解決、ファイル同期処理 |
-| **GitHub同期プロバイダ** | `src/storage/GithubProvider.ts` | Git操作によるリモート同期（fetch/merge/push） |
+| **GitHub同期プロバイダ** | `src/storage/GithubProvider.ts` | Git操作によるリモート同期（init/clone/fetch/reset/checkout/push） |
 | **ブランチツリービュー** | `src/BranchTreeViewProvider.ts` | ブランチ表示とブランチ操作（TreeView実装） |
 | **インデックス履歴ビュー** | `src/IndexHistoryProvider.ts` | インデックス履歴の表示と操作（TreeView実装） |
 | **ロガー** | `src/logger.ts` | ターミナル出力とエラー管理（ANSIカラー対応） |
@@ -80,7 +80,7 @@
 
 | 処理 | 実装ファイル | 実装関数/メソッド |
 |------|-------------|------------------|
-| 同期処理メイン | `src/extension.ts` | `syncCommand` |
+| 同期処理メイン | `src/SyncService.ts` | `initializeNewStorage` / `importExistingStorage` / `performIncrementalSync` |
 | ローカルインデックス生成 | `src/storage/LocalObjectManager.ts` | `generateLocalIndexFile()` |
 | 競合検出 | `src/storage/LocalObjectManager.ts` | `detectConflicts()` |
 | 競合解決 | `src/storage/LocalObjectManager.ts` | `resolveConflicts()` |
@@ -89,16 +89,15 @@
 | wsIndex保存 | `src/storage/LocalObjectManager.ts` | `saveWsIndexFile()` |
 | インデックス保存 | `src/storage/LocalObjectManager.ts` | `saveIndexFile()` |
 
-### 5. GitHub同期プロバイダ
+### 5. GitHub同期プロバイダ（Git I/O のみ）
 
 **spec.md 該当箇所**: 「GitHub同期プロバイダ」
 
 | 処理 | 実装ファイル | 実装関数/メソッド |
 |------|-------------|------------------|
+| 初期化 | `src/storage/GithubProvider.ts` | `isInitialized()`, `initialize()` |
 | リモートダウンロード | `src/storage/GithubProvider.ts` | `download()` |
 | リモートアップロード | `src/storage/GithubProvider.ts` | `upload()` |
-| 新規リポジトリ初期化 | `src/storage/GithubProvider.ts` | `initializeNewRemoteRepository()` |
-| 空リモート初期化 | `src/storage/GithubProvider.ts` | `initializeEmptyRemoteRepository()` |
 | リモート変更取得 | `src/storage/GithubProvider.ts` | `pullRemoteChanges()` |
 | リモートクローン | `src/storage/GithubProvider.ts` | `cloneRemoteStorage()` |
 | Gitコマンド実行 | `src/storage/GithubProvider.ts` | `execCmd()` |
@@ -106,6 +105,7 @@
 
 #### 実装メモ
 - `workspaceUri` はコンストラクタで必ず確定し、以降は不変（readonly）。各メソッドでの未定義チェックは不要。
+- 暗号/復号・インデックスの処理は Provider では実施しない。
 
 ### 6. ブランチ管理システム
 

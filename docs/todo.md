@@ -53,9 +53,9 @@
   - [x] GithubProvider: コンストラクタ以降に workspaceUri が変更されないこと（コンストラクタ必須化＋内部値検証）。
 
 ## フェーズ 8: ドキュメント更新とルール化
-- [ ] README/docs 更新: 新アーキテクチャ図、責務分離、フロー（初期化/取り込み/同期）を更新。
-- [ ] ESLint/規約: dynamic import と `vscode.extensions.getExtension` 使用の禁止方針を明記。
-- [ ] CHANGELOG: 段階的な破壊的変更（インターフェース削除/メソッド移動）を反映。
+- [x] README/docs 更新: 新アーキテクチャ図、責務分離、フロー（初期化/取り込み/同期）を更新。
+- [x] ESLint/規約: dynamic import と `vscode.extensions.getExtension` 使用の禁止方針を明記。
+- [x] CHANGELOG: 段階的な破壊的変更（インターフェース削除/メソッド移動）を反映。
 
 ## フェーズ 9: 追加テストと回帰確認
 - [ ] 単体テスト（options 経由の鍵/環境ID、Provider の Git 操作分岐）。
@@ -97,17 +97,17 @@
   - [ ] 複数ワークスペースを開いた際に先頭/設定指定が使われることを明示し、他は対象外であることを確認。
 
 ## フェーズ 8 詳細タスク（ドキュメント/規約）
-- [ ] README 更新：
-  - [ ] 新アーキテクチャ図（責務分離: Provider=Git I/O, SyncService=暗号/復号/オーケストレーション, LocalObjectManager=暗号/インデックス）。
-  - [ ] 初期化/取り込み/同期フロー図（簡略な時系列）。
-- [ ] docs 更新：
-  - [ ] `docs/github-provider-plan.md` の「完全撤去」に改版。
-  - [ ] `docs/di-policy.md` に「直接 new 禁止」「dynamic import 禁止」を規約として明記。
-- [ ] ESLint ルール/禁止事項：
-  - [ ] `eslint.config.mjs` にパターンルールを追加（`no-restricted-imports` 等）。
-  - [ ] `vscode.extensions.getExtension` の使用禁止を lint で担保（src 配下）。
-- [ ] CHANGELOG 更新：
-  - [ ] `feat(storage)!: remove crypto methods from IStorageProvider` などの破壊的変更ログ。
+- [x] README 更新：
+  - [x] 新アーキテクチャ図（責務分離: Provider=Git I/O, SyncService=暗号/復号/オーケストレーション, LocalObjectManager=暗号/インデックス）。
+  - [x] 初期化/取り込み/同期フロー図（簡略な時系列）。
+- [x] docs 更新：
+  - [x] `docs/github-provider-plan.md` の「完全撤去」に改版。
+  - [x] `docs/di-policy.md` に「直接 new 禁止」「dynamic import 禁止」を規約として明記。
+- [x] ESLint ルール/禁止事項：
+  - [x] `eslint.config.mjs` にパターンルールを追加（`no-restricted-syntax` 等）。
+  - [x] `vscode.extensions.getExtension` の使用禁止を lint で担保（src 配下）。
+- [x] CHANGELOG 更新：
+  - [x] `feat(storage)!: remove crypto methods from IStorageProvider` などの破壊的変更ログ。
 
 ## フェーズ 9 詳細タスク（テスト計画）
 - [ ] 単体テスト（`npm run test:unit` 対象）：

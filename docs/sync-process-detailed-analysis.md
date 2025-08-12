@@ -107,10 +107,10 @@ graph TD
     D -->|Yes| F[SyncService.performIncrementalSync];
     F --> G[GitHubSyncProvider.pullRemoteChanges];
     G --> H{変更あり?};
-    H -->|Yes| I[loadAndDecryptRemoteData];
-    H -->|No| J[復号スキップ];
-    I --> K[増分同期処理の実行];
-    J --> K[増分同期処理の実行];
+    H -->|Yes| I[LocalObjectManager でリモートインデックス読み込み・展開];
+    H -->|No| J[展開スキップ];
+    I --> K[増分同期処理の実行（暗号/復号はSyncService側）];
+    J --> K[増分同期処理の実行（暗号/復号はSyncService側）];
     K --> L[完了];
     E --> L;
 ```
@@ -146,7 +146,7 @@ async function initializeSyncService(
     -   `GitHubSyncProvider.cloneRemoteStorage()` もしくは `pullRemoteChanges()` を呼び出して、ローカルの`.secureNotes/remotes`リポジトリを最新の状態に更新します。
 
 3.  **リモートデータの展開**:
-    -   `GitHubSyncProvider.loadAndDecryptRemoteData()`が、更新されたリポジトリ内のインデックスとファイルを元に、ワークスペースのファイルを復元・更新します。
+    -   `SyncService` が `LocalObjectManager` を用いて、更新されたリポジトリ内のインデックスと暗号化ファイルを復号・展開します（Provider は関与しません）。
 
 4.  **増分同期処理 (`performTraditionalIncrementalSync`)**:
     -   ここからの処理は、リファクタリング前の既存リポジトリ同期フローと同じです。
@@ -158,11 +158,12 @@ async function initializeSyncService(
 
 ## 🌐 `GitHubSyncProvider` の役割
 
-`GitHubSyncProvider`は、Git操作を抽象化する役割を担います。`SyncService`からの指示に基づき、以下の主要な操作を実行します。
+`GitHubSyncProvider`は、Git操作を抽象化する役割を担います。`SyncService`からの指示に基づき、以下の主要な操作を実行します（暗号/復号は含みません）。
 
 -   `isInitialized()`: ローカルの初期化状態を確認します。
 -   `getRemoteState()` / `hasRemoteData()`: リモートの存在・データ有無を確認します。
 -   `initializeNewRemoteRepository()` / `initializeEmptyRemoteRepository()`: 初期化系操作。
 -   `cloneRemoteStorage()` / `pullRemoteChanges()`: 取得・更新系操作。
--   `loadAndDecryptRemoteData()`: 暗号化データの復号・展開。
 -   `upload()`: `git add`, `commit`, `push` の実行。
+
+補足: 暗号/復号・インデックス反映は `SyncService` が `LocalObjectManager` を用いて実施します。

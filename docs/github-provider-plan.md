@@ -1,12 +1,12 @@
-# GitHub Provider Responsibility Minimization (Phase 3 → 6 完了)
+# GitHub Provider Responsibility — 完全撤去済み（Phase 3 → 8 完了）
 
-目的: GitHub プロバイダーを Git I/O に特化させ、暗号/復号・インデックス操作は SyncService + LocalObjectManager に集約する。
+目的: GitHub プロバイダーを Git I/O に完全特化させ、暗号/復号・インデックス操作は SyncService + LocalObjectManager に集約する。
 
 ## 方針（決定事項）
 - Provider は Git 操作のみ担当（init/remote add/clone/fetch/reset/checkout/push）。
-- 暗号/復号（`encryptAndUploadWorkspaceFiles` / `loadAndDecryptRemoteData`）は SyncService 側で実施。
+- 暗号/復号（`encryptAndUploadWorkspaceFiles` / `loadAndDecryptRemoteData`）は SyncService 側で実施し、Provider からは完全撤去。
 - Provider から `LocalObjectManager` への依存は持たない（動的 import および `vscode.extensions.getExtension(...).exports.context` ハックは禁止）。
-- 本フェーズでは破壊的変更は行わず、呼び出し元の移動（オーケストレーション）で置き換える。暗号関連 API の完全削除はフェーズ6で実施済み。
+- 破壊的変更はフェーズ6で実施済み（暗号関連 API の削除）、フェーズ8でドキュメント/規約（ESLint）を整備し完全クローズ。
 
 ## 対象フローと役割分担
 
@@ -39,9 +39,9 @@
 4. テスト/モックは「Git I/O のみを担当する Provider」の前提に合わせて更新（暗号/復号を Provider モックに期待しない）。
 
 ## 影響範囲
-- コード: SyncService（オーケストレーション集中）と GithubProvider（責務縮小）。
-- テスト: IStorageProvider モックの責務見直し（`loadAndDecryptRemoteData` の呼び出しを削除/無効化）。
-- Docs: README/アーキ図の責務区分更新（フェーズ8）。
+- コード: SyncService（オーケストレーション集中）と GithubProvider（Git I/O のみ）。
+- テスト: IStorageProvider モックは暗号責務なしに統一。
+- Docs/規約: README/アーキ図の更新、ESLint による dynamic import / `vscode.extensions.getExtension` 禁止を明文化。
 
 ## トランジション・リスクと対策
 - リスク: 呼び出し移行中の重複/未呼び出し箇所が発生。
@@ -61,7 +61,4 @@
   - IStorageProvider から暗号関連メソッドを削除。
   - GitHubSyncProvider から暗号化責務と関連引数を削除（Git I/O のみに特化）。
   - LocalObjectManager は `workspaceUri` 必須、鍵は options 渡しに一本化。
-
-今後（フェーズ8）
-- README/アーキテクチャ図の責務分離を更新。
-- ESLint/規約に dynamic import と `vscode.extensions.getExtension` 禁止を明記。
+- フェーズ8: ドキュメント更新と ESLint による禁止事項を導入し、プロバイダーの責務最小化を完全クローズ。

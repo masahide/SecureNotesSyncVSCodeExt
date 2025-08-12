@@ -21,7 +21,7 @@
 ## 変更影響（実装時の指針）
 - SyncServiceFactory:
   - LocalObjectManager の `new` を削除。
-  - StorageProvider の作成のみ担当（Git I/O 周り）。
+  - StorageProvider の作成のみ担当（Git I/O 周り）。暗号鍵は Provider に渡さない（渡しても未使用）。
 - SyncService:
   - ctor での LocalObjectManager `new` を削除し、コンテナから取得。
   - 既存の `syncOptions` を利用し、LocalObjectManager 呼び出し毎に options を渡す。
@@ -33,4 +33,3 @@
 ## 完了条件（Phase 4）
 - 設計ドキュメント（本書）の合意。
 - todo.md のフェーズ4項目が「方針定義・組み立て地点明確化」としてチェック済み。
-

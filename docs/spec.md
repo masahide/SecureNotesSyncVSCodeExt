@@ -14,7 +14,7 @@ Secure Notes Syncは、VS Code拡張機能として動作し、ワークスペ�
 - **同期サービスファクトリー** (`factories/SyncServiceFactory.ts`): 設定に基づく同期サービスの生成。
 - **設定管理** (`config/ConfigManager.ts`): VS Code設定から同期設定を構築・検証。
 - **ローカルオブジェクト管理** (`LocalObjectManager.ts`): ローカルでのファイル操作、インデックス生成、暗号化・復号化、競合解決。
-- **GitHub同期プロバイダ** (`GithubProvider.ts`): Git操作によるリモートリポジトリとの通信。
+- **GitHub同期プロバイダ** (`GithubProvider.ts`): Git操作によるリモートリポジトリとの通信（Git I/O のみ。暗号/復号は担当しない）。
 - **ブランチツリービュー** (`BranchTreeViewProvider.ts`): ブランチ表示とブランチ操作。
 - **インデックス履歴ビュー** (`IndexHistoryProvider.ts`): インデックス履歴の表示と操作。
 - **ロガー** (`logger.ts`): ターミナル出力とエラー管理。
@@ -97,7 +97,7 @@ interface ISyncService {
 
 interface ISyncServiceFactory {
   createSyncService(config: SyncConfig, context: vscode.ExtensionContext): ISyncService;
-  createStorageProvider(config: StorageConfig, encryptionKey: string): IStorageProvider;
+  createStorageProvider(config: StorageConfig, encryptionKey: string): IStorageProvider; // encryptionKey は Provider では使用しない（互換のため残置）
 }
 ```
 
@@ -214,7 +214,7 @@ graph TD
     D -->|No| E[エラー表示: データなし<br/>Initialize New Repository推奨];
     D -->|Yes| F[既存リモートリポジトリクローン];
 
-    F --> G[リモートデータ復号化・展開];
+    F --> G[LocalObjectManagerで復号・展開（SyncService実施）];
     G --> H[最新インデックス取得];
     H --> I[ワークスペースに展開];
     I --> J[ローカルインデックス更新];
@@ -229,7 +229,7 @@ graph TD
 ```mermaid
 graph TD
     A[同期開始] --> B[ローカルリポジトリをクローン/プル];
-    B --> C[リモートデータを復号・展開];
+    B --> C[LocalObjectManagerでリモートデータを復号・展開（SyncService実施）];
     C --> D[3-wayマージによる競合解決];
     D --> E[変更点を暗号化・保存];
     E --> F[リモートへアップロード];
@@ -394,7 +394,7 @@ graph TD
 - **処理内容**:
   - リモートリポジトリの存在・データ確認
   - データがない場合はエラー表示
-  - リモートデータを復号化・展開
+  - SyncService が LocalObjectManager を用いて復号・展開
   - ワークスペースにファイルを復元
 
 ### 同期・キー管理コマンド

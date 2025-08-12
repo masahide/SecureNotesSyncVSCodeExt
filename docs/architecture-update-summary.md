@@ -100,7 +100,7 @@ interface ISyncService {
 
 ## 🔄 マイグレーション影響
 
-### 破壊的変更なし
+### 破壊的変更なし（ユーザーデータ形式）
 - 既存のユーザーデータ形式は維持
 - `.secureNotes/` ディレクトリ構造は変更なし
 - 暗号化方式・ファイル形式は継続
@@ -109,6 +109,12 @@ interface ISyncService {
 - より堅牢なエラーハンドリング
 - 設定検証の強化
 - ログ出力の改善
+
+### 内部APIの破壊的変更（Phase 6 完了）
+- IStorageProvider: `loadAndDecryptRemoteData` を削除（暗号/復号は SyncService + LocalObjectManager に集約）。
+- GithubProvider: 暗号関連メソッドと引数を完全撤去し、Git I/O のみに特化。
+- LocalObjectManager: コンストラクタから `context`/`encryptionKey` を削除し、`workspaceUri` のみ必須化。鍵・環境IDはメソッド呼び出し毎に options で受け取る方式に統一。
+- 規約: dynamic `import()` と `vscode.extensions.getExtension(...)` を禁止（ESLint で担保）。
 
 ## 📈 今後の展望
 

@@ -111,6 +111,27 @@ Configure in VS Code settings (`File > Preferences > Settings`):
    - Pushes merged changes to GitHub.
 3. **Branches**: Each branch references a chain of indexes. Checkout switches the workspace to that branch's latest state.
 
+## Architecture
+
+- Provider (GitHubSyncProvider): Git I/O only (init/clone/fetch/reset/checkout/push). No crypto or index logic.
+- SyncService: Orchestrates flows (initialize/import/incremental sync), calls LocalObjectManager for crypto/index, and coordinates Git ops via Provider.
+- LocalObjectManager: Handles encryption/decryption and index management under the injected `workspaceUri`; receives `encryptionKey` and `environmentId` per call via options.
+- DI Policy: All services are obtained via the container/locator; `workspaceUri` is required. Do not use dynamic `import()` or `vscode.extensions.getExtension(...)` in source code.
+
+## Sync Flows
+
+1. Initialize New Storage
+   - LocalObjectManager: generate initial index and encrypted objects, persist under `.secureNotes`.
+   - Provider: initialize Git repository and push the first commit.
+
+2. Import Existing Storage
+   - Provider: clone/fetch/reset to the latest remote state.
+   - LocalObjectManager: load the latest remote index and expand files into the workspace.
+
+3. Incremental Sync
+   - Provider: pull changes; if updated, SyncService reconciles and saves encrypted objects.
+   - Provider: push when there are new commits.
+
 ## Using 1Password
 
 1. Set `onePasswordUri` to your key's `op://` URI.
