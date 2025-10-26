@@ -1,32 +1,36 @@
 # Repository Guidelines
-## Agent Communication
-- Responses: 日本語で回答すること（ユーザーやテストで別言語が明示された場合を除く）。
-- 例外: コードの識別子・API 名や定数は従来どおり英語を維持。
+
 ## Project Structure & Module Organization
-- Source: `src/` (entry: `src/extension.ts`); services in `container/`, factories in `factories/`, contracts in `interfaces/`, storage in `storage/`, configuration in `config/`.
-- Views: `BranchTreeViewProvider.ts`, `IndexHistoryProvider.ts`.
-- Tests: `src/test/` (unit, integration, VS Code host tests). Build output in `out/`; production bundle in `dist/`.
-- Assets and docs: `assets/`, `docs/`.
+- Core extension code lives in `src/`, entry point at `src/extension.ts`.
+- Services and IoC helpers are split across `container/`, `factories/`, `interfaces/`, `storage/`, and `config/` to keep dependencies explicit.
+- View providers such as `BranchTreeViewProvider.ts` and `IndexHistoryProvider.ts` reside under `src/views`.
+- Tests live in `src/test/` (unit, integration, host). Bundled output is written to `out/`, and production artifacts to `dist/`. Assets and docs sit in `assets/` and `docs/`.
+
 ## Build, Test, and Development Commands
-- `npm run compile`: Bundle with webpack for development.
-- `npm run watch`: Rebuild on file changes.
-- `npm run package`: Production bundle with hidden source maps.
-- `npm run lint`: ESLint over `src/`.
-- `npm test` / `npm run test:headless`: Run VS Code tests (xvfb).
-- `npm run test:local`: Run VS Code tests without xvfb.
-- `npm run test:unit`: Fast TS-only tests via `tsx`.
+- `pnpm run compile` — webpack build for local development.
+- `pnpm run watch` — rebuild on file changes.
+- `pnpm run package` — production bundle with hidden source maps.
+- `pnpm run lint` — run ESLint on `src/`.
+- `pnpm test` / `pnpm run test:headless` / `pnpm run test:local` / `pnpm run test:unit` — execute VS Code or TS-only test suites as required.
+
 ## Coding Style & Naming Conventions
-- Use TypeScript strict mode with 2-space indent and semicolons (Prettier configured).
-- ESLint rules defined in `eslint.config.mjs`.
-- For comprehensive patterns (imports, naming), see GEMINI.md → “Code Style & Patterns”.
+- TypeScript strict mode, 2-space indent, semicolons required; Prettier enforces formatting.
+- ESLint rules in `eslint.config.mjs`; run `pnpm run lint -- --fix` for quick cleanups.
+- Use descriptive PascalCase for classes, camelCase for functions, and CONSTANT_CASE for configuration keys.
+- Group imports by module type as detailed in `GEMINI.md`; avoid default exports unless the module exports a single concern.
+
 ## Testing Guidelines
-- Locations: `src/test/` (unit, integration, VS Code host tests).
-- Run: `npm test` (full), `npm run test:fast`, `npm run test:local`.
-- Detailed practices and edge cases: see GEMINI.md → “Testing Guidelines” and “Testing Best Practices”.
+- Prefer TS-based unit tests with `tsx`, colocated under `src/test/unit`.
+- Integration and VS Code host tests belong in `src/test/integration` and `src/test/suite`.
+- Name specs with `.test.ts`; structure suite names to reflect feature and scenario (`describe('StorageService -> encrypt()')`).
+- Aim to cover error handling, telemetry, and file I/O edge cases; consult `GEMINI.md` for required fixtures.
+
 ## Commit & Pull Request Guidelines
-- Commits: Prefer Conventional Commits (e.g., `feat(storage): add GitHub provider`).
-- PRs: Clear description, linked issues, verification steps, and screenshots/GIFs for UI changes.
-- Docs: Update `README.md` and `CHANGELOG.md` when changing commands, settings, or behavior.
+- Use Conventional Commits (`feat(storage): add GitHub provider`, `fix(config): handle missing key`).
+- Every PR should describe the change, link related issues, and document verification steps; attach screenshots or GIFs when UI changes occur.
+- Update `README.md` and `CHANGELOG.md` when altering commands, settings, or user-visible behavior.
+
 ## Security & Configuration Tips
-- Never commit keys or decrypted content; `.secureNotes/` is runtime data.
-- See GEMINI.md → “Security Considerations” and “Configuration Schema” for key handling and settings.
+- Never commit secrets; `.secureNotes/` holds runtime-only data.
+- Review `GEMINI.md` for secure key handling and configuration schema expectations.
+- Validate that new configuration entries include schema docs and default fallbacks.
