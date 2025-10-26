@@ -210,12 +210,13 @@ export class GitHubSyncProvider implements IStorageProvider {
             if (updated) {
                 logMessageGreen('既存ローカルストレージを更新しました。');
             } else {
-                logMessage('No remote updates detected. Repository is up to date.');
+                logMessage(`No remote updates detected for branch ${branchName}. Repository is up to date.`);
             }
             return updated;
-        } catch (error) {
-            logMessage(`既存ストレージの更新に失敗しました: ${error}`);
-            return false;
+        } catch (error: any) {
+            const message = error instanceof Error ? error.message : String(error);
+            logMessageRed(`既存ストレージの更新に失敗しました: ${message}`);
+            throw new Error(`Failed to pull remote changes for ${branchName}: ${message}`);
         }
     }
 
@@ -288,9 +289,10 @@ export class GitHubSyncProvider implements IStorageProvider {
             }
             logMessageGreen(`${branchName}ブランチをリモートへpushしました。`);
             return committed;
-        } catch (error) {
-            logMessage(`リモートpushに失敗しました（テスト環境の可能性）: ${error}`);
-            return false;
+        } catch (error: any) {
+            const message = error instanceof Error ? error.message : String(error);
+            logMessageRed(`リモートpushに失敗しました: ${message}`);
+            throw new Error(`Failed to push branch ${branchName}: ${message}`);
         }
     }
 

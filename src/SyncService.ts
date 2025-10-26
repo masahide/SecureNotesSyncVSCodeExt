@@ -108,9 +108,10 @@ export class SyncService implements ISyncService {
       logMessage('=== 増分同期処理フローを開始 ===');
 
       const currentBranch = await getCurrentBranchName();
+      logMessage(`Current branch resolved for sync: ${currentBranch}`);
 
       // 1. 既存リモートストレージをpull/更新
-      const hasRemoteChanges = await this.dependencies.storageProvider.pullRemoteChanges();
+      const hasRemoteChanges = await this.dependencies.storageProvider.pullRemoteChanges(currentBranch);
       logMessage(`Remote storage changes detected: ${hasRemoteChanges}`);
 
       // 3. 増分同期処理を実行（直前のpull結果を渡す）

@@ -167,13 +167,35 @@ class MockLocalObjectManager {
 }
 
 class MockGitHubSyncProvider {
+  public lastPulledBranch: string | undefined;
+  public lastUploadedBranch: string | undefined;
+  public shouldReportRemoteChanges = false;
+  public simulatePullFailure = false;
+  public simulateUploadFailure = false;
+  public lastPullError: Error | undefined;
+  public lastUploadError: Error | undefined;
+
   constructor(private gitRemoteUrl: string) {}
+
+  async pullRemoteChanges(branchName: string = 'main'): Promise<boolean> {
+    this.lastPulledBranch = branchName;
+    if (this.simulatePullFailure) {
+      this.lastPullError = new Error('simulated pull failure');
+      throw this.lastPullError;
+    }
+    return this.shouldReportRemoteChanges;
+  }
 
   async download(branchName: string): Promise<boolean> {
     return false; // No remote updates for basic test
   }
 
   async upload(branchName: string): Promise<boolean> {
+    this.lastUploadedBranch = branchName;
+    if (this.simulateUploadFailure) {
+      this.lastUploadError = new Error('simulated push failure');
+      throw this.lastUploadError;
+    }
     return true;
   }
 
@@ -282,6 +304,60 @@ suite('SyncService Test Suite', () => {
     
     // 新規リポジトリの場合はfalseが返される（再設計仕様）
     assert.strictEqual(result, false);
+  });
+
+  test('増分同期処理 - 現在のブランチで pull/upload する', async () => {
+    const mockGitHubProvider = mockDependencies.storageProvider as unknown as MockGitHubSyncProvider;
+    const originalBranchMock = (LocalObjectManagerModule as any).getCurrentBranchName;
+    (LocalObjectManagerModule as any).getCurrentBranchName = async () => 'dev';
+    mockGitHubProvider.shouldReportRemoteChanges = true;
+
+    try {
+      await syncService.performIncrementalSync();
+    } finally {
+      (LocalObjectManagerModule as any).getCurrentBranchName = originalBranchMock;
+    }
+
+    assert.strictEqual(mockGitHubProvider.lastPulledBranch, 'dev');
+    assert.strictEqual(mockGitHubProvider.lastUploadedBranch, 'dev');
+  });
+
+  test('増分同期処理 - pull 失敗時はエラーを通知する', async () => {
+    const mockGitHubProvider = mockDependencies.storageProvider as unknown as MockGitHubSyncProvider;
+    mockGitHubProvider.simulatePullFailure = true;
+    try {
+      await assert.rejects(
+        async () => {
+          await syncService.performIncrementalSync();
+        },
+        (error: any) => {
+          assert.strictEqual(error.message, 'simulated pull failure');
+          return true;
+        }
+      );
+    } finally {
+      mockGitHubProvider.simulatePullFailure = false;
+    }
+  });
+
+  test('増分同期処理 - push 失敗時はエラーを通知する', async () => {
+    const mockGitHubProvider = mockDependencies.storageProvider as unknown as MockGitHubSyncProvider;
+    mockGitHubProvider.shouldReportRemoteChanges = true;
+    mockGitHubProvider.simulateUploadFailure = true;
+    try {
+      await assert.rejects(
+        async () => {
+          await syncService.performIncrementalSync();
+        },
+        (error: any) => {
+          assert.strictEqual(error.message, 'simulated push failure');
+          return true;
+        }
+      );
+    } finally {
+      mockGitHubProvider.simulateUploadFailure = false;
+      mockGitHubProvider.shouldReportRemoteChanges = false;
+    }
   });
 
   test('増分同期処理 - リモート更新ありの場合', async () => {
