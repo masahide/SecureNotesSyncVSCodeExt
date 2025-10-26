@@ -1,131 +1,50 @@
 # Secure Notes Sync - アーキテクチャ更新概要
 
-## 📋 更新概要
+本ドキュメントは、現在の実装が採用している主要なアーキテクチャ上の改善点と、関連資料の更新内容をまとめたものです。
 
-このドキュメントは、Secure Notes Sync VS Code拡張機能の最新アーキテクチャ更新に伴うドキュメント更新の概要です。
+## ハイライト
 
-## 🏗️ 主要なアーキテクチャ変更
+### 1. 依存性注入の一元化
+- **ServiceContainer / ContainerBuilder** により、`SyncServiceFactory`・`ConfigManager`・`BranchTreeViewProvider` をシングルトン登録。
+- `GitHubSyncProvider` はトランジェントで生成し、リモート URL を引数に注入。
+- `LocalObjectManager` は AES 鍵検証後に `ServiceLocator` へ遅延登録し、拡張全体で共有。
+- `ServiceLocator.dispose()` を `deactivate()` で呼び、拡張終了時に確実にリソースを解放。
 
-### 1. 依存性注入システムの導入
+### 2. 同期パイプラインの再構成
+- `SyncService` が新規初期化・既存取り込み・増分同期をカプセル化。
+- リモート状態の検出 (`pullRemoteChanges`) と暗号化オブジェクトの生成 (`LocalObjectManager.saveEncryptedObjects`) を分離し、語責務を明確化。
+- 競合検出 (`detectConflicts`) とリモート優先の解決 (`resolveConflicts`) を標準化し、退避ファイル命名規約 (`conflict-remote-*`, `deleted-*`) を統一。
+- 同期終了時は `saveIndexFile` → `saveWsIndexFile` → `reflectFileChanges` → `upload` の順で実行し、一貫した終端処理を保証。
 
-#### 新規追加されたコンポーネント
-- **ServiceContainer** (`src/container/ServiceContainer.ts`): DIコンテナの核となる実装
-- **ContainerBuilder** (`src/container/ContainerBuilder.ts`): フルエントAPIによるサービス登録
-- **ServiceLocator** (`src/container/ServiceLocator.ts`): グローバルサービスアクセスポイント
-- **ServiceKeys** (`src/container/ServiceKeys.ts`): 型安全なサービスキー定数
+### 3. Git I/O と暗号処理の分離
+- `GitHubSyncProvider` は Git コマンドのみに専念し、暗号ロジックは `LocalObjectManager` へ集約。
+- リモート状態判定 (`ls-remote`)・初期化 (`git init` / `.gitattributes`)・クローン (`git clone`)・差分確認 (`rev-parse`)・同期 (`reset --hard` / `push`) を明示。
+- すべての Git 実行結果を `logMessage*` で出力し、失敗時は例外を投げて呼び出し側で処理。
 
-#### サービスライフサイクル管理
-- **Singleton**: ConfigManager, LocalObjectManager, SyncServiceFactory
-- **Scoped**: SyncService インスタンス
-- **Transient**: GitHubSyncProvider（設定依存）
+### 4. AES 鍵と設定の強化
+- `getAESKey()` が 1Password CLI (`op://`) と VS Code Secrets API のフォールバックを統合。
+- キャッシュ有効期限を `onePasswordCacheTimeout` の書式 (`5m`, `2h`, `7d`) で制御。
+- `ConfigManager` が `gitRemoteUrl` の存在と hex 鍵長 (64) を検証し、環境 ID (`hostname-randomUUID`) を `globalState` に永続化。
 
-### 2. インターフェース駆動設計
+### 5. 可視化と自動化
+- `BranchTreeViewProvider` が `.secureNotes/refs` を復号してブランチ一覧を提供。
+- `IndexHistoryProvider` が最大 30 件のインデックスを読み込み、`secureNotes.previewIndex` で JSON を確認可能。
+- `setupAutoSyncListeners()` がウィンドウ復帰とファイル保存イベントを監視し、`enableAutoSync` が true のときのみ同期を起動。
 
-#### 新規インターフェース
-- **ISyncService** (`src/interfaces/ISyncService.ts`): 同期サービスの統一インターフェース
-- **ISyncServiceFactory** (`src/interfaces/ISyncServiceFactory.ts`): ファクトリーパターンの実装
+## 更新済みドキュメント
+- `docs/spec.md`: 新パイプライン、AES 鍵管理、自動同期、GitHub プロバイダ挙動を反映。
+- `docs/source-code-mapping.md`: 仕様とソースの対応表を刷新し、主要フロー／設定項目の参照先を明記。
+- `AGENTS.md`: コントリビュータガイドを追加し、構成・コマンド・スタイル・テスト・セキュリティ方針を簡潔に整理。
 
-#### 主要メソッド
-```typescript
-interface ISyncService {
-  isRepositoryInitialized(): Promise<boolean>;
-  initializeNewRepository(options: SyncOptions): Promise<boolean>;
-  importExistingRepository(options: SyncOptions): Promise<boolean>;
-  performIncrementalSync(options: SyncOptions): Promise<boolean>;
-}
-```
+## 影響と整合性
+- ユーザーデータ形式（`.secureNotes/` 配下の構造、AES 形式）は維持。
+- VS Code 設定キーは従来どおり。追加設定なし。
+- `ISyncService` は `initializeNewStorage` / `importExistingStorage` / `performIncrementalSync` の 3 操作に統一され、呼び出し側から `SyncOptions` を直接渡す必要がなくなった。
+- `IStorageProvider` から暗号関連メソッドを除去済み。Git 操作の戻り値はすべて `Promise<boolean>` または `Promise<void>` に整理。
 
-### 3. 設定管理の集約化
+## 今後の検討項目
+- 追加ストレージ種別 (S3 / Local) の実装に向けた `SyncServiceFactory` の拡張。
+- 複数ワークスペース (マルチルート) 対応時の `LocalObjectManager` 管理戦略。
+- `LocalObjectManager` のテスト用モック化支援とベンチマーク整備。
 
-#### ConfigManager
-- VS Code設定から同期設定を構築
-- 設定の妥当性検証
-- 環境ID（ホスト名 + UUID）の自動生成・管理
-
-### 4. UI コンポーネントの拡張
-
-#### 新規追加
-- **IndexHistoryProvider** (`src/IndexHistoryProvider.ts`): インデックス履歴の表示と操作
-
-#### 既存の改善
-- **BranchTreeViewProvider**: 依存性注入対応
-
-### 5. コマンド体系の整理
-
-#### 更新されたコマンド
-- `secureNotes.initializeNewStorage`: 新規ストレージ初期化
-- `secureNotes.importExistingStorage`: 既存ストレージ取り込み
-- `secureNotes.sync`: 増分同期
-- `secureNotes.previewIndex`: インデックスプレビュー
-
-## 📚 更新されたドキュメント
-
-### 1. spec.md
-- 依存性注入アーキテクチャの追加
-- インターフェース設計の詳細化
-- コア構成要素の更新
-
-### 2. source-code-mapping.md
-- 新規コンポーネントのマッピング追加
-- データ構造定義の拡張
-- 責務の明確化
-
-### 3. sync-process-detailed-analysis.md
-- 依存性注入フローの解析
-- 3つの主要コマンドの詳細化
-- 共通ヘルパー関数の説明
-
-### 4. .agent.md
-- プロジェクト構造の全面更新
-- 依存性注入ベストプラクティスの追加
-- テスト戦略の拡張
-- 新しいコマンド体系の反映
-
-## 🎯 改善されたポイント
-
-### テスタビリティ
-- 依存性注入によるモック化の容易さ
-- インターフェース駆動による抽象化
-- コンテナベースのテストサービス登録
-
-### 保守性
-- 責務の明確な分離
-- 設定管理の集約化
-- 型安全なサービス解決
-
-### 拡張性
-- ファクトリーパターンによる柔軟なサービス生成
-- ストレージプロバイダーの抽象化
-- プラガブルなアーキテクチャ
-
-## 🔄 マイグレーション影響
-
-### 破壊的変更なし（ユーザーデータ形式）
-- 既存のユーザーデータ形式は維持
-- `.secureNotes/` ディレクトリ構造は変更なし
-- 暗号化方式・ファイル形式は継続
-
-### 内部実装の改善
-- より堅牢なエラーハンドリング
-- 設定検証の強化
-- ログ出力の改善
-
-### 内部APIの破壊的変更（Phase 6 完了）
-- IStorageProvider: `loadAndDecryptRemoteData` を削除（暗号/復号は SyncService + LocalObjectManager に集約）。
-- GithubProvider: 暗号関連メソッドと引数を完全撤去し、Git I/O のみに特化。
-- LocalObjectManager: コンストラクタから `context`/`encryptionKey` を削除し、`workspaceUri` のみ必須化。鍵・環境IDはメソッド呼び出し毎に options で受け取る方式に統一。
-- 規約: dynamic `import()` と `vscode.extensions.getExtension(...)` を禁止（ESLint で担保）。
-
-## 📈 今後の展望
-
-### 拡張可能性
-- S3ストレージプロバイダーの追加準備完了
-- ローカルストレージプロバイダーの実装準備
-- 追加の暗号化方式サポート
-
-### パフォーマンス
-- 依存性注入によるメモリ効率の改善
-- サービスライフサイクル最適化
-- 設定キャッシュの効率化
-
-この更新により、Secure Notes Syncはより堅牢で拡張可能な、現代的なVS Code拡張機能アーキテクチャを採用しました。
+上記の内容を前提に、機能追加やリファクタリングを行う際は `spec.md` と `source-code-mapping.md` を随時同期させてください。

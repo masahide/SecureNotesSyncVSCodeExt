@@ -1,275 +1,115 @@
 # Secure Notes Sync - ソースコード機能マッピング
 
-このドキュメントは、`spec.md`で定義された機能と実際のソースコードファイルの対応関係を可視化したものです。
+`spec.md` で定義された振る舞いが、どのソースコードで実装されているかを一覧化します。主要サービスの役割、データ構造、同期フローとの対応を把握する目的で利用してください。
 
-## 📁 ファイル構成と役割
+## コア構成要素
 
-### 🎯 コア構成要素
+| 機能カテゴリ | ファイル / クラス | 主な責務 |
+|--------------|-------------------|----------|
+| 拡張エントリ | `src/extension.ts` | DI 初期化、AES 鍵取得、コマンド登録、自動同期リスナー設定、TreeView 開始、例外ハンドリング |
+| 依存性注入 | `src/container/ContainerBuilder.ts`<br>`src/container/ServiceContainer.ts`<br>`src/container/ServiceLocator.ts` | サービス登録・解決、ライフタイム管理、テスト用モック提供 |
+| 設定管理 | `src/config/ConfigManager.ts` | `SyncConfig` 生成、環境 ID 永続化、設定検証 |
+| 同期サービス | `src/SyncService.ts` (`SyncService` クラス) | 新規初期化、既存取り込み、増分同期、競合処理、最終アップロード |
+| ファクトリー | `src/factories/SyncServiceFactory.ts` | `SyncService` と `GitHubSyncProvider` の組み立て |
+| 暗号・インデックス | `src/storage/LocalObjectManager.ts` | Index 生成／保存、AES 暗号化・復号、競合解決、ブランチ参照、WS 反映 |
+| Git I/O | `src/storage/GithubProvider.ts` (`GitHubSyncProvider`) | `git init/clone/fetch/reset/add/commit/push` を実行し `.secureNotes/remotes` を管理 |
+| TreeView | `src/BranchTreeViewProvider.ts`<br>`src/IndexHistoryProvider.ts` | ブランチ一覧／インデックス履歴の表示とコマンド連携 |
+| ログ | `src/logger.ts` | ターミナル出力、VS Code 通知、色付きログ |
 
-| 機能 | ファイル | 主な責務 |
-|------|----------|----------|
-| **拡張機能エントリポイント** | `src/extension.ts` | コマンド登録、イベント処理、AESキー管理、依存性注入コンテナの初期化、拡張機能の活性化・非活性化 |
-| **依存性注入コンテナ** | `src/container/ServiceContainer.ts` | サービスの生成・管理・ライフサイクル制御 |
-| **コンテナビルダー** | `src/container/ContainerBuilder.ts` | フルエントAPIによるサービス登録とコンテナ構築 |
-| **サービスロケーター** | `src/container/ServiceLocator.ts` | グローバルサービスアクセスポイント |
-| **同期サービス** | `src/SyncService.ts` | 同期処理と初期化処理のオーケストレーション（暗号/復号・インデックス操作を担当） |
-| **同期サービスファクトリー** | `src/factories/SyncServiceFactory.ts` | 設定に基づく同期サービスの生成 |
-| **設定管理** | `src/config/ConfigManager.ts` | VS Code設定から同期設定を構築・検証 |
-| **ローカルオブジェクト管理** | `src/storage/LocalObjectManager.ts` | 暗号化・復号化、インデックス管理、競合解決、ファイル同期処理 |
-| **GitHub同期プロバイダ** | `src/storage/GithubProvider.ts` | Git操作によるリモート同期（init/clone/fetch/reset/checkout/push） |
-| **ブランチツリービュー** | `src/BranchTreeViewProvider.ts` | ブランチ表示とブランチ操作（TreeView実装） |
-| **インデックス履歴ビュー** | `src/IndexHistoryProvider.ts` | インデックス履歴の表示と操作（TreeView実装） |
-| **ロガー** | `src/logger.ts` | ターミナル出力とエラー管理（ANSIカラー対応） |
+## データ構造と永続化
 
-### 📋 データ構造定義
+| 仕様 | ソース | 備考 |
+|------|--------|------|
+| `IndexFile`, `FileEntry`, `UpdateFiles`, `LocalObjectManagerOptions` | `src/types.ts` | AES 暗号化前の SHA-256 ハッシュとタイムスタンプを保持 |
+| `.secureNotes/` 構造 | `src/storage/LocalObjectManager.ts` | `getUUIDPathParts`, `getHashPathParts`, `saveWsIndexFile`, `saveBranchRef` が管理 |
+| `wsIndex.json` 読み書き | `LocalObjectManager.loadWsIndex` / `saveWsIndexFile` | 前回同期状態をプレーン JSON で保持 |
+| ブランチ参照 (`refs/<branch>`) | `LocalObjectManager.saveBranchRef` / `readBranchRef` | UUID を AES 暗号化して保存 |
 
-| 要素 | ファイル | 内容 |
+## 活性化と DI
+
+| 処理 | 実装 | 補足 |
+|------|------|------|
+| 拡張起動 | `extension.ts: activate()` | ターミナル初期化 → コンテナ構築 → AES 鍵取得 → LocalObjectManager 遅延登録 |
+| コンテナ登録 | `ContainerBuilder.buildDefault()` | `SyncServiceFactory`/`ConfigManager` をシングルトン登録、GitHub プロバイダはトランジェント |
+| サービス解決 | `ServiceLocator` | `initializeSyncService()` が `ConfigManager` と `SyncServiceFactory` を利用 |
+
+## AES 鍵管理
+
+| 仕様項目 | 実装箇所 | 詳細 |
+|----------|----------|------|
+| 1Password CLI 呼び出し | `extension.ts: getAESKey()` / `getKeyFrom1PasswordCLI()` | `op --account <name> read <uri>` を実行し Secrets にキャッシュ |
+| キャッシュ制御 | `extension.ts: getAESKey()` | `aesEncryptionKeyFetchedTime` と `config.getOnePasswordCacheTimeout()` を比較 |
+| Secrets API 連携 | `extension.ts: handleSetAESKey`, `handleGenerateAESKey`, `handleCopyAESKeyToClipboard`, `handleRefreshAESKey` | 入力・生成・コピー・再取得をコマンドで提供 |
+
+## 同期フローのマッピング
+
+### 新規リポジトリ初期化
+- 入口: `extension.ts: handleInitializeNewRepository`
+- 共通セットアップ: `initializeSyncService`
+- Git リモート初期化: `GithubProvider.initialize()`
+- インデックス生成／保存: `LocalObjectManager.generateInitialIndex()` → `saveIndexFile()` → `saveWsIndexFile()`
+- アップロード: `GithubProvider.upload('main')`
+
+### 既存リポジトリ取り込み
+- 入口: `extension.ts: handleImportExistingRepository`
+- リモートクローン: `GithubProvider.cloneRemoteStorage()`
+- 最新インデックス読込: `LocalObjectManager.loadRemoteIndex()`
+- ワークスペース反映: `generateEmptyIndex()` → `reflectFileChanges(forceCheckout=true)`
+- UI 更新: `BranchTreeViewProvider.refresh()`
+
+### 増分同期
+```mermaid
+graph TD
+    A[secureNotes.sync] --> B[SyncService.performIncrementalSync]
+    B --> C[GithubProvider.pullRemoteChanges]
+    B --> D[LocalObjectManager.loadWsIndex]
+    B --> E[LocalObjectManager.generateLocalIndexFile]
+    B --> F{hasRemoteUpdates?}
+    F -->|Yes| G[LocalObjectManager.loadRemoteIndex]
+    G --> H[detectConflicts → resolveConflicts]
+    H --> I[決定した Index]
+    F -->|No| I[決定した Index]
+    I --> J[saveEncryptedObjects / saveIndexFile / saveWsIndexFile]
+    J --> K[reflectFileChanges(forceCheckout=false)]
+    K --> L[GithubProvider.upload(currentBranch)]
+    L --> M[BranchTreeViewProvider.refresh]
+```
+
+### 競合処理
+- 競合検出: `LocalObjectManager.detectConflicts(previous, local, remote)`
+- 競合解決: `resolveConflicts()` がリモート優先で処理し、ローカル差分は `conflict-remote-<timestamp>/` または `deleted-<timestamp>/` に退避
+- 最終インデックス決定: `SyncService.handleRemoteUpdates()` 内でマージ後の Index を生成
+
+## 自動同期 & イベント
+
+| トリガー | 実装 | 動作 |
+|----------|------|------|
+| ウィンドウフォーカス復帰 | `extension.ts: setupAutoSyncListeners()` → `onDidChangeWindowState` | `enableAutoSync` true かつ非アクティブ秒数 > `inactivityTimeoutSec` で同期 |
+| ファイル保存 | 同上 → `onDidSaveTextDocument` | 保存ごとにタイマーをリセットし、`saveSyncTimeoutSec` 経過で同期 |
+
+## UI コンポーネント
+
+| View | ファイル | 要点 |
 |------|----------|------|
-| **型定義** | `src/types.ts` | `IndexFile`, `FileEntry`, `UpdateFiles`, `LocalObjectManagerOptions`インターフェース |
-| **同期サービスインターフェース** | `src/interfaces/ISyncService.ts` | `ISyncService`, `SyncOptions`インターフェース |
-| **ファクトリーインターフェース** | `src/interfaces/ISyncServiceFactory.ts` | `ISyncServiceFactory`, `SyncConfig`, `StorageConfig`インターフェース |
-| **サービスキー定数** | `src/container/ServiceKeys.ts` | 型安全なサービスキー定数定義 |
-| **ストレージインターフェース** | `src/storage/IStorageProvider.ts` | ストレージプロバイダの共通インターフェース |
+| ブランチツリー | `BranchTreeViewProvider` | `.secureNotes/remotes/refs` の AES 参照を復号し、インデックス情報付きで表示 |
+| インデックス履歴 | `IndexHistoryProvider` | `LocalObjectManager.loadRemoteIndexes()` で最大 30 件取得、`secureNotes.previewIndex` を発火 |
 
----
+## 設定と参照コード
 
-## 🔧 主要機能の実装マッピング
+| 設定キー (`SecureNotesSync.*`) | 取得箇所 | 主な利用箇所 |
+|--------------------------------|----------|--------------|
+| `gitRemoteUrl` | `config.ts: getGitRemoteUrl()` | `ConfigManager.createSyncConfig()` |
+| `enableAutoSync` | `extension.ts` | 自動同期フラグチェック |
+| `inactivityTimeoutSec`, `saveSyncTimeoutSec` | `extension.ts` | 自動同期フロー |
+| `onePasswordUri`, `onePasswordAccount`, `onePasswordCacheTimeout` | `config.ts` / `extension.ts` | `getAESKey()` |
 
-### 1. 拡張機能の初期化と活性化
+## セキュリティと整合性チェック
 
-**spec.md 該当箇所**: 「拡張機能の初期化と活性化」
+| 要素 | 実装 | 備考 |
+|------|------|------|
+| AES-256-CBC 暗号化 | `LocalObjectManager.encryptContent()` | IV を 16 byte ランダム生成し、IV + 暗号文で保存 |
+| SHA-256 ハッシュ | `LocalObjectManager.generateLocalIndexFile()` | タイムスタンプ一致時は既存ハッシュを再利用 |
+| Git 操作監査 | `GithubProvider.execCmd()` | 全コマンド出力をログへ出力し、失敗時は例外化 |
+| 環境 ID | `ConfigManager.getOrCreateEnvironmentId()` | `hostname-randomUUID` 形式で `globalState` に保存 |
 
-| 処理 | 実装ファイル | 実装関数/メソッド |
-|------|-------------|------------------|
-| 活性化条件チェック | `package.json` | `activationEvents` |
-| 初期化処理 | `src/extension.ts` | `activate()` |
-| 環境ID生成 | `src/config/ConfigManager.ts` | `getOrCreateEnvironmentId()` |
-| ログターミナル作成 | `src/logger.ts` | `showOutputTerminal()` |
-| コマンド登録 | `src/extension.ts` | `vscode.commands.registerCommand()` |
-| ブランチツリービュー初期化 | `src/BranchTreeViewProvider.ts` | `constructor()` |
-
-### 2. AESキー管理システム
-
-**spec.md 該当箇所**: 「AESキー管理システム」
-
-| 処理 | 実装ファイル | 実装関数/メソッド |
-|------|-------------|------------------|
-| キー取得（統合） | `src/extension.ts` | `getAESKey()` |
-| 1Password CLI連携 | `src/extension.ts` | `getKeyFrom1PasswordCLI()` |
-| キャッシュ管理 | `src/extension.ts` | `getAESKey()` 内のキャッシュロジック |
-| キー生成 | `src/extension.ts` | `generateAESKeyCommand` |
-| 手動設定 | `src/extension.ts` | `setAESKeyCommand` |
-| キーリフレッシュ | `src/extension.ts` | `refreshAESKeyCommand` |
-| クリップボードコピー | `src/extension.ts` | `copyAESKeyCommand` |
-
-### 3. 暗号化・復号化システム
-
-**spec.md 該当箇所**: 「暗号化・復号化システム」
-
-| 処理 | 実装ファイル | 実装関数/メソッド |
-|------|-------------|------------------|
-| AES-256-CBC暗号化 | `src/storage/LocalObjectManager.ts` | `encryptContent()` |
-| AES-256-CBC復号化 | `src/storage/LocalObjectManager.ts` | `decryptContent()` |
-| ファイル暗号化保存 | `src/storage/LocalObjectManager.ts` | `saveEncryptedObjects()` |
-| ファイル復号化読み込み | `src/storage/LocalObjectManager.ts` | `decryptFileFromLocalObject()` |
-| ハッシュベースパス生成 | `src/storage/LocalObjectManager.ts` | `getHashPathParts()`, `getHashFilePathUri()` |
-
-### 4. ファイル同期システム
-
-**spec.md 該当箇所**: 「ファイル同期システム」
-
-| 処理 | 実装ファイル | 実装関数/メソッド |
-|------|-------------|------------------|
-| 同期処理メイン | `src/SyncService.ts` | `initializeNewStorage` / `importExistingStorage` / `performIncrementalSync` |
-| ローカルインデックス生成 | `src/storage/LocalObjectManager.ts` | `generateLocalIndexFile()` |
-| 競合検出 | `src/storage/LocalObjectManager.ts` | `detectConflicts()` |
-| 競合解決 | `src/storage/LocalObjectManager.ts` | `resolveConflicts()` |
-| インデックスマージ | `src/storage/LocalObjectManager.ts` | `mergeIndexes()` |
-| ファイル変更反映 | `src/storage/LocalObjectManager.ts` | `reflectFileChanges()` |
-| wsIndex保存 | `src/storage/LocalObjectManager.ts` | `saveWsIndexFile()` |
-| インデックス保存 | `src/storage/LocalObjectManager.ts` | `saveIndexFile()` |
-
-### 5. GitHub同期プロバイダ（Git I/O のみ）
-
-**spec.md 該当箇所**: 「GitHub同期プロバイダ」
-
-| 処理 | 実装ファイル | 実装関数/メソッド |
-|------|-------------|------------------|
-| 初期化 | `src/storage/GithubProvider.ts` | `isInitialized()`, `initialize()` |
-| リモートダウンロード | `src/storage/GithubProvider.ts` | `download()` |
-| リモートアップロード | `src/storage/GithubProvider.ts` | `upload()` |
-| リモート変更取得 | `src/storage/GithubProvider.ts` | `pullRemoteChanges()` |
-| リモートクローン | `src/storage/GithubProvider.ts` | `cloneRemoteStorage()` |
-| Gitコマンド実行 | `src/storage/GithubProvider.ts` | `execCmd()` |
-| Git実行ファイル検索 | `src/storage/GithubProvider.ts` | `findGitExecutable()` |
-
-#### 実装メモ
-- `workspaceUri` はコンストラクタで必ず確定し、以降は不変（readonly）。各メソッドでの未定義チェックは不要。
-- 暗号/復号・インデックスの処理は Provider では実施しない。
-
-### 6. ブランチ管理システム
-
-**spec.md 該当箇所**: 「ブランチ管理システム」
-
-| 処理 | 実装ファイル | 実装関数/メソッド |
-|------|-------------|------------------|
-| ブランチ一覧表示 | `src/BranchTreeViewProvider.ts` | `getBranchList()` |
-| インデックス履歴表示 | `src/BranchTreeViewProvider.ts` | `getIndexHistoryOfBranch()` |
-| ブランチ作成 | `src/extension.ts` | `createBranchFromIndex` |
-| ブランチチェックアウト | `src/extension.ts` | `checkoutBranch` |
-| ブランチ参照保存 | `src/storage/LocalObjectManager.ts` | `saveBranchRef()` |
-| ブランチ参照読み込み | `src/storage/LocalObjectManager.ts` | `readBranchRef()` |
-| 現在ブランチ名取得 | `src/storage/LocalObjectManager.ts` | `getCurrentBranchName()` |
-| 現在ブランチ名設定 | `src/storage/LocalObjectManager.ts` | `setCurrentBranchName()` |
-
-### 7. 自動同期システム
-
-**spec.md 該当箇所**: 「自動同期システム」
-
-| 処理 | 実装ファイル | 実装関数/メソッド |
-|------|-------------|------------------|
-| ウィンドウフォーカス監視 | `src/extension.ts` | `vscode.window.onDidChangeWindowState()` |
-| ファイル保存監視 | `src/extension.ts` | `vscode.workspace.onDidSaveTextDocument()` |
-| 遅延同期タイマー | `src/extension.ts` | `saveSyncTimeout` 変数 |
-| 非アクティブ時間計算 | `src/extension.ts` | `lastWindowActivationTime` 変数 |
-
-### 8. ログ・エラー管理システム
-
-**spec.md 該当箇所**: 「ログ・エラー管理システム」
-
-| 処理 | 実装ファイル | 実装関数/メソッド |
-|------|-------------|------------------|
-| ターミナル作成 | `src/logger.ts` | `showOutputTerminal()` |
-| 疑似ターミナル実装 | `src/logger.ts` | `MyPseudoterminal` クラス |
-| ログ出力 | `src/logger.ts` | `logMessage()` |
-| カラーログ出力 | `src/logger.ts` | `logMessageRed()`, `logMessageGreen()`, etc. |
-| エラー通知 | `src/logger.ts` | `showError()` |
-| 情報通知 | `src/logger.ts` | `showInfo()` |
-| タイムスタンプ生成 | `src/logger.ts` | `getLocalISOStringWithOffset()` |
-
----
-
-## 🎮 利用可能なコマンド実装
-
-**spec.md 該当箇所**: 「利用可能なコマンド」
-
-| コマンド | 実装ファイル | 実装変数名 |
-|----------|-------------|-----------|
-| `secureNotes.generateAESKey` | `src/extension.ts` | `handleGenerateAESKey` |
-| `secureNotes.setAESKey` | `src/extension.ts` | `handleSetAESKey` |
-| `secureNotes.sync` | `src/extension.ts` | `handleSyncNotes` |
-| `secureNotes.refreshAESKey` | `src/extension.ts` | `handleRefreshAESKey` |
-| `secureNotes.copyAESKeyToClipboard` | `src/extension.ts` | `handleCopyAESKeyToClipboard` |
-| `secureNotes.insertCurrentTime` | `src/extension.ts` | `handleInsertCurrentTime` |
-| `secureNotes.createBranchFromIndex` | `src/extension.ts` | `handleCreateBranchFromIndex` |
-| `secureNotes.checkoutBranch` | `src/extension.ts` | `handleCheckoutBranch` |
-| `secureNotes.initializeNewStorage` | `src/extension.ts` | `handleInitializeNewRepository` |
-| `secureNotes.importExistingStorage` | `src/extension.ts` | `handleImportExistingRepository` |
-| `secureNotes.previewIndex` | `src/extension.ts` | inline handler |
-
----
-
-## 📊 データフロー図
-
-### 同期処理のデータフロー
-
-```mermaid
-graph TD
-    A[extension.ts: syncCommand] --> B[LocalObjectManager: loadWsIndex]
-    A --> C[LocalObjectManager: generateLocalIndexFile]
-    A --> D[GithubProvider: download]
-    D --> E[LocalObjectManager: loadRemoteIndex]
-    E --> F[LocalObjectManager: detectConflicts]
-    F --> G[LocalObjectManager: resolveConflicts]
-    G --> H[LocalObjectManager: saveEncryptedObjects]
-    H --> I[LocalObjectManager: saveIndexFile]
-    I --> J[GithubProvider: upload]
-    J --> K[BranchTreeViewProvider: refresh]
-```
-
-### AESキー取得のデータフロー
-
-```mermaid
-graph TD
-    A[extension.ts: getAESKey] --> B{1Password URI設定?}
-    B -->|Yes| C[キャッシュ確認]
-    C -->|有効| D[キャッシュ返却]
-    C -->|期限切れ| E[getKeyFrom1PasswordCLI]
-    E --> F[VS Code Secrets保存]
-    B -->|No| G[VS Code Secrets取得]
-    F --> H[キー返却]
-    G --> H
-    D --> H
-```
-
----
-
-## 🔧 設定項目とファイル対応
-
-**spec.md 該当箇所**: 「設定項目」
-
-| 設定項目 | 使用ファイル | 使用箇所 |
-|----------|-------------|----------|
-| `SecureNotesSync.gitRemoteUrl` | `src/extension.ts` | `syncCommand` 内 |
-| `SecureNotesSync.enableAutoSync` | `src/extension.ts` | イベントリスナー内 |
-| `SecureNotesSync.inactivityTimeoutSec` | `src/extension.ts` | ウィンドウフォーカス処理 |
-| `SecureNotesSync.saveSyncTimeoutSec` | `src/extension.ts` | ファイル保存処理 |
-| `SecureNotesSync.onePasswordUri` | `src/extension.ts` | `getAESKey()` 内 |
-| `SecureNotesSync.onePasswordAccount` | `src/extension.ts` | `getAESKey()` 内 |
-| `SecureNotesSync.onePasswordCacheTimeout` | `src/extension.ts` | `getAESKey()` 内 |
-
----
-
-## 📁 ディレクトリ構造とファイル対応
-
-**spec.md 該当箇所**: 「ディレクトリ構造」
-
-| ディレクトリ/ファイル | 管理ファイル | 関連関数 |
-|---------------------|-------------|----------|
-| `.secureNotes/HEAD` | `src/storage/LocalObjectManager.ts` | `getCurrentBranchName()`, `setCurrentBranchName()` |
-| `.secureNotes/wsIndex.json` | `src/storage/LocalObjectManager.ts` | `loadWsIndex()`, `saveWsIndexFile()` |
-| `.secureNotes/remotes/refs/` | `src/storage/LocalObjectManager.ts` | `saveBranchRef()`, `readBranchRef()` |
-| `.secureNotes/remotes/indexes/` | `src/storage/LocalObjectManager.ts` | `loadIndex()`, `saveIndexFile()` |
-| `.secureNotes/remotes/files/` | `src/storage/LocalObjectManager.ts` | `saveEncryptedObjects()`, `decryptFileFromLocalObject()` |
-
----
-
-## 🎨 UI コンポーネント
-
-| UI要素 | 実装ファイル | 実装クラス/関数 |
-|--------|-------------|----------------|
-| ブランチツリービュー | `src/BranchTreeViewProvider.ts` | `BranchTreeViewProvider` クラス |
-| ブランチアイテム | `src/BranchTreeViewProvider.ts` | `BranchItem` クラス |
-| インデックスアイテム | `src/BranchTreeViewProvider.ts` | `IndexItem` クラス |
-| ログターミナル | `src/logger.ts` | `MyPseudoterminal` クラス |
-
----
-
-## 🔒 セキュリティ機能
-
-**spec.md 該当箇所**: 「セキュリティ考慮事項」
-
-| セキュリティ機能 | 実装ファイル | 実装箇所 |
-|-----------------|-------------|----------|
-| AES-256-CBC暗号化 | `src/storage/LocalObjectManager.ts` | `encryptContent()` |
-| ランダムIV生成 | `src/storage/LocalObjectManager.ts` | `encryptContent()` 内 |
-| SHA-256ハッシュ計算 | `src/storage/LocalObjectManager.ts` | `generateLocalIndexFile()` 内 |
-| VS Code Secrets API | `src/extension.ts` | `getAESKey()`, コマンド内 |
-| 1Password CLI連携 | `src/extension.ts` | `getKeyFrom1PasswordCLI()` |
-
----
-
-## 📈 パフォーマンス最適化
-
-**spec.md 該当箇所**: 「パフォーマンス最適化」
-
-| 最適化機能 | 実装ファイル | 実装箇所 |
-|-----------|-------------|----------|
-| ハッシュベース重複排除 | `src/storage/LocalObjectManager.ts` | `saveEncryptedObjects()` 内 |
-| ディレクトリ分割 | `src/storage/LocalObjectManager.ts` | `getHashPathParts()`, `getUUIDPathParts()` |
-| タイムスタンプ最適化 | `src/storage/LocalObjectManager.ts` | `generateLocalIndexFile()` 内 |
-| AESキーキャッシュ | `src/extension.ts` | `getAESKey()` 内 |
-
----
-
-このマッピングにより、spec.mdで定義された各機能がどのソースファイルのどの関数で実装されているかが明確になります。新機能の追加や既存機能の修正時に、このドキュメントを参照することで効率的な開発が可能になります。
+このマッピングを利用することで、仕様変更時に関連ソースを素早く特定できます。`spec.md` の更新と合わせて本ファイルも保守してください。
