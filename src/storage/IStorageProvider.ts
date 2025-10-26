@@ -11,11 +11,13 @@ export interface IStorageProvider {
     initialize(): Promise<void>;
     
     /**
-     * rsync 的な双方向のファイル同期を行う
-     *  - ローカルの .enc ファイルをクラウドへ
-     *  - クラウドにしかない .enc ファイルをローカルへ
+     * 指定ブランチのリモート状態を取得し、ローカルへ反映する。
      */
     download(branchName: string): Promise<boolean>;
+
+    /**
+     * ローカルの変更をリモートへ公開する。
+     */
     upload(branchName: string): Promise<boolean>;
 
     /**
@@ -34,7 +36,7 @@ export interface IStorageProvider {
      * 既存のローカルリポジトリをリモートの変更で更新（pull）
      * @returns 更新があった場合はtrue
      */
-    pullRemoteChanges(): Promise<boolean>;
+    pullRemoteChanges(branchName?: string): Promise<boolean>;
 
     // 暗号/復号は SyncService + LocalObjectManager 側に集約
 }
