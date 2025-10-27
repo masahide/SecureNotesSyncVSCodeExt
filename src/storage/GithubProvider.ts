@@ -203,10 +203,8 @@ export class GitHubSyncProvider implements IStorageProvider {
         }
 
         try {
-            const objectDir = this.getRemotesDirUri().fsPath;
-            const beforeHash = await this.getCurrentCommitHash(objectDir);
-            await this.fetchRemote(branchName);
-            const updated = await this.resetToRemote(branchName, beforeHash);
+            const { beforeHash } = await this.syncBranchFromRemote(branchName, "pull");
+            const updated = await this.resetToRemote(branchName, beforeHash ?? "");
             if (updated) {
                 logMessageGreen('既存ローカルストレージを更新しました。');
             } else {
@@ -251,9 +249,7 @@ export class GitHubSyncProvider implements IStorageProvider {
         // This is a simplified version. The actual implementation would
         // involve fetching and merging the specified branch.
         try {
-            const objectDir = this.getRemotesDirUri().fsPath;
-            await this.fetchRemote(branchName);
-            await this.ensureBranchCheckedOut(objectDir, branchName);
+            const { objectDir } = await this.syncBranchFromRemote(branchName, "download");
             await this.pullBranch(branchName, objectDir);
             logMessageGreen(`Successfully synced with remote branch: ${branchName}`);
             return true;
@@ -419,6 +415,27 @@ export class GitHubSyncProvider implements IStorageProvider {
         } else {
             await this.runGit(['checkout', branchName], dir);
         }
+    }
+
+    /**
+     * リモートの最新状態を取得する前処理を集約。
+     * モードに応じて fetch や checkout の有無を切り替える。
+     */
+    protected async syncBranchFromRemote(
+        branchName: string,
+        mode: "pull" | "download"
+    ): Promise<{ objectDir: string; beforeHash?: string }> {
+        const objectDir = this.getRemotesDirUri().fsPath;
+
+        if (mode === "pull") {
+            const beforeHash = await this.getCurrentCommitHash(objectDir);
+            await this.fetchRemote(branchName);
+            return { objectDir, beforeHash };
+        }
+
+        await this.fetchRemote(branchName);
+        await this.ensureBranchCheckedOut(objectDir, branchName);
+        return { objectDir };
     }
 }
 

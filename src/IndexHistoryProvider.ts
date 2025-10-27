@@ -1,15 +1,18 @@
 
 import * as vscode from 'vscode';
-import * as path from 'path';
-import { LocalObjectManager } from './storage/LocalObjectManager';
 import { IndexFile } from './types';
 import { logMessage } from './logger';
+import { getAESKey } from './extension';
+import { IWorkspaceContextService } from './interfaces/IWorkspaceContextService';
 
 export class IndexHistoryProvider implements vscode.TreeDataProvider<IndexItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<IndexItem | undefined | null | void> = new vscode.EventEmitter<IndexItem | undefined | null | void>();
     readonly onDidChangeTreeData: vscode.Event<IndexItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
-    constructor(private context: vscode.ExtensionContext) {
+    constructor(
+        private context: vscode.ExtensionContext,
+        private workspaceContext: IWorkspaceContextService
+    ) {
         logMessage('IndexHistoryProvider: constructor called');
     }
 
@@ -29,7 +32,7 @@ export class IndexHistoryProvider implements vscode.TreeDataProvider<IndexItem> 
             return [];
         }
 
-        const encryptionKey = await this.context.secrets.get('aesEncryptionKey');
+        const encryptionKey = await getAESKey(this.context);
         if (!encryptionKey) {
             logMessage('IndexHistoryProvider: AES encryption key not found.');
             vscode.window.showErrorMessage('AES encryption key not found. Please set it in the settings.');
@@ -37,15 +40,17 @@ export class IndexHistoryProvider implements vscode.TreeDataProvider<IndexItem> 
         }
         logMessage('IndexHistoryProvider: AES encryption key loaded successfully.');
 
-        const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-        if (!workspaceUri) {
-            logMessage('IndexHistoryProvider: Workspace folder not found.');
+        let workspaceUri: vscode.Uri;
+        try {
+            workspaceUri = this.workspaceContext.getWorkspaceUri();
+        } catch (error: any) {
+            logMessage(`IndexHistoryProvider: Workspace folder not found. ${error?.message ?? error}`);
             vscode.window.showErrorMessage('No workspace folder open.');
             return [];
         }
         logMessage(`IndexHistoryProvider: Workspace folder: ${workspaceUri.fsPath}`);
 
-        const localObjectManager = new LocalObjectManager(workspaceUri);
+        const localObjectManager = this.workspaceContext.getLocalObjectManager();
 
         try {
             logMessage('IndexHistoryProvider: Loading remote indexes...');

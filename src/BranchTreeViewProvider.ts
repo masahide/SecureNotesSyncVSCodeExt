@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
-import { LocalObjectManager } from "./storage/LocalObjectManager";
 import { IndexFile } from "./types";
 import { getAESKey } from "./extension";
 import { logMessage, showError } from "./logger";
 import { IBranchTreeViewProvider } from "./interfaces/IBranchTreeViewProvider";
+import { IWorkspaceContextService } from "./interfaces/IWorkspaceContextService";
 
 /**
  * ブランチ単位・Index履歴表示用の TreeViewProvider
@@ -19,7 +19,10 @@ export class BranchTreeViewProvider
         BranchItem | IndexItem | undefined | void
     > = this._onDidChangeTreeData.event;
 
-    constructor(private context: vscode.ExtensionContext) { } 
+    constructor(
+        private context: vscode.ExtensionContext,
+        private workspaceContext: IWorkspaceContextService
+    ) { } 
 
     /**
      * TreeViewを再描画するためのリフレッシュ
@@ -64,7 +67,7 @@ export class BranchTreeViewProvider
      */
     private async getBranchList(): Promise<BranchItem[]> {
         try {
-            const localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri);
+            const localObjectManager = this.workspaceContext.getLocalObjectManager();
             const refsDir = localObjectManager.getRefsDirUri(); // => .secureNotes/remotes/refs
             const entries = await vscode.workspace.fs.readDirectory(refsDir);
             const branchItems: BranchItem[] = [];
@@ -96,7 +99,7 @@ export class BranchTreeViewProvider
             return [];
         }
         const branchName = branchItem.branchName;
-        const localObjectManager = new LocalObjectManager(vscode.workspace.workspaceFolders![0].uri);
+        const localObjectManager = this.workspaceContext.getLocalObjectManager();
 
         // 1) HEADのUUIDを読む
         const headUuid = await localObjectManager.readBranchRef(branchName, { encryptionKey: aesKey, environmentId: "" });

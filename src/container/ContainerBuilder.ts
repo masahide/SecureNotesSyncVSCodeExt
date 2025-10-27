@@ -10,6 +10,8 @@ import { SyncServiceFactory } from '../factories/SyncServiceFactory';
 import { GitHubSyncProvider } from '../storage/GithubProvider';
 import { ConfigManager } from '../config/ConfigManager';
 import { BranchTreeViewProvider } from '../BranchTreeViewProvider';
+import { WorkspaceContextService } from '../services/WorkspaceContextService';
+import { IWorkspaceContextService } from '../interfaces/IWorkspaceContextService';
 
 /**
  * サービスコンテナの構築を担当するクラス
@@ -52,11 +54,17 @@ export class ContainerBuilder {
       context
     );
 
+    this.container.registerSingleton<IWorkspaceContextService>(
+      ServiceKeys.WORKSPACE_CONTEXT,
+      () => new WorkspaceContextService()
+    );
+
     // Branch Tree Provider（シングルトン）
     this.container.registerSingleton<BranchTreeViewProvider>(
       ServiceKeys.BRANCH_PROVIDER,
-      (context: vscode.ExtensionContext) => new BranchTreeViewProvider(context),
-      [ServiceKeys.EXTENSION_CONTEXT]
+      (extensionContext: vscode.ExtensionContext, workspaceContext: IWorkspaceContextService) =>
+        new BranchTreeViewProvider(extensionContext, workspaceContext),
+      [ServiceKeys.EXTENSION_CONTEXT, ServiceKeys.WORKSPACE_CONTEXT]
     );
 
     return this;

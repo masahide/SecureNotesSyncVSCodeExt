@@ -19,6 +19,7 @@ export const ServiceKeys = {
   
   // UI Services
   BRANCH_PROVIDER: 'branchProvider',
+  WORKSPACE_CONTEXT: 'workspaceContext',
   
   // Context Services
   EXTENSION_CONTEXT: 'extensionContext',

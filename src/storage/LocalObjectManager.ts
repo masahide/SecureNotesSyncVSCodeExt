@@ -280,6 +280,33 @@ export class LocalObjectManager {
   }
 
   /**
+   * インデックスファイル内のパス正規化とソートを一括で行うユーティリティ。
+   * duplicated 正規化処理をここに集約する。
+   */
+  protected normalizeIndexFile(indexFile: IndexFile): IndexFile {
+    indexFile.files = indexFile.files
+      .map(file => ({
+        ...file,
+        path: normalizeFilePath(file.path)
+      }))
+      .sort((a, b) => a.path.localeCompare(b.path));
+
+    return indexFile;
+  }
+
+  /**
+   * コンフリクトファイル名を生成する共通ヘルパー。
+   */
+  protected buildConflictFilePath(prefix: string, filePath: string, timestamp: Date): string {
+    const time = timestamp
+      .toISOString()
+      .replace(/[:.]/g, "-")
+      .replace("T", "_")
+      .split("Z")[0];
+    return `${prefix}-${time}/${filePath}`;
+  }
+
+  /**
    * wsIndexを読み込む関数
    */
   public async loadWsIndex(
@@ -291,13 +318,7 @@ export class LocalObjectManager {
       const content = await vscode.workspace.fs.readFile(wsIndexUri);
       const indexFile = JSON.parse(content.toString()) as IndexFile;
 
-      // 既存のファイルパスを正規化（後方互換性のため）
-      indexFile.files = indexFile.files.map(file => ({
-        ...file,
-        path: normalizeFilePath(file.path)
-      }));
-
-      return indexFile;
+      return this.normalizeIndexFile(indexFile);
     } catch (error) {
       logMessage(`Latest index file not found at: ${this.toRelPath(this.getWsIndexUri())}. Creating new index`);
       return {
@@ -324,15 +345,7 @@ export class LocalObjectManager {
         Buffer.from(encrypedUuid),
         options.encryptionKey
       );
-      const indexFile = await this.loadIndex(uuid.toString(), options);
-
-      // 既存のファイルパスを正規化（後方互換性のため）
-      indexFile.files = indexFile.files.map(file => ({
-        ...file,
-        path: normalizeFilePath(file.path)
-      }));
-
-      return indexFile;
+      return await this.loadIndex(uuid.toString(), options);
     } catch (error) {
       logMessage(`Remote ref not found at: ${this.toRelPath(this.getRemoteRefBranchUri())}. Creating new index`);
       return {
@@ -360,17 +373,7 @@ export class LocalObjectManager {
       options.encryptionKey
     );
     const indexFile: IndexFile = JSON.parse(index.toString());
-
-    // 既存のファイルパスを正規化（後方互換性のため）
-    indexFile.files = indexFile.files.map(file => ({
-      ...file,
-      path: normalizeFilePath(file.path)
-    }));
-
-    // files配列をpath順にソート
-    indexFile.files.sort((a, b) => a.path.localeCompare(b.path));
-
-    return indexFile;
+    return this.normalizeIndexFile(indexFile);
   }
 
   /**
@@ -478,12 +481,7 @@ export class LocalObjectManager {
     overrideOptions?: Partial<LocalObjectManagerOptions>
   ): Promise<void> {
     // コンフリクト用のファイル名を生成（例: conflict-local-YYYYMMDD-HHmmss-ファイル名.ext）
-    const time = timestamp
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .replace("T", "_")
-      .split("Z")[0];
-    const conflictFileName = `conflict-local-${time}/${filePath}`;
+    const conflictFileName = this.buildConflictFilePath("conflict-local", filePath, timestamp);
 
     // ローカルファイルのURIを取得
     const rootUri = this.getRootUri();
@@ -523,12 +521,7 @@ export class LocalObjectManager {
   ): Promise<void> {
     // コンフリクト用のファイル名を生成（例: conflict-remote-YYYYMMDD-HHmmss-ファイル名.ext）
     //const timestamp = new Date()
-    const time = timestamp
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .replace("T", "_")
-      .split("Z")[0];
-    const conflictFileName = `conflict-remote-${time}/${filePath}`;
+    const conflictFileName = this.buildConflictFilePath("conflict-remote", filePath, timestamp);
     await this.fetchDecryptAndSaveFile(
       filePath,
       fileHash,

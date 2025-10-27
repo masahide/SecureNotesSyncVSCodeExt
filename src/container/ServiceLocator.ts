@@ -6,6 +6,7 @@ import { ISyncServiceFactory } from '../interfaces/ISyncServiceFactory';
 import { ConfigManager } from '../config/ConfigManager';
 import { BranchTreeViewProvider } from '../BranchTreeViewProvider';
 import { LocalObjectManager } from '../storage/LocalObjectManager';
+import { IWorkspaceContextService } from '../interfaces/IWorkspaceContextService';
 
 /**
  * サービスロケーターパターンの実装
@@ -57,6 +58,13 @@ export class ServiceLocator {
    */
   static getBranchProvider(): BranchTreeViewProvider {
     return ServiceLocator.resolve<BranchTreeViewProvider>(ServiceKeys.BRANCH_PROVIDER);
+  }
+
+  /**
+   * ワークスペースコンテキストサービスを取得
+   */
+  static getWorkspaceContextService(): IWorkspaceContextService {
+    return ServiceLocator.resolve<IWorkspaceContextService>(ServiceKeys.WORKSPACE_CONTEXT);
   }
 
   /**

@@ -309,12 +309,11 @@ async function handleCheckoutBranch(context: vscode.ExtensionContext, encryptKey
 function setupAutoSyncListeners() {
   // ウィンドウ状態変更リスナー
   vscode.window.onDidChangeWindowState((state) => {
-    const isAutoSyncEnabled = vscode.workspace.getConfiguration(appName).get<boolean>("enableAutoSync", false);
-    if (!isAutoSyncEnabled) {
+    if (!config.isAutoSyncEnabled()) {
       return;
     }
     if (state.focused) {
-      const inactivityTimeoutSec = vscode.workspace.getConfiguration(appName).get<number>("inactivityTimeoutSec", 60);
+      const inactivityTimeoutSec = config.getInactivityTimeoutSec();
       const now = Date.now();
       if (lastWindowActivationTime !== 0 && (now - lastWindowActivationTime) / 1000 > inactivityTimeoutSec) {
         vscode.commands.executeCommand("secureNotes.sync");
@@ -326,20 +325,23 @@ function setupAutoSyncListeners() {
 
   // ファイル保存リスナー
   vscode.workspace.onDidSaveTextDocument(() => {
-    const isAutoSyncEnabled = vscode.workspace.getConfiguration(appName).get<boolean>("enableAutoSync", false);
-    if (!isAutoSyncEnabled) {
+    if (!config.isAutoSyncEnabled()) {
       return;
     }
     if (saveSyncTimeout) {
       clearTimeout(saveSyncTimeout);
     }
-    const saveSyncTimeoutSec = vscode.workspace.getConfiguration(appName).get<number>("saveSyncTimeoutSec", 5);
+    const saveSyncTimeoutSec = config.getSaveSyncTimeoutSec();
     saveSyncTimeout = setTimeout(() => {
       vscode.commands.executeCommand("secureNotes.sync");
       logMessage("ファイル保存後の遅延同期を実行しました。");
     }, saveSyncTimeoutSec * 1000);
   });
 }
+
+export const __test = {
+  setupAutoSyncListeners,
+};
 
 // --- Helper Functions ---
 
@@ -369,14 +371,13 @@ export async function activate(context: vscode.ExtensionContext) {
   const container = ContainerBuilder.buildDefault(context);
   ServiceLocator.setContainer(container);
 
+  const workspaceContextService = ServiceLocator.getWorkspaceContextService();
+
   // LocalObjectManagerを初期化してコンテナに登録
   try {
     const encryptKey = await getAESKey(context);
-    if (encryptKey && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-      const localObjectManager = new LocalObjectManager(
-        vscode.workspace.workspaceFolders[0].uri
-      );
-      container.registerInstance(ServiceKeys.LOCAL_OBJECT_MANAGER, localObjectManager);
+    if (encryptKey) {
+      workspaceContextService.getLocalObjectManager();
     }
   } catch (error) {
     logMessage(`Failed to initialize LocalObjectManager: ${error}`);
@@ -385,7 +386,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const branchProvider = ServiceLocator.getBranchProvider();
   vscode.window.createTreeView("secureNotes.branchList", { treeDataProvider: branchProvider });
 
-  const indexHistoryProvider = new IndexHistoryProvider(context);
+  const indexHistoryProvider = new IndexHistoryProvider(context, workspaceContextService);
   vscode.window.createTreeView("secureNotes.indexHistory", { treeDataProvider: indexHistoryProvider });
 
   context.subscriptions.push(
