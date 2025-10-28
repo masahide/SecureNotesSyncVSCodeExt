@@ -18,12 +18,15 @@ class TestableGitHubSyncProvider extends GitHubSyncProvider {
       workspaceUri,
       dependencies.fileSystem,
       dependencies.gitClient,
-      dependencies.layoutManager
+      dependencies.layoutManager,
     );
     this.testObjectDir = dependencies.layoutManager.getRemotesDirUri().fsPath;
   }
 
-  protected async syncBranchFromRemote(branchName: string, mode: "pull" | "download"): Promise<{ objectDir: string; beforeHash?: string }> {
+  protected async syncBranchFromRemote(
+    branchName: string,
+    mode: "pull" | "download",
+  ): Promise<{ objectDir: string; beforeHash?: string }> {
     this.syncCalls.push({ mode, branch: branchName });
     return {
       objectDir: this.testObjectDir,
@@ -76,10 +79,18 @@ suite("GitHubSyncProvider sync flow", () => {
     });
 
     const pullResult = await provider.pullRemoteChanges("main");
-    assert.strictEqual(pullResult, true, "pullRemoteChanges should resolve successfully");
+    assert.strictEqual(
+      pullResult,
+      true,
+      "pullRemoteChanges should resolve successfully",
+    );
 
     const downloadResult = await provider.download("main");
-    assert.strictEqual(downloadResult, true, "download should resolve successfully");
+    assert.strictEqual(
+      downloadResult,
+      true,
+      "download should resolve successfully",
+    );
 
     assert.deepStrictEqual(
       provider.syncCalls,
@@ -87,7 +98,7 @@ suite("GitHubSyncProvider sync flow", () => {
         { mode: "pull", branch: "main" },
         { mode: "download", branch: "main" },
       ],
-      "両メソッドが syncBranchFromRemote を経由する必要があります。"
+      "両メソッドが syncBranchFromRemote を経由する必要があります。",
     );
   });
 });

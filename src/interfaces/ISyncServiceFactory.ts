@@ -1,7 +1,7 @@
 // src/interfaces/ISyncServiceFactory.ts
 
-import { ISyncService } from './ISyncService';
-import { IBranchTreeViewProvider } from './IBranchTreeViewProvider';
+import { ISyncService } from "./ISyncService";
+import { IBranchTreeViewProvider } from "./IBranchTreeViewProvider";
 import * as vscode from "vscode";
 
 /**
@@ -9,7 +9,7 @@ import * as vscode from "vscode";
  */
 export interface SyncConfig {
   /** ストレージタイプ */
-  storageType: 'github' | 's3' | 'local';
+  storageType: "github" | "s3" | "local";
   /** リモートURL (GitHubの場合) */
   remoteUrl: string;
   /** 暗号化キー */
@@ -24,7 +24,7 @@ export interface SyncConfig {
  * ストレージ固有の設定
  */
 export interface StorageConfig {
-  type: 'github' | 's3' | 'local';
+  type: "github" | "s3" | "local";
   github?: GitHubConfig;
   s3?: S3Config;
   local?: LocalConfig;
@@ -56,7 +56,10 @@ export interface ISyncServiceFactory {
    * @param context VS Code 拡張機能のコンテキスト
    * @returns 同期サービスインスタンス
    */
-  createSyncService(config: SyncConfig, context: vscode.ExtensionContext): ISyncService;
+  createSyncService(
+    config: SyncConfig,
+    context: vscode.ExtensionContext,
+  ): ISyncService;
 
   /**
    * ストレージプロバイダーを作成

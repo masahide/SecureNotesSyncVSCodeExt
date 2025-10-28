@@ -3,6 +3,7 @@
 この文書はフェーズ1「API 方針の確定（仕様・下準備）」の決定事項をまとめます。実装はフェーズ5以降で行います（本書は設計合意のみ）。
 
 ## 1. IStorageProvider の方針
+
 - 目的: Storage 層の責務を Git I/O に限定し、暗号/復号やインデックス処理を排除する。
 - ステータス（フェーズ6結果）:
   - `loadAndDecryptRemoteData(): Promise<void>` は削除済み（非推奨段階を経て撤去）。
@@ -10,6 +11,7 @@
 - 影響範囲: モック/テスト更新、呼び出し箇所の移動（SyncService へ）。
 
 ## 2. LocalObjectManager の API 方針
+
 - 目的: 暗号/復号とインデックス操作の統一窓口。鍵/環境IDは呼び出し都度のオプションで受け取る。
 - コンストラクタ:
   - 方針: `new LocalObjectManager(workspaceUri: vscode.Uri)` のみ必須。
@@ -23,6 +25,7 @@
   - 段階的に ctor シグネチャ変更を行い、既存呼び出し部はフェーズ5でコンテナ解決に切替。
 
 ## 3. workspaceUri 取得ポリシー
+
 - 目的: ルートURIを DI で一貫して注入し、フォールバックやグローバル依存を除去。
 - 方針:
   - `workspaceUri` は DI 経由で必須注入。フォールバック（temp ディレクトリ作成）は廃止（フェーズ7）。
@@ -31,6 +34,7 @@
   - テストでは明示的に `workspaceUri` をモック/一時ディレクトリとして注入する。
 
 ## 4. GithubProvider（Storage 実装）の責務
+
 - 目的: 暗号/復号からの分離。Git I/O のみに特化。
 - 方針:
   - 保持: initialize/clone/fetch/reset/checkout/push などの Git 操作。
@@ -39,6 +43,7 @@
   - 動的 import の禁止: `await import('./LocalObjectManager')` は設計上不要のため廃止。
 
 ## 5. 移行計画（フェーズ連携）
+
 - フェーズ5（最小変更）:
   - GithubProvider から動的 import と context ハックを除去（非推奨化）。
   - 暗号/復号の呼び出しを SyncService 側へ移す（コードの呼び出し場所のみ切替）。
@@ -51,6 +56,7 @@
   - 不変条件のテスト追加。
 
 ## 6. オープン課題
+
 - マルチワークスペース対応の設計（対象ルートの選択戦略、設定スキーマ）。
 - LocalObjectManager の stateless 化の度合い（キャッシュ方針、パフォーマンス評価）。
 - 既存テストの改修計画（段階的にどの層のモックを更新するか）。

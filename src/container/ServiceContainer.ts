@@ -5,11 +5,11 @@
  */
 export enum ServiceLifetime {
   /** 毎回新しいインスタンスを作成 */
-  Transient = 'transient',
+  Transient = "transient",
   /** 単一インスタンスを共有 */
-  Singleton = 'singleton',
+  Singleton = "singleton",
   /** スコープ内で単一インスタンスを共有 */
-  Scoped = 'scoped'
+  Scoped = "scoped",
 }
 
 /**
@@ -33,36 +33,48 @@ export class ServiceContainer {
   /**
    * サービスを一時的なライフタイムで登録
    */
-  registerTransient<T>(key: string, factory: (...args: any[]) => T, dependencies: string[] = []): void {
+  registerTransient<T>(
+    key: string,
+    factory: (...args: any[]) => T,
+    dependencies: string[] = [],
+  ): void {
     this.validateKey(key);
     this.services.set(key, {
       factory,
       lifetime: ServiceLifetime.Transient,
-      dependencies
+      dependencies,
     });
   }
 
   /**
    * サービスをシングルトンとして登録
    */
-  registerSingleton<T>(key: string, factory: (...args: any[]) => T, dependencies: string[] = []): void {
+  registerSingleton<T>(
+    key: string,
+    factory: (...args: any[]) => T,
+    dependencies: string[] = [],
+  ): void {
     this.validateKey(key);
     this.services.set(key, {
       factory,
       lifetime: ServiceLifetime.Singleton,
-      dependencies
+      dependencies,
     });
   }
 
   /**
    * サービスをスコープドとして登録
    */
-  registerScoped<T>(key: string, factory: (...args: any[]) => T, dependencies: string[] = []): void {
+  registerScoped<T>(
+    key: string,
+    factory: (...args: any[]) => T,
+    dependencies: string[] = [],
+  ): void {
     this.validateKey(key);
     this.services.set(key, {
       factory,
       lifetime: ServiceLifetime.Scoped,
-      dependencies
+      dependencies,
     });
   }
 
@@ -74,7 +86,7 @@ export class ServiceContainer {
     this.services.set(key, {
       factory: () => instance,
       lifetime: ServiceLifetime.Singleton,
-      instance
+      instance,
     });
   }
 
@@ -83,7 +95,7 @@ export class ServiceContainer {
    */
   resolve<T>(key: string): T {
     if (this.isDisposed) {
-      throw new Error('Container has been disposed');
+      throw new Error("Container has been disposed");
     }
 
     const registration = this.services.get(key);
@@ -114,14 +126,17 @@ export class ServiceContainer {
   dispose(): void {
     // シングルトンインスタンスの破棄
     for (const [key, registration] of this.services) {
-      if (registration.instance && typeof registration.instance.dispose === 'function') {
+      if (
+        registration.instance &&
+        typeof registration.instance.dispose === "function"
+      ) {
         registration.instance.dispose();
       }
     }
 
     // スコープドインスタンスの破棄
     for (const [key, instance] of this.scopedInstances) {
-      if (typeof instance.dispose === 'function') {
+      if (typeof instance.dispose === "function") {
         instance.dispose();
       }
     }
@@ -134,7 +149,10 @@ export class ServiceContainer {
   /**
    * インスタンスを作成
    */
-  private createInstance<T>(key: string, registration: ServiceRegistration<T>): T {
+  private createInstance<T>(
+    key: string,
+    registration: ServiceRegistration<T>,
+  ): T {
     switch (registration.lifetime) {
       case ServiceLifetime.Singleton:
         if (!registration.instance) {
@@ -159,7 +177,7 @@ export class ServiceContainer {
    */
   private instantiate<T>(registration: ServiceRegistration<T>): T {
     const dependencies = registration.dependencies || [];
-    const resolvedDependencies = dependencies.map(dep => this.resolve(dep));
+    const resolvedDependencies = dependencies.map((dep) => this.resolve(dep));
     return registration.factory(...resolvedDependencies);
   }
 
@@ -167,8 +185,8 @@ export class ServiceContainer {
    * キーの妥当性を検証
    */
   private validateKey(key: string): void {
-    if (!key || typeof key !== 'string') {
-      throw new Error('Service key must be a non-empty string');
+    if (!key || typeof key !== "string") {
+      throw new Error("Service key must be a non-empty string");
     }
   }
 }
@@ -187,7 +205,7 @@ export class ServiceScope {
    */
   resolve<T>(key: string): T {
     if (this.isDisposed) {
-      throw new Error('Scope has been disposed');
+      throw new Error("Scope has been disposed");
     }
 
     const registration = (this.container as any).services.get(key);
@@ -197,7 +215,10 @@ export class ServiceScope {
 
     if (registration.lifetime === ServiceLifetime.Scoped) {
       if (!this.scopedInstances.has(key)) {
-        this.scopedInstances.set(key, (this.container as any).instantiate(registration));
+        this.scopedInstances.set(
+          key,
+          (this.container as any).instantiate(registration),
+        );
       }
       return this.scopedInstances.get(key);
     }
@@ -210,7 +231,7 @@ export class ServiceScope {
    */
   dispose(): void {
     for (const [key, instance] of this.scopedInstances) {
-      if (typeof instance.dispose === 'function') {
+      if (typeof instance.dispose === "function") {
         instance.dispose();
       }
     }

@@ -38,24 +38,38 @@ async function run() {
       },
     };
 
+    const layoutManager = {
+      async prepareRemotesLayout() {},
+      getRemotesDirUri() {
+        return vscode.Uri.joinPath(workspaceUri, ".secureNotes", "remotes");
+      },
+    };
+
     const provider = new (GitHubSyncProvider as any)(
       "git@github.com:user/repo.git",
       workspaceUri,
       fileSystem,
-      gitClient
+      gitClient,
+      layoutManager,
     );
 
     await provider.initialize();
 
     assert.ok(
-      gitClient.calls.every((call) => Array.isArray(call.args) && typeof call.args[0] === "string"),
-      "Git commands should capture first argument"
+      gitClient.calls.every(
+        (call) => Array.isArray(call.args) && typeof call.args[0] === "string",
+      ),
+      "Git commands should capture first argument",
     );
     assert.ok(
       gitClient.calls.length >= 3,
-      "Should invoke git client multiple times during initialization"
+      "Should invoke git client multiple times during initialization",
     );
-    assert.strictEqual(gitClient.calls[0].args[0], "ls-remote", "First command should be ls-remote");
+    assert.strictEqual(
+      gitClient.calls[0].args[0],
+      "ls-remote",
+      "First command should be ls-remote",
+    );
 
     console.log("✅ GitHubSyncProvider git client delegation test: PASSED");
     process.exit(0);

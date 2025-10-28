@@ -5,38 +5,46 @@
 ---
 
 ## 1. 暗号化ロジックの責務分離（TDD TODO）
+
 - **対象**: `src/storage/LocalObjectManager.ts`, `src/extension.ts`
 - **背景**: 暗号処理と鍵管理が各所に散在しており、テストや責務分離が難しい状態。
 
 ### Red
-- [ ] `EncryptionService` と `KeyManagementService` の期待動作を定義するテスト（暗号化/復号、1Password 連携キャッシュの期限切れシナリオを含む）を追加する。
-- [ ] `LocalObjectManager` および `BranchTreeViewProvider` から新サービスをモックしたテストケースを追加し、既存ロジックが未実装のために失敗することを確認する。
+
+- [x] `EncryptionService` と `KeyManagementService` の期待動作を定義するテスト（暗号化/復号、1Password 連携キャッシュの期限切れシナリオを含む）を追加する。
+- [x] `LocalObjectManager` および `BranchTreeViewProvider` から新サービスをモックしたテストケースを追加し、既存ロジックが未実装のために失敗することを確認する。
 
 ### Green
-- [ ] `src/services/EncryptionService.ts` を実装し、Red で追加した暗号化関連テストを通す。
-- [ ] `src/services/KeyManagementService.ts` を実装し、1Password キャッシュ更新を含むキー取得テストを通す。
-- [ ] `LocalObjectManager` を `EncryptionService` 経由で暗号化/復号するように修正し、関連テストをグリーンにする。
-- [ ] `BranchTreeViewProvider` / `IndexHistoryProvider` / コマンドハンドラーを `KeyManagementService` に切り替え、関連テストをグリーンにする。
+
+- [x] `src/services/EncryptionService.ts` を実装し、Red で追加した暗号化関連テストを通す。
+- [x] `src/services/KeyManagementService.ts` を実装し、1Password キャッシュ更新を含むキー取得テストを通す。
+- [x] `LocalObjectManager` を `EncryptionService` 経由で暗号化/復号するように修正し、関連テストをグリーンにする。
+- [x] `BranchTreeViewProvider` / `IndexHistoryProvider` / コマンドハンドラーを `KeyManagementService` に切り替え、関連テストをグリーンにする。
 
 ### Refactor
-- [ ] `ContainerBuilder` / `ServiceLocator` に新サービスを登録し、依存解決が一元化されていることを確認する。
-- [ ] `LocalObjectManager` から暗号化・鍵取得の private 実装を削除し、コードの重複がない状態でテストが全てパスすることを確認する。
-- [ ] 暗号化・鍵管理のユニットテストにテストダブルを導入し、モック差し替えが容易であることを確認する。
+
+- [x] `ContainerBuilder` / `ServiceLocator` に新サービスを登録し、依存解決が一元化されていることを確認する。
+- [x] `LocalObjectManager` から暗号化・鍵取得の private 実装を削除し、コードの重複がない状態でテストが全てパスすることを確認する。
+- [x] 暗号化・鍵管理のユニットテストにテストダブルを導入し、モック差し替えが容易であることを確認する。
 
 ---
 
 ## 2. GitHubSyncProvider の依存注入統一（TDD TODO）
+
 - **対象**: `src/storage/GithubProvider.ts`
 - **背景**: 依存生成をクラス内部で行っており、テストでモック化が困難。
 
 ### Red
-- [ ] 依存を外部注入できることを前提にした `GitHubSyncProvider` のテスト（モック `fileSystem` / `gitClient` / `layoutManager`）を追加し、現状コードが失敗することを確認する。
-- [ ] `ContainerBuilder` が依存未登録の場合に失敗するテストを追加し、DI 更新の必要性を示す。
+
+- [x] 依存を外部注入できることを前提にした `GitHubSyncProvider` のテスト（モック `fileSystem` / `gitClient` / `layoutManager`）を追加し、現状コードが失敗することを確認する。
+- [x] `ContainerBuilder` が依存未登録の場合に失敗するテストを追加し、DI 更新の必要性を示す。
 
 ### Green
-- [ ] `GitHubSyncProvider` のコンストラクタを依存必須化し、Red で追加したテストを通す。
-- [ ] `factories/` もしくは `ContainerBuilder` にデフォルト実装を提供するファクトリを追加し、依存注入で同期フローが成功するテストをグリーンにする。
+
+- [x] `GitHubSyncProvider` のコンストラクタを依存必須化し、Red で追加したテストを通す。
+- [x] `factories/` もしくは `ContainerBuilder` にデフォルト実装を提供するファクトリを追加し、依存注入で同期フローが成功するテストをグリーンにする。
 
 ### Refactor
-- [ ] `GitHubSyncProvider` 内に残っている `new` による直接生成コードを除去し、DI からの提供に統一されていることを確認する。
-- [ ] 主要な統合テストでモック差し替えが容易になったことを確認し、テストコードの重複を整理する。
+
+- [x] `GitHubSyncProvider` 内に残っている `new` による直接生成コードを除去し、DI からの提供に統一されていることを確認する。
+- [x] 主要な統合テストでモック差し替えが容易になったことを確認し、テストコードの重複を整理する。

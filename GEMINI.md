@@ -7,6 +7,7 @@
 ## AI Assistant Guidelines
 
 ### Project Context
+
 - **Language**: TypeScript
 - **Framework**: VS Code Extension API
 - **Build System**: Webpack + TypeScript
@@ -16,18 +17,21 @@
 ### Key Technical Areas
 
 #### 1. Encryption & Security
+
 - **Algorithm**: AES-256-CBC with random IV per file
 - **Key Management**: 64-character hex strings (32 bytes)
 - **Storage**: Encrypted files in `.secureNotes/remotes/` with hash-based paths
 - **Integration**: 1Password CLI support for enterprise key retrieval
 
 #### 2. Version Control Model
+
 - **Index Files**: JSON structures with UUID v7, parent references, file metadata
 - **Branch References**: Encrypted UUID pointers in `.secureNotes/remotes/refs/`
 - **Workspace Tracking**: `wsIndex.json` for current state, `HEAD` for current branch
 - **Conflict Resolution**: Automatic merge with conflict file creation
 
 #### 3. File Organization
+
 ```
 .secureNotes/
 ├── HEAD                           # Current branch name
@@ -41,6 +45,7 @@
 ### Development Guidelines for AI Assistance
 
 #### Code Style & Patterns
+
 - Use TypeScript strict mode with proper type definitions
 - Follow ESLint rules in `eslint.config.mjs`
 - Prefer `async/await` over Promise chains
@@ -48,18 +53,21 @@
 - Implement proper error handling with the logger module
 
 #### Security Considerations
+
 - Never log or expose AES keys in plain text
 - Use VS Code secrets API for sensitive data storage
 - Validate all user inputs, especially file paths and encryption keys
 - Ensure proper IV generation for each encryption operation
 
 #### Extension Architecture
+
 - Register commands in `activate()` function
 - Use `context.subscriptions.push()` for proper cleanup
 - Leverage tree view providers for UI components
 - Implement storage providers following the `IStorageProvider` interface
 
 #### File Naming Conventions
+
 - Hash-based file paths: first 2 characters as directory, remainder as filename
 - UUID-based index paths: first 6 characters as directory, remainder as filename
 - Use relative paths for workspace files
@@ -68,12 +76,14 @@
 ### Common Development Tasks
 
 #### Adding New Commands
+
 1. Define command in `package.json` contributes section
 2. Register command handler in `extension.ts` activate function
 3. Add to context subscriptions for proper cleanup
 4. Implement error handling and user feedback
 
 #### Storage Operations
+
 1. Use `LocalObjectManager` for local encryption/decryption
 2. Use `GitHubSyncProvider` (file: `src/storage/GithubProvider.ts`) for remote Git operations
 3. Follow the storage provider interface pattern
@@ -81,12 +91,14 @@
 5. Handle Git operation failures gracefully, allowing the process to continue where possible.
 
 #### UI Components
+
 1. Extend `BranchTreeViewProvider` for tree view modifications
 2. Use VS Code's built-in UI components (QuickPick, InputBox)
 3. Provide clear user feedback for long-running operations
 4. Implement proper loading states and error messages
 
 ### Testing Guidelines
+
 - Use VS Code Test Framework for extension testing
 - Test encryption/decryption operations thoroughly
 - Mock external dependencies (Git, 1Password CLI)
@@ -94,6 +106,7 @@
 - Verify proper cleanup of resources
 
 ### Configuration Management
+
 - All settings prefixed with `SecureNotesSync.`
 - Required: `gitRemoteUrl` for GitHub repository
 - Optional: Auto-sync, 1Password integration, timeouts
@@ -101,6 +114,7 @@
 - Provide clear error messages for invalid configurations
 
 ### Error Handling Patterns
+
 - Use the logger module for consistent error reporting
 - Show user-friendly messages via `showError()` function
 - Log detailed error information for debugging
@@ -108,6 +122,7 @@
 - Provide recovery suggestions when possible
 
 ### Performance Considerations
+
 - Cache AES keys with configurable timeouts
 - Use efficient file hashing (SHA-256)
 - Implement incremental sync operations
@@ -117,6 +132,7 @@
 ## AI Assistant Best Practices
 
 ### When Helping with Code Changes
+
 1. Always understand the security implications of changes
 2. Maintain the existing architecture patterns
 3. Follow TypeScript best practices and type safety
@@ -124,6 +140,7 @@
 5. Consider backward compatibility with existing data
 
 ### When Adding Features
+
 1. Follow the modular architecture design
 2. Add appropriate configuration options
 3. Implement proper error handling and logging
@@ -131,6 +148,7 @@
 5. Consider security and performance implications
 
 ### When Debugging Issues
+
 1. Check the "SecureNoteSync Log" terminal for detailed logs
 2. Verify `.secureNotes` directory structure and permissions
 3. Test with different Git configurations and network conditions
@@ -148,6 +166,7 @@
 ## Notes for AI Assistants
 
 This project prioritizes security and user data protection. When suggesting changes:
+
 - Always consider the security implications
 - Maintain the encryption-first approach
 - Preserve existing data compatibility
@@ -159,9 +178,11 @@ The codebase is well-structured with clear separation of concerns. The storage l
 ## Configuration Schema
 
 ### Required Settings
+
 - `SecureNotesSync.gitRemoteUrl` — GitHub repository URL (e.g., `git@github.com:user/repo.git`).
 
 ### Optional Settings
+
 - `SecureNotesSync.enableAutoSync` — Enable auto sync on save (default: false).
 - `SecureNotesSync.inactivityTimeoutSec` — Sync on refocus if inactive for N seconds (default: 60).
 - `SecureNotesSync.saveSyncTimeoutSec` — Delay after save before sync (default: 5).
@@ -172,20 +193,24 @@ The codebase is well-structured with clear separation of concerns. The storage l
 ## Commands
 
 ### Core Operations
+
 - `secureNotes.sync` — Manual sync with GitHub.
 - `secureNotes.initializeNewStorage` — Initialize new storage.
 - `secureNotes.importExistingStorage` — Import existing storage.
 - `secureNotes.previewIndex` — Preview current index JSON.
 
 ### Branch & Index
+
 - `secureNotes.createBranchFromIndex` — Create a branch from selected index.
 - `secureNotes.checkoutBranch` — Switch to selected branch.
 
 ### Key Management
+
 - `secureNotes.generateAESKey` — Generate a new AES key.
 - `secureNotes.setAESKey` — Manually set AES key.
 - `secureNotes.copyAESKeyToClipboard` — Copy current key to clipboard.
 - `secureNotes.refreshAESKey` — Refresh key from 1Password.
 
 ### Utilities
+
 - `secureNotes.insertCurrentTime` — Insert a timestamp into the active editor.

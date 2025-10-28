@@ -9,7 +9,9 @@ import { getVscode } from "./helpers/getVscode";
 
 const vscode = getVscode();
 
-const fileSystemViolationError = new Error("workspace.fs should not be called directly");
+const fileSystemViolationError = new Error(
+  "workspace.fs should not be called directly",
+);
 
 // which.sync('git') の挙動を安定させる
 const which = require("which");
@@ -51,26 +53,34 @@ async function run() {
       },
     };
 
+    const layoutManager = {
+      async prepareRemotesLayout() {},
+      getRemotesDirUri() {
+        return vscode.Uri.joinPath(workspaceUri, ".secureNotes", "remotes");
+      },
+    };
+
     const provider = new (GitHubSyncProvider as any)(
       "git@github.com:user/repo.git",
       workspaceUri,
       safeFileSystem,
-      gitClientMock
+      gitClientMock,
+      layoutManager,
     );
 
     await provider.initializeEmptyRemoteRepository();
 
     assert.ok(
       fileSystemMock.createDirectoryCalls.length > 0,
-      "file system adapter should receive createDirectory calls"
+      "file system adapter should receive createDirectory calls",
     );
     assert.ok(
       fileSystemMock.writeFileCalls.length > 0,
-      "file system adapter should receive writeFile calls"
+      "file system adapter should receive writeFile calls",
     );
     assert.ok(
       gitClientMock.calls.length > 0,
-      "git client adapter should receive git commands"
+      "git client adapter should receive git commands",
     );
     console.log("✅ GitHubSyncProvider file-system abstraction test: PASSED");
     process.exit(0);

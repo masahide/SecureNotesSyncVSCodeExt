@@ -5,7 +5,8 @@ suite("Auto sync configuration usage", () => {
     const Module = require("module");
     const originalRequire = Module.prototype.require;
 
-    const windowStateListeners: Array<(state: { focused: boolean }) => void> = [];
+    const windowStateListeners: Array<(state: { focused: boolean }) => void> =
+      [];
     const saveListeners: Array<() => void> = [];
     const commandsExecuted: string[] = [];
 
@@ -38,7 +39,9 @@ suite("Auto sync configuration usage", () => {
       if (id === "vscode") {
         return {
           window: {
-            onDidChangeWindowState: (listener: (state: { focused: boolean }) => void) => {
+            onDidChangeWindowState: (
+              listener: (state: { focused: boolean }) => void,
+            ) => {
               windowStateListeners.push(listener);
               return { dispose: () => undefined };
             },
@@ -84,21 +87,39 @@ suite("Auto sync configuration usage", () => {
       const extension = await import("../extension");
       extension.__test.setupAutoSyncListeners();
 
-      assert.ok(windowStateListeners.length > 0, "ウィンドウ状態のリスナーが登録されていること");
-      assert.ok(saveListeners.length > 0, "保存イベントのリスナーが登録されていること");
+      assert.ok(
+        windowStateListeners.length > 0,
+        "ウィンドウ状態のリスナーが登録されていること",
+      );
+      assert.ok(
+        saveListeners.length > 0,
+        "保存イベントのリスナーが登録されていること",
+      );
 
       // ウィンドウフォーカスで自動同期チェック
       windowStateListeners[0]({ focused: true });
-      assert.ok(configCallCounts.auto > 0, "isAutoSyncEnabled が呼び出されること");
-      assert.ok(configCallCounts.inactivity > 0, "getInactivityTimeoutSec が呼び出されること");
+      assert.ok(
+        configCallCounts.auto > 0,
+        "isAutoSyncEnabled が呼び出されること",
+      );
+      assert.ok(
+        configCallCounts.inactivity > 0,
+        "getInactivityTimeoutSec が呼び出されること",
+      );
 
       // 保存イベントでの自動同期チェック
       saveListeners[0]();
-      assert.ok(configCallCounts.save > 0, "getSaveSyncTimeoutSec が呼び出されること");
+      assert.ok(
+        configCallCounts.save > 0,
+        "getSaveSyncTimeoutSec が呼び出されること",
+      );
 
       // 遅延実行も即時消化してコマンド呼び出しを検証
       scheduledCallbacks.forEach((run) => run());
-      assert.ok(commandsExecuted.includes("secureNotes.sync"), "sync コマンドがスケジュールされること");
+      assert.ok(
+        commandsExecuted.includes("secureNotes.sync"),
+        "sync コマンドがスケジュールされること",
+      );
     } finally {
       Module.prototype.require = originalRequire;
       (global as any).setTimeout = originalSetTimeout;

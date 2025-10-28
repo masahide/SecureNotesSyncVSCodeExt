@@ -7,18 +7,16 @@ import {
 import { IndexFile } from "./types";
 import { ISyncService } from "./interfaces/ISyncService";
 import { IBranchTreeViewProvider } from "./interfaces/IBranchTreeViewProvider";
+import { IKeyManagementService } from "./interfaces/IKeyManagementService";
 import { ContainerBuilder } from "./container/ContainerBuilder";
 import { ServiceLocator } from "./container/ServiceLocator";
 import { ServiceKeys } from "./container/ServiceKeys";
 import { registerManualSyncTestCommand } from "./test/manual-sync-test";
 import * as crypto from "crypto";
-import { execFile } from "child_process";
-import which from "which";
 import * as config from "./config";
 import { IndexHistoryProvider } from "./IndexHistoryProvider";
 
 const aesEncryptionKey = "aesEncryptionKey";
-const aesEncryptionKeyFetchedTime = "aesEncryptionKeyFetchedTime";
 const appName = "SecureNotesSync";
 
 let saveSyncTimeout: NodeJS.Timeout | undefined;
@@ -29,19 +27,39 @@ let lastWindowActivationTime = 0;
 /**
  * 同期サービスの共通初期化処理
  */
-async function initializeSyncService(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider, encryptKey: string) {
+async function initializeSyncService(
+  context: vscode.ExtensionContext,
+  branchProvider: IBranchTreeViewProvider,
+  encryptKey: string,
+) {
   const configManager = ServiceLocator.getConfigManager();
-  const syncConfig = await configManager.createSyncConfig(context, encryptKey, branchProvider);
+  const syncConfig = await configManager.createSyncConfig(
+    context,
+    encryptKey,
+    branchProvider,
+  );
   configManager.validateConfig(syncConfig);
 
   const syncServiceFactory = ServiceLocator.getSyncServiceFactory();
   // LocalObjectManager が未登録の場合は、ここで遅延登録して DI 経路を満たす
   if (!ServiceLocator.isRegistered(ServiceKeys.LOCAL_OBJECT_MANAGER)) {
-    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-      throw new Error('No workspace folder found to initialize LocalObjectManager');
+    if (
+      !vscode.workspace.workspaceFolders ||
+      vscode.workspace.workspaceFolders.length === 0
+    ) {
+      throw new Error(
+        "No workspace folder found to initialize LocalObjectManager",
+      );
     }
-    const lom = new LocalObjectManager(vscode.workspace.workspaceFolders[0].uri);
-    ServiceLocator.getContainer().registerInstance(ServiceKeys.LOCAL_OBJECT_MANAGER, lom);
+    const encryptionService = ServiceLocator.getEncryptionService();
+    const lom = new LocalObjectManager(
+      vscode.workspace.workspaceFolders[0].uri,
+      encryptionService,
+    );
+    ServiceLocator.getContainer().registerInstance(
+      ServiceKeys.LOCAL_OBJECT_MANAGER,
+      lom,
+    );
   }
   const syncService = syncServiceFactory.createSyncService(syncConfig, context);
 
@@ -59,11 +77,15 @@ async function initializeSyncService(context: vscode.ExtensionContext, branchPro
 async function confirmRepositoryReinitialization(
   syncService: ISyncService,
   message: string,
-  cancelMessage: string
+  cancelMessage: string,
 ): Promise<boolean> {
   const isInitialized = await syncService.isRepositoryInitialized();
   if (isInitialized) {
-    const answer = await vscode.window.showWarningMessage(message, "はい", "いいえ");
+    const answer = await vscode.window.showWarningMessage(
+      message,
+      "はい",
+      "いいえ",
+    );
     if (answer !== "はい") {
       showInfo(cancelMessage);
       return false;
@@ -77,7 +99,7 @@ async function confirmRepositoryReinitialization(
  */
 async function executeSyncOperation<T>(
   operation: () => Promise<T>,
-  errorPrefix: string
+  errorPrefix: string,
 ): Promise<T | false> {
   try {
     return await operation();
@@ -92,7 +114,7 @@ async function executeSyncOperation<T>(
  */
 type RepositoryInitializationOperation = (
   syncService: ISyncService,
-  options: { environmentId: string; encryptionKey: string }
+  options: { environmentId: string; encryptionKey: string },
 ) => Promise<boolean>;
 
 /**
@@ -113,15 +135,19 @@ async function handleRepositoryInitialization(
   context: vscode.ExtensionContext,
   branchProvider: IBranchTreeViewProvider,
   encryptKey: string,
-  config: RepositoryInitializationConfig
+  config: RepositoryInitializationConfig,
 ) {
   return executeSyncOperation(async () => {
-    const { syncService, options } = await initializeSyncService(context, branchProvider, encryptKey);
+    const { syncService, options } = await initializeSyncService(
+      context,
+      branchProvider,
+      encryptKey,
+    );
 
     const shouldProceed = await confirmRepositoryReinitialization(
       syncService,
       config.confirmationMessage,
-      config.cancelMessage
+      config.cancelMessage,
     );
     if (!shouldProceed) {
       return false;
@@ -133,18 +159,19 @@ async function handleRepositoryInitialization(
 
 // --- Command Handlers ---
 
-async function handleSetAESKey(context: vscode.ExtensionContext) {
+async function handleSetAESKey(keyManagementService: IKeyManagementService) {
   return executeSyncOperation(async () => {
     const secretValue = await vscode.window.showInputBox({
-      prompt: "Enter AES Encryption Key (64 hex characters representing 32 bytes)",
+      prompt:
+        "Enter AES Encryption Key (64 hex characters representing 32 bytes)",
       password: true,
       validateInput: (value) =>
         value.length === 64 ? null : "AES Key must be 64 hex characters long",
     });
 
     if (secretValue) {
-      await context.secrets.store(aesEncryptionKey, secretValue);
-      await context.secrets.store(aesEncryptionKeyFetchedTime, "");
+      await keyManagementService.saveKey(secretValue);
+      await keyManagementService.invalidateCache();
       showInfo(`${aesEncryptionKey} saved successfully.`);
       return true;
     } else {
@@ -154,43 +181,64 @@ async function handleSetAESKey(context: vscode.ExtensionContext) {
   }, "Error setting AES key");
 }
 
-async function handleGenerateAESKey(context: vscode.ExtensionContext) {
+async function handleGenerateAESKey(
+  keyManagementService: IKeyManagementService,
+) {
   return executeSyncOperation(async () => {
     logMessage("Generating 32-byte AES encryption key...");
     const key = crypto.randomBytes(32).toString("hex");
-    await context.secrets.store(aesEncryptionKey, key);
-    await context.secrets.store(aesEncryptionKeyFetchedTime, Date.now().toString());
+    await keyManagementService.saveKey(key);
+    await keyManagementService.markKeyFetched();
     showInfo(`Generated and stored AES key: ${key}`);
     return true;
   }, "Error generating encrypted text");
 }
 
-
-async function handleInitializeNewRepository(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider, encryptKey: string) {
+async function handleInitializeNewRepository(
+  context: vscode.ExtensionContext,
+  branchProvider: IBranchTreeViewProvider,
+  encryptKey: string,
+) {
   return handleRepositoryInitialization(context, branchProvider, encryptKey, {
-    confirmationMessage: "ローカルリポジトリが既に存在します。新規リポジトリとして再初期化しますか？ (現在のローカルデータは削除されます)",
+    confirmationMessage:
+      "ローカルリポジトリが既に存在します。新規リポジトリとして再初期化しますか？ (現在のローカルデータは削除されます)",
     cancelMessage: "新規リポジトリの初期化をキャンセルしました。",
     errorPrefix: "New repository initialization failed",
-    operation: (syncService, options) => syncService.initializeNewStorage()
+    operation: (syncService, options) => syncService.initializeNewStorage(),
   });
 }
 
-async function handleImportExistingRepository(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider, encryptKey: string) {
+async function handleImportExistingRepository(
+  context: vscode.ExtensionContext,
+  branchProvider: IBranchTreeViewProvider,
+  encryptKey: string,
+) {
   return handleRepositoryInitialization(context, branchProvider, encryptKey, {
-    confirmationMessage: "ローカルリポジトリが既に存在します。既存リモートリポジトリで上書きしますか？ (現在のローカルデータは削除されます)",
+    confirmationMessage:
+      "ローカルリポジトリが既に存在します。既存リモートリポジトリで上書きしますか？ (現在のローカルデータは削除されます)",
     cancelMessage: "既存リポジトリの取り込みをキャンセルしました。",
     errorPrefix: "Existing repository import failed",
-    operation: (syncService, options) => syncService.importExistingStorage()
+    operation: (syncService, options) => syncService.importExistingStorage(),
   });
 }
 
-async function handleSyncNotes(context: vscode.ExtensionContext, branchProvider: IBranchTreeViewProvider, encryptKey: string) {
+async function handleSyncNotes(
+  context: vscode.ExtensionContext,
+  branchProvider: IBranchTreeViewProvider,
+  encryptKey: string,
+) {
   return executeSyncOperation(async () => {
-    const { syncService, options } = await initializeSyncService(context, branchProvider, encryptKey);
+    const { syncService, options } = await initializeSyncService(
+      context,
+      branchProvider,
+      encryptKey,
+    );
 
     const isInitialized = await syncService.isRepositoryInitialized();
     if (!isInitialized) {
-      showError("リポジトリが初期化されていません。まず `Secure Notes: Initialize New Repository` または `Secure Notes: Import Existing Repository` コマンドを実行してください。");
+      showError(
+        "リポジトリが初期化されていません。まず `Secure Notes: Initialize New Repository` または `Secure Notes: Import Existing Repository` コマンドを実行してください。",
+      );
       return false;
     }
 
@@ -198,9 +246,11 @@ async function handleSyncNotes(context: vscode.ExtensionContext, branchProvider:
   }, "Sync failed");
 }
 
-async function handleCopyAESKeyToClipboard(context: vscode.ExtensionContext) {
+async function handleCopyAESKeyToClipboard(
+  keyManagementService: IKeyManagementService,
+) {
   return executeSyncOperation(async () => {
-    const aesKey = await context.secrets.get(aesEncryptionKey);
+    const aesKey = await keyManagementService.getKey();
     if (!aesKey) {
       showError("AES Key is not set. Please set the AES key first.");
       return false;
@@ -211,10 +261,11 @@ async function handleCopyAESKeyToClipboard(context: vscode.ExtensionContext) {
   }, "Failed to copy AES Key");
 }
 
-async function handleRefreshAESKey(context: vscode.ExtensionContext) {
+async function handleRefreshAESKey(
+  keyManagementService: IKeyManagementService,
+) {
   return executeSyncOperation(async () => {
-    await context.secrets.store(aesEncryptionKeyFetchedTime, "0");
-    const newKey = await getAESKey(context);
+    const newKey = await keyManagementService.refreshKey();
     if (newKey) {
       showInfo("AES key refreshed successfully.");
       return true;
@@ -236,16 +287,23 @@ async function handleInsertCurrentTime() {
   const pad = (n: number) => (n < 10 ? "0" + n : n.toString());
   const formatted = `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 
-  const editOperations: vscode.TextEdit[] = editor.selections.map(
-    (selection) => vscode.TextEdit.replace(selection, formatted)
+  const editOperations: vscode.TextEdit[] = editor.selections.map((selection) =>
+    vscode.TextEdit.replace(selection, formatted),
   );
 
   await editor.edit((editBuilder) => {
-    editOperations.forEach((edit) => editBuilder.replace(edit.range, edit.newText));
+    editOperations.forEach((edit) =>
+      editBuilder.replace(edit.range, edit.newText),
+    );
   });
 }
 
-async function handleCreateBranchFromIndex(context: vscode.ExtensionContext, encryptKey: string, branchItem?: any, branchProvider?: IBranchTreeViewProvider) {
+async function handleCreateBranchFromIndex(
+  context: vscode.ExtensionContext,
+  encryptKey: string,
+  branchItem?: any,
+  branchProvider?: IBranchTreeViewProvider,
+) {
   if (!branchItem || !branchItem.indexFile) {
     vscode.window.showErrorMessage("No index selected.");
     return;
@@ -266,12 +324,21 @@ async function handleCreateBranchFromIndex(context: vscode.ExtensionContext, enc
 
   const newIndexFile: IndexFile = { ...baseIndex };
   const localObjectManager = ServiceLocator.getLocalObjectManager();
-  await localObjectManager.saveBranchRef(newBranch, newIndexFile.uuid, { encryptionKey: encryptKey, environmentId: "" });
-  vscode.window.showInformationMessage(`Created new branch '${newBranch}' from index UUID: ${newIndexFile.uuid}`);
+  await localObjectManager.saveBranchRef(newBranch, newIndexFile.uuid, {
+    encryptionKey: encryptKey,
+    environmentId: "",
+  });
+  vscode.window.showInformationMessage(
+    `Created new branch '${newBranch}' from index UUID: ${newIndexFile.uuid}`,
+  );
   branchProvider?.refresh();
 }
 
-async function handleCheckoutBranch(context: vscode.ExtensionContext, encryptKey: string, branchItem?: any) {
+async function handleCheckoutBranch(
+  context: vscode.ExtensionContext,
+  encryptKey: string,
+  branchItem?: any,
+) {
   return executeSyncOperation(async () => {
     if (!branchItem?.branchName) {
       showError("No branch selected.");
@@ -280,22 +347,36 @@ async function handleCheckoutBranch(context: vscode.ExtensionContext, encryptKey
     const branchName = branchItem.branchName;
     const localObjectManager = ServiceLocator.getLocalObjectManager();
 
-    const latestIndexUuid = await localObjectManager.readBranchRef(branchName, { encryptionKey: encryptKey, environmentId: "" });
+    const latestIndexUuid = await localObjectManager.readBranchRef(branchName, {
+      encryptionKey: encryptKey,
+      environmentId: "",
+    });
     if (!latestIndexUuid) {
       showError(`Branch ${branchName} has no index.`);
       return false;
     }
 
     const configManager = ServiceLocator.getConfigManager();
-    const tempConfig = await configManager.createSyncConfig(context, encryptKey);
+    const tempConfig = await configManager.createSyncConfig(
+      context,
+      encryptKey,
+    );
     const options = {
       environmentId: tempConfig.environmentId!,
       encryptionKey: encryptKey,
     };
 
-    const targetIndex = await localObjectManager.loadIndex(latestIndexUuid, options);
+    const targetIndex = await localObjectManager.loadIndex(
+      latestIndexUuid,
+      options,
+    );
     const currentWsIndex = await localObjectManager.loadWsIndex(options);
-    await localObjectManager.reflectFileChanges(currentWsIndex, targetIndex, true, options);
+    await localObjectManager.reflectFileChanges(
+      currentWsIndex,
+      targetIndex,
+      true,
+      options,
+    );
     await localObjectManager.saveWsIndexFile(targetIndex, options);
     await setCurrentBranchName(branchName);
     showInfo(`Checked out branch: ${branchName}`);
@@ -315,9 +396,14 @@ function setupAutoSyncListeners() {
     if (state.focused) {
       const inactivityTimeoutSec = config.getInactivityTimeoutSec();
       const now = Date.now();
-      if (lastWindowActivationTime !== 0 && (now - lastWindowActivationTime) / 1000 > inactivityTimeoutSec) {
+      if (
+        lastWindowActivationTime !== 0 &&
+        (now - lastWindowActivationTime) / 1000 > inactivityTimeoutSec
+      ) {
         vscode.commands.executeCommand("secureNotes.sync");
-        logMessage(`ウィンドウ再アクティブ(${Math.round((now - lastWindowActivationTime) / 1000)}秒経過)のためSyncを実行しました。`);
+        logMessage(
+          `ウィンドウ再アクティブ(${Math.round((now - lastWindowActivationTime) / 1000)}秒経過)のためSyncを実行しました。`,
+        );
       }
       lastWindowActivationTime = now;
     }
@@ -345,10 +431,13 @@ export const __test = {
 
 // --- Helper Functions ---
 
-function commandWithKey(context: vscode.ExtensionContext, commandHandler: (encryptKey: string, ...args: any[]) => Promise<any>) {
+function commandWithKey(
+  keyManagementService: IKeyManagementService,
+  commandHandler: (encryptKey: string, ...args: any[]) => Promise<any>,
+) {
   return async (...args: any[]) => {
     try {
-      const encryptKey = await getAESKey(context);
+      const encryptKey = await keyManagementService.getKey();
       if (!encryptKey) {
         showError("AES Key not set");
         return;
@@ -359,7 +448,6 @@ function commandWithKey(context: vscode.ExtensionContext, commandHandler: (encry
     }
   };
 }
-
 
 // --- Activation ---
 
@@ -372,10 +460,11 @@ export async function activate(context: vscode.ExtensionContext) {
   ServiceLocator.setContainer(container);
 
   const workspaceContextService = ServiceLocator.getWorkspaceContextService();
+  const keyManagementService = ServiceLocator.getKeyManagementService();
 
   // LocalObjectManagerを初期化してコンテナに登録
   try {
-    const encryptKey = await getAESKey(context);
+    const encryptKey = await keyManagementService.getKey();
     if (encryptKey) {
       workspaceContextService.getLocalObjectManager();
     }
@@ -384,29 +473,77 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   const branchProvider = ServiceLocator.getBranchProvider();
-  vscode.window.createTreeView("secureNotes.branchList", { treeDataProvider: branchProvider });
+  vscode.window.createTreeView("secureNotes.branchList", {
+    treeDataProvider: branchProvider,
+  });
 
-  const indexHistoryProvider = new IndexHistoryProvider(context, workspaceContextService);
-  vscode.window.createTreeView("secureNotes.indexHistory", { treeDataProvider: indexHistoryProvider });
+  const indexHistoryProvider = new IndexHistoryProvider(
+    context,
+    workspaceContextService,
+    keyManagementService,
+  );
+  vscode.window.createTreeView("secureNotes.indexHistory", {
+    treeDataProvider: indexHistoryProvider,
+  });
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("secureNotes.initializeNewStorage", commandWithKey(context, (key) => handleInitializeNewRepository(context, branchProvider, key))),
-    vscode.commands.registerCommand("secureNotes.importExistingStorage", commandWithKey(context, (key) => handleImportExistingRepository(context, branchProvider, key))),
-    vscode.commands.registerCommand("secureNotes.sync", commandWithKey(context, (key) => handleSyncNotes(context, branchProvider, key))),
-    vscode.commands.registerCommand("secureNotes.setAESKey", () => handleSetAESKey(context)),
-    vscode.commands.registerCommand("secureNotes.generateAESKey", () => handleGenerateAESKey(context)),
-    vscode.commands.registerCommand("secureNotes.copyAESKeyToClipboard", () => handleCopyAESKeyToClipboard(context)),
-    vscode.commands.registerCommand("secureNotes.refreshAESKey", () => handleRefreshAESKey(context)),
-    vscode.commands.registerCommand("secureNotes.insertCurrentTime", handleInsertCurrentTime),
-    vscode.commands.registerCommand("secureNotes.createBranchFromIndex", commandWithKey(context, (key, item) => handleCreateBranchFromIndex(context, key, item, branchProvider))),
-    vscode.commands.registerCommand("secureNotes.checkoutBranch", commandWithKey(context, (key, item) => handleCheckoutBranch(context, key, item))),
-    vscode.commands.registerCommand('secureNotes.previewIndex', (indexFile: IndexFile) => {
-      const content = JSON.stringify(indexFile, null, 2);
-      vscode.workspace.openTextDocument({ content, language: 'json' })
-        .then(doc => {
-          vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
-        });
-    })
+    vscode.commands.registerCommand(
+      "secureNotes.initializeNewStorage",
+      commandWithKey(keyManagementService, (key) =>
+        handleInitializeNewRepository(context, branchProvider, key),
+      ),
+    ),
+    vscode.commands.registerCommand(
+      "secureNotes.importExistingStorage",
+      commandWithKey(keyManagementService, (key) =>
+        handleImportExistingRepository(context, branchProvider, key),
+      ),
+    ),
+    vscode.commands.registerCommand(
+      "secureNotes.sync",
+      commandWithKey(keyManagementService, (key) =>
+        handleSyncNotes(context, branchProvider, key),
+      ),
+    ),
+    vscode.commands.registerCommand("secureNotes.setAESKey", () =>
+      handleSetAESKey(keyManagementService),
+    ),
+    vscode.commands.registerCommand("secureNotes.generateAESKey", () =>
+      handleGenerateAESKey(keyManagementService),
+    ),
+    vscode.commands.registerCommand("secureNotes.copyAESKeyToClipboard", () =>
+      handleCopyAESKeyToClipboard(keyManagementService),
+    ),
+    vscode.commands.registerCommand("secureNotes.refreshAESKey", () =>
+      handleRefreshAESKey(keyManagementService),
+    ),
+    vscode.commands.registerCommand(
+      "secureNotes.insertCurrentTime",
+      handleInsertCurrentTime,
+    ),
+    vscode.commands.registerCommand(
+      "secureNotes.createBranchFromIndex",
+      commandWithKey(keyManagementService, (key, item) =>
+        handleCreateBranchFromIndex(context, key, item, branchProvider),
+      ),
+    ),
+    vscode.commands.registerCommand(
+      "secureNotes.checkoutBranch",
+      commandWithKey(keyManagementService, (key, item) =>
+        handleCheckoutBranch(context, key, item),
+      ),
+    ),
+    vscode.commands.registerCommand(
+      "secureNotes.previewIndex",
+      (indexFile: IndexFile) => {
+        const content = JSON.stringify(indexFile, null, 2);
+        vscode.workspace
+          .openTextDocument({ content, language: "json" })
+          .then((doc) => {
+            vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
+          });
+      },
+    ),
   );
 
   // Auto-sync listeners
@@ -424,71 +561,4 @@ export function deactivate() {
   ServiceLocator.dispose();
 
   logMessage(`${appName} Extension Deactivated.`);
-}
-
-
-export async function getAESKey(context: vscode.ExtensionContext): Promise<string | undefined> {
-  const opUri = config.getOnePasswordUri();
-  if (!opUri.startsWith("op://")) {
-    return await context.secrets.get(aesEncryptionKey) || undefined;
-  }
-
-  const cachedKey = await context.secrets.get(aesEncryptionKey);
-  const cachedTimeStr = await context.secrets.get(aesEncryptionKeyFetchedTime);
-  const cacheTimeoutStr = config.getOnePasswordCacheTimeout();
-
-  if (cachedKey && cachedTimeStr) {
-    const cachedTime = parseInt(cachedTimeStr, 10);
-    if (!isNaN(cachedTime) && Date.now() - cachedTime < parseTimeToMs(cacheTimeoutStr)) {
-      return cachedKey;
-    }
-  }
-
-  try {
-    const opPath = which.sync("op");
-    const opAccount = config.getOnePasswordAccount();
-    const keyFrom1Password = await getKeyFrom1PasswordCLI(opPath, opAccount, opUri);
-    if (keyFrom1Password && keyFrom1Password.length === 64) {
-      await context.secrets.store(aesEncryptionKey, keyFrom1Password);
-      await context.secrets.store(aesEncryptionKeyFetchedTime, Date.now().toString());
-      return keyFrom1Password;
-    }
-  } catch (err: any) {
-    logMessage(`Failed to get 1Password CLI path or retrieve key: ${String(err)}`);
-  }
-
-  return await context.secrets.get(aesEncryptionKey) || undefined;
-}
-
-function getKeyFrom1PasswordCLI(opPath: string, account: string, opUri: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const args = account ? ["--account", account, "read", opUri] : ["read", opUri];
-    execFile(opPath, args, (error, stdout, stderr) => {
-      if (error) {
-        return reject(`Error running op CLI: ${error.message}, stderr: ${stderr}`);
-      }
-      const key = stdout.trim();
-      if (!key) {
-        return reject("op CLI returned empty string.");
-      }
-      resolve(key);
-    });
-  });
-}
-
-function parseTimeToMs(timeStr: string): number {
-  const match = timeStr.match(/(\d+)([smhd])/);
-  if (!match) {
-    return 2592000000; // Default to 30 days
-  }
-
-  const value = parseInt(match[1], 10);
-  const unit = match[2];
-  switch (unit) {
-    case "s": return value * 1000;
-    case "m": return value * 60 * 1000;
-    case "h": return value * 60 * 60 * 1000;
-    case "d": return value * 24 * 60 * 60 * 1000;
-    default: return 2592000000;
-  }
 }

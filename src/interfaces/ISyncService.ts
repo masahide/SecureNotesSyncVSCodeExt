@@ -39,7 +39,10 @@ export interface ISyncService {
    * 同期オプションを更新する
    * @param options 新しい同期オプション
    */
-  updateSyncOptions(context: vscode.ExtensionContext, options: SyncOptions): void;
+  updateSyncOptions(
+    context: vscode.ExtensionContext,
+    options: SyncOptions,
+  ): void;
 
   /**
    * 現在の同期オプションを取得する

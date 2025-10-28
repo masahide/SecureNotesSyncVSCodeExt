@@ -1,20 +1,22 @@
-import * as assert from 'assert';
-import * as vscode from 'vscode';
+import * as assert from "assert";
+import * as vscode from "vscode";
 
 // ワークスペースフォルダのモックを最初に設定
 // 一時ディレクトリを使用して実際に書き込み可能なパスを設定
-const tempWorkspaceDir = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'test-workspace-'));
+const tempWorkspaceDir = require("fs").mkdtempSync(
+  require("path").join(require("os").tmpdir(), "test-workspace-"),
+);
 const mockWorkspaceFolder = {
   uri: vscode.Uri.file(tempWorkspaceDir),
-  name: 'mock-workspace',
-  index: 0
+  name: "mock-workspace",
+  index: 0,
 };
 
 // ワークスペースフォルダをモック（インポート前に設定）
-Object.defineProperty(vscode.workspace, 'workspaceFolders', {
+Object.defineProperty(vscode.workspace, "workspaceFolders", {
   value: [mockWorkspaceFolder],
   writable: true,
-  configurable: true
+  configurable: true,
 });
 
 // logger機能をモック（インポート前に設定）
@@ -25,82 +27,88 @@ const mockLogger = {
   logMessageRed: () => {},
   logMessageGreen: () => {},
   logMessageBlue: () => {},
-  showOutputTerminal: () => {}
+  showOutputTerminal: () => {},
 };
 
 // loggerモジュールをモック
-const Module = require('module');
+const Module = require("module");
 const originalRequire = Module.prototype.require;
-Module.prototype.require = function(id: string) {
-  if (id === '../logger' || id.endsWith('/logger')) {
+Module.prototype.require = function (id: string) {
+  if (id === "../logger" || id.endsWith("/logger")) {
     return mockLogger;
   }
   return originalRequire.apply(this, arguments);
 };
 
-import { SyncService, SyncDependencies } from '../SyncService';
-import { SyncOptions } from '../interfaces/ISyncService';
-import { IndexFile, FileEntry } from '../types';
-import { IBranchTreeViewProvider } from '../interfaces/IBranchTreeViewProvider';
+import { SyncService, SyncDependencies } from "../SyncService";
+import { SyncOptions } from "../interfaces/ISyncService";
+import { IndexFile, FileEntry } from "../types";
+import { IBranchTreeViewProvider } from "../interfaces/IBranchTreeViewProvider";
 
 // モックオブジェクト
 class MockLocalObjectManager {
   static async loadWsIndex(options: SyncOptions): Promise<IndexFile> {
     return {
-      uuid: 'test-uuid-1',
+      uuid: "test-uuid-1",
       environmentId: options.environmentId,
       parentUuids: [],
       files: [
         {
-          path: 'test.txt',
-          hash: 'hash1',
-          timestamp: Date.now()
-        }
+          path: "test.txt",
+          hash: "hash1",
+          timestamp: Date.now(),
+        },
       ],
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
   }
 
-  static async generateLocalIndexFile(previousIndex: IndexFile, options: SyncOptions): Promise<IndexFile> {
+  static async generateLocalIndexFile(
+    previousIndex: IndexFile,
+    options: SyncOptions,
+  ): Promise<IndexFile> {
     return {
       ...previousIndex,
-      uuid: 'test-uuid-2',
-      timestamp: Date.now()
+      uuid: "test-uuid-2",
+      timestamp: Date.now(),
     };
   }
 
   static async loadRemoteIndex(options: SyncOptions): Promise<IndexFile> {
     return {
-      uuid: 'remote-uuid-1',
-      environmentId: 'remote-env',
+      uuid: "remote-uuid-1",
+      environmentId: "remote-env",
       parentUuids: [],
       files: [
         {
-          path: 'remote.txt',
-          hash: 'remote-hash1',
-          timestamp: Date.now()
-        }
+          path: "remote.txt",
+          hash: "remote-hash1",
+          timestamp: Date.now(),
+        },
       ],
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
   }
 
   static async detectConflicts(
     previousIndex: IndexFile,
     newLocalIndex: IndexFile,
-    remoteIndex: IndexFile
+    remoteIndex: IndexFile,
   ): Promise<any[]> {
     return []; // No conflicts for basic test
   }
 
-  static async resolveConflicts(conflicts: any[], options: SyncOptions): Promise<boolean> {
+  static async resolveConflicts(
+    conflicts: any[],
+    options: SyncOptions,
+  ): Promise<boolean> {
     return true;
   }
 
   static async saveEncryptedObjects(
     files: FileEntry[],
     previousIndex: IndexFile,
-    options: SyncOptions
+    options: SyncOptions,
   ): Promise<boolean> {
     return files.length > 0;
   }
@@ -108,12 +116,15 @@ class MockLocalObjectManager {
   static async saveIndexFile(
     indexFile: IndexFile,
     branchName: string,
-    encryptionKey: string
+    encryptionKey: string,
   ): Promise<void> {
     // Mock implementation
   }
 
-  static async saveWsIndexFile(indexFile: IndexFile, options: SyncOptions): Promise<void> {
+  static async saveWsIndexFile(
+    indexFile: IndexFile,
+    options: SyncOptions,
+  ): Promise<void> {
     // Mock implementation
   }
 
@@ -121,7 +132,7 @@ class MockLocalObjectManager {
     previousIndex: IndexFile,
     newIndex: IndexFile,
     options: SyncOptions,
-    isCheckout: boolean
+    isCheckout: boolean,
   ): Promise<void> {
     // Mock implementation
   }
@@ -129,17 +140,17 @@ class MockLocalObjectManager {
   // 新しいメソッドを追加
   async encryptAndSaveWorkspaceFiles(): Promise<IndexFile> {
     return {
-      uuid: 'encrypted-uuid',
-      environmentId: 'test-env',
+      uuid: "encrypted-uuid",
+      environmentId: "test-env",
       parentUuids: [],
       files: [
         {
-          path: 'test.txt',
-          hash: 'encrypted-hash',
-          timestamp: Date.now()
-        }
+          path: "test.txt",
+          hash: "encrypted-hash",
+          timestamp: Date.now(),
+        },
       ],
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
   }
 
@@ -152,13 +163,15 @@ class MockLocalObjectManager {
   }
 
   async findLatestIndex(indexes: IndexFile[]): Promise<IndexFile> {
-    return indexes[0] || {
-      uuid: 'latest-uuid',
-      environmentId: 'test-env',
-      parentUuids: [],
-      files: [],
-      timestamp: Date.now()
-    };
+    return (
+      indexes[0] || {
+        uuid: "latest-uuid",
+        environmentId: "test-env",
+        parentUuids: [],
+        files: [],
+        timestamp: Date.now(),
+      }
+    );
   }
 
   async updateWorkspaceIndex(indexFile: IndexFile): Promise<void> {
@@ -177,10 +190,10 @@ class MockGitHubSyncProvider {
 
   constructor(private gitRemoteUrl: string) {}
 
-  async pullRemoteChanges(branchName: string = 'main'): Promise<boolean> {
+  async pullRemoteChanges(branchName: string = "main"): Promise<boolean> {
     this.lastPulledBranch = branchName;
     if (this.simulatePullFailure) {
-      this.lastPullError = new Error('simulated pull failure');
+      this.lastPullError = new Error("simulated pull failure");
       throw this.lastPullError;
     }
     return this.shouldReportRemoteChanges;
@@ -193,7 +206,7 @@ class MockGitHubSyncProvider {
   async upload(branchName: string): Promise<boolean> {
     this.lastUploadedBranch = branchName;
     if (this.simulateUploadFailure) {
-      this.lastUploadError = new Error('simulated push failure');
+      this.lastUploadError = new Error("simulated push failure");
       throw this.lastUploadError;
     }
     return true;
@@ -235,15 +248,16 @@ class MockBranchProvider implements IBranchTreeViewProvider {
 }
 
 // getCurrentBranchNameをモック
-import * as LocalObjectManagerModule from '../storage/LocalObjectManager';
-const originalGetCurrentBranchName = LocalObjectManagerModule.getCurrentBranchName;
+import * as LocalObjectManagerModule from "../storage/LocalObjectManager";
+const originalGetCurrentBranchName =
+  LocalObjectManagerModule.getCurrentBranchName;
 
 // モック関数を作成
-const mockGetCurrentBranchName = async (): Promise<string> => 'main';
+const mockGetCurrentBranchName = async (): Promise<string> => "main";
 
 // ワークスペースフォルダのモックは上部で既に定義済み
 
-suite('SyncService Test Suite', () => {
+suite("SyncService Test Suite", () => {
   let syncService: SyncService;
   let mockDependencies: SyncDependencies;
   let testOptions: SyncOptions;
@@ -251,37 +265,42 @@ suite('SyncService Test Suite', () => {
 
   setup(() => {
     // getCurrentBranchNameをモック関数に置き換え
-    (LocalObjectManagerModule as any).getCurrentBranchName = mockGetCurrentBranchName;
+    (LocalObjectManagerModule as any).getCurrentBranchName =
+      mockGetCurrentBranchName;
 
     // ワークスペースフォルダをモック
-    Object.defineProperty(vscode.workspace, 'workspaceFolders', {
+    Object.defineProperty(vscode.workspace, "workspaceFolders", {
       value: [mockWorkspaceFolder],
-      writable: true
+      writable: true,
     });
 
     mockContext = {
       secrets: {
-        get: async (key: string) => '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        get: async (key: string) =>
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         store: async (key: string, value: string) => {},
-        delete: async (key: string) => {}
+        delete: async (key: string) => {},
       },
       globalState: {
         get: (key: string) => undefined,
-        update: async (key: string, value: any) => {}
-      }
+        update: async (key: string, value: any) => {},
+      },
     } as any;
 
     const localObjectManager = new MockLocalObjectManager() as any;
 
     mockDependencies = {
       localObjectManager: localObjectManager,
-      storageProvider: new MockGitHubSyncProvider('https://github.com/test/repo.git') as any,
-      branchProvider: new MockBranchProvider()
+      storageProvider: new MockGitHubSyncProvider(
+        "https://github.com/test/repo.git",
+      ) as any,
+      branchProvider: new MockBranchProvider(),
     };
 
     testOptions = {
-      environmentId: 'test-env-id',
-      encryptionKey: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+      environmentId: "test-env-id",
+      encryptionKey:
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     };
 
     syncService = new SyncService(mockDependencies, mockContext, testOptions);
@@ -289,41 +308,46 @@ suite('SyncService Test Suite', () => {
 
   teardown(() => {
     // 元の関数に戻す
-    (LocalObjectManagerModule as any).getCurrentBranchName = originalGetCurrentBranchName;
-    
+    (LocalObjectManagerModule as any).getCurrentBranchName =
+      originalGetCurrentBranchName;
+
     // ワークスペースフォルダのモックをクリア
-    Object.defineProperty(vscode.workspace, 'workspaceFolders', {
+    Object.defineProperty(vscode.workspace, "workspaceFolders", {
       value: undefined,
-      writable: true
+      writable: true,
     });
   });
 
-  test('増分同期処理 - リモート更新なしの場合', async () => {
+  test("増分同期処理 - リモート更新なしの場合", async () => {
     // リモート更新がない場合のテスト（新規リポジトリ）
     const result = await syncService.performIncrementalSync();
-    
+
     // 新規リポジトリの場合はfalseが返される（再設計仕様）
     assert.strictEqual(result, false);
   });
 
-  test('増分同期処理 - 現在のブランチで pull/upload する', async () => {
-    const mockGitHubProvider = mockDependencies.storageProvider as unknown as MockGitHubSyncProvider;
-    const originalBranchMock = (LocalObjectManagerModule as any).getCurrentBranchName;
-    (LocalObjectManagerModule as any).getCurrentBranchName = async () => 'dev';
+  test("増分同期処理 - 現在のブランチで pull/upload する", async () => {
+    const mockGitHubProvider =
+      mockDependencies.storageProvider as unknown as MockGitHubSyncProvider;
+    const originalBranchMock = (LocalObjectManagerModule as any)
+      .getCurrentBranchName;
+    (LocalObjectManagerModule as any).getCurrentBranchName = async () => "dev";
     mockGitHubProvider.shouldReportRemoteChanges = true;
 
     try {
       await syncService.performIncrementalSync();
     } finally {
-      (LocalObjectManagerModule as any).getCurrentBranchName = originalBranchMock;
+      (LocalObjectManagerModule as any).getCurrentBranchName =
+        originalBranchMock;
     }
 
-    assert.strictEqual(mockGitHubProvider.lastPulledBranch, 'dev');
-    assert.strictEqual(mockGitHubProvider.lastUploadedBranch, 'dev');
+    assert.strictEqual(mockGitHubProvider.lastPulledBranch, "dev");
+    assert.strictEqual(mockGitHubProvider.lastUploadedBranch, "dev");
   });
 
-  test('増分同期処理 - pull 失敗時はエラーを通知する', async () => {
-    const mockGitHubProvider = mockDependencies.storageProvider as unknown as MockGitHubSyncProvider;
+  test("増分同期処理 - pull 失敗時はエラーを通知する", async () => {
+    const mockGitHubProvider =
+      mockDependencies.storageProvider as unknown as MockGitHubSyncProvider;
     mockGitHubProvider.simulatePullFailure = true;
     try {
       await assert.rejects(
@@ -331,17 +355,18 @@ suite('SyncService Test Suite', () => {
           await syncService.performIncrementalSync();
         },
         (error: any) => {
-          assert.strictEqual(error.message, 'simulated pull failure');
+          assert.strictEqual(error.message, "simulated pull failure");
           return true;
-        }
+        },
       );
     } finally {
       mockGitHubProvider.simulatePullFailure = false;
     }
   });
 
-  test('増分同期処理 - push 失敗時はエラーを通知する', async () => {
-    const mockGitHubProvider = mockDependencies.storageProvider as unknown as MockGitHubSyncProvider;
+  test("増分同期処理 - push 失敗時はエラーを通知する", async () => {
+    const mockGitHubProvider =
+      mockDependencies.storageProvider as unknown as MockGitHubSyncProvider;
     mockGitHubProvider.shouldReportRemoteChanges = true;
     mockGitHubProvider.simulateUploadFailure = true;
     try {
@@ -350,9 +375,9 @@ suite('SyncService Test Suite', () => {
           await syncService.performIncrementalSync();
         },
         (error: any) => {
-          assert.strictEqual(error.message, 'simulated push failure');
+          assert.strictEqual(error.message, "simulated push failure");
           return true;
-        }
+        },
       );
     } finally {
       mockGitHubProvider.simulateUploadFailure = false;
@@ -360,115 +385,129 @@ suite('SyncService Test Suite', () => {
     }
   });
 
-  test('増分同期処理 - リモート更新ありの場合', async () => {
+  test("増分同期処理 - リモート更新ありの場合", async () => {
     // モックの動作を設定
     const mockGitHubProvider = mockDependencies.storageProvider as any;
-    
+
     // リモートリポジトリが存在する場合
     mockGitHubProvider.checkRemoteRepositoryExists = async () => true;
     mockGitHubProvider.checkRemoteRepositoryIsEmpty = async () => false;
-    
+
     let cloneCalled = false;
     let loadDataCalled = false;
-    
+
     mockGitHubProvider.cloneRemoteStorage = async () => {
       cloneCalled = true;
     };
-    
+
     mockGitHubProvider.loadAndDecryptRemoteData = async () => {
       loadDataCalled = true;
     };
 
     const result = await syncService.performIncrementalSync();
-    
+
     assert.strictEqual(result, true); // 既存リポジトリの場合はtrue
     assert.strictEqual(cloneCalled, true);
     assert.strictEqual(loadDataCalled, true);
   });
 
-  test('増分同期処理 - 競合がある場合', async () => {
+  test("増分同期処理 - 競合がある場合", async () => {
     // リモート更新がある場合のテスト
     const mockGitHubProvider = mockDependencies.storageProvider as any;
     const mockLocalManager = mockDependencies.localObjectManager as any;
-    
+
     // リモートリポジトリが存在する場合
     mockGitHubProvider.checkRemoteRepositoryExists = async () => true;
     mockGitHubProvider.checkRemoteRepositoryIsEmpty = async () => false;
-    
+
     // 従来の増分同期処理でリモート更新があることをシミュレート
     mockGitHubProvider.download = async () => true;
-    
+
     let detectConflictsCalled = false;
     let resolveConflictsCalled = false;
-    
+
     mockLocalManager.detectConflicts = async () => {
       detectConflictsCalled = true;
-      return [{ type: 'conflict', file: 'test.txt' }];
+      return [{ type: "conflict", file: "test.txt" }];
     };
-    
+
     mockLocalManager.resolveConflicts = async () => {
       resolveConflictsCalled = true;
       return true;
     };
 
     const result = await syncService.performIncrementalSync();
-    
+
     assert.strictEqual(result, true); // 既存リポジトリの場合はtrue
     assert.strictEqual(detectConflictsCalled, true);
     assert.strictEqual(resolveConflictsCalled, true);
   });
 
-  test('増分同期処理 - 競合解決失敗の場合', async () => {
+  test("増分同期処理 - 競合解決失敗の場合", async () => {
     // エラーハンドリングのテスト
     const mockGitHubProvider = mockDependencies.storageProvider as any;
     const mockLocalManager = mockDependencies.localObjectManager as any;
-    
+
     // リモートリポジトリが存在する場合
     mockGitHubProvider.checkRemoteRepositoryExists = async () => true;
     mockGitHubProvider.checkRemoteRepositoryIsEmpty = async () => false;
-    
-    mockLocalManager.detectConflicts = async () => [{ type: 'conflict', file: 'test.txt' }];
+
+    mockLocalManager.detectConflicts = async () => [
+      { type: "conflict", file: "test.txt" },
+    ];
     mockLocalManager.resolveConflicts = async () => false;
 
     const result = await syncService.performIncrementalSync();
-    
+
     // 既存リポジトリの場合はtrueが返される
     assert.strictEqual(result, true);
   });
 
-  test('増分同期処理 - エラー発生時の処理', async () => {
+  test("増分同期処理 - エラー発生時の処理", async () => {
     // エラーテスト用の独立したモックを作成
-    const errorMockGitHubProvider = new MockGitHubSyncProvider('https://github.com/test/repo.git') as any;
+    const errorMockGitHubProvider = new MockGitHubSyncProvider(
+      "https://github.com/test/repo.git",
+    ) as any;
     errorMockGitHubProvider.checkRemoteRepositoryExists = async () => {
-      throw new Error('Test error');
+      throw new Error("Test error");
     };
-    
+
     const errorMockDependencies = {
       localObjectManager: MockLocalObjectManager as any,
       storageProvider: errorMockGitHubProvider,
-      branchProvider: new MockBranchProvider()
+      branchProvider: new MockBranchProvider(),
     };
-    
-    const errorSyncService = new SyncService(errorMockDependencies, mockContext, testOptions);
+
+    const errorSyncService = new SyncService(
+      errorMockDependencies,
+      mockContext,
+      testOptions,
+    );
 
     try {
       await errorSyncService.performIncrementalSync();
-      assert.fail('エラーが発生するはずです');
+      assert.fail("エラーが発生するはずです");
     } catch (error: any) {
-      assert.strictEqual(error.message, 'Test error');
+      assert.strictEqual(error.message, "Test error");
     }
   });
 
-  test('増分同期処理 - ファイル更新なしの場合', async () => {
+  test("増分同期処理 - ファイル更新なしの場合", async () => {
     // 新しいSyncServiceインスタンスを作成（他のテストの影響を避けるため）
     const cleanMockDependencies = {
       localObjectManager: new MockLocalObjectManager() as any,
-      storageProvider: new MockGitHubSyncProvider('https://github.com/test/repo.git') as any,
-      branchProvider: new MockBranchProvider()
+      storageProvider: new MockGitHubSyncProvider(
+        "https://github.com/test/repo.git",
+      ) as any,
+      branchProvider: new MockBranchProvider(),
     };
-    
-    const cleanSyncService = new SyncService(cleanMockDependencies, mockContext, testOptions);
-    
+
+    const cleanSyncService = new SyncService(
+      cleanMockDependencies,
+      mockContext,
+      testOptions,
+    );
+
     // ファイル更新がない場合のモック
     const mockLocalManager = cleanMockDependencies.localObjectManager as any;
     mockLocalManager.saveEncryptedObjects = async () => false;
@@ -477,36 +516,36 @@ suite('SyncService Test Suite', () => {
     mockGitHubProvider.download = async () => false;
 
     const result = await cleanSyncService.performIncrementalSync();
-    
+
     // 更新がないのでfalseが返される
     assert.strictEqual(result, false);
   });
 });
 
-suite('SyncService Integration Test Suite', () => {
-  test('SyncServiceFactory ファクトリー関数のテスト', () => {
-    const { SyncServiceFactory } = require('../factories/SyncServiceFactory');
-    
+suite("SyncService Integration Test Suite", () => {
+  test("SyncServiceFactory ファクトリー関数のテスト", () => {
+    const { SyncServiceFactory } = require("../factories/SyncServiceFactory");
+
     const factory = new SyncServiceFactory();
     const config = {
-      storageType: 'github' as const,
-      remoteUrl: 'https://github.com/test/repo.git',
-      encryptionKey: '0'.repeat(64)
+      storageType: "github" as const,
+      remoteUrl: "https://github.com/test/repo.git",
+      encryptionKey: "0".repeat(64),
     };
     const mockContext = {
       secrets: {
         get: async (key: string) => config.encryptionKey,
         store: async (key: string, value: string) => {},
-        delete: async (key: string) => {}
+        delete: async (key: string) => {},
       },
       globalState: {
         get: (key: string) => undefined,
-        update: async (key: string, value: any) => {}
-      }
+        update: async (key: string, value: any) => {},
+      },
     } as any;
-    
+
     const syncService = factory.createSyncService(config, mockContext);
-    
+
     assert.ok(syncService);
     assert.ok(syncService instanceof SyncService);
   });

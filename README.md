@@ -68,7 +68,7 @@ Search these in the Command Palette:
    Force re-fetch the AES key from 1Password.
 
 10. **Insert Current Time**  
-   Add timestamp to the active editor.
+    Add timestamp to the active editor.
 
 11. **Preview Index**  
     Open a JSON preview of a given index file.

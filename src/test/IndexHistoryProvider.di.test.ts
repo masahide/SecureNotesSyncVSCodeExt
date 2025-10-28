@@ -1,13 +1,11 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { IWorkspaceContextService } from "../interfaces/IWorkspaceContextService";
+import { IKeyManagementService } from "../interfaces/IKeyManagementService";
 
 suite("IndexHistoryProvider DI enforcement", () => {
   test("WorkspaceContextService を経由して LocalObjectManager を取得すること", async () => {
     let getLocalObjectManagerCallCount = 0;
-
-    const Module = require("module");
-    const originalRequire = Module.prototype.require;
 
     const workspaceContextMock: IWorkspaceContextService = {
       getWorkspaceUri: () => vscode.Uri.file("/tmp/workspace"),
@@ -19,32 +17,35 @@ suite("IndexHistoryProvider DI enforcement", () => {
       },
     };
 
-    const mockSecrets = {
-      get: async () => "should-not-be-used",
+    const keyManagementService: IKeyManagementService = {
+      getKey: async () =>
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      saveKey: async () => {
+        throw new Error("saveKey should not be called in this test");
+      },
+      invalidateCache: async () => {
+        throw new Error("invalidateCache should not be called in this test");
+      },
+      refreshKey: async () => {
+        throw new Error("refreshKey should not be called in this test");
+      },
+      markKeyFetched: async () => {
+        throw new Error("markKeyFetched should not be called in this test");
+      },
     };
 
-    Module.prototype.require = function (id: string) {
-      if (id.endsWith("/extension") || id.endsWith("\\extension")) {
-        return {
-          getAESKey: async () =>
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        };
-      }
-      return originalRequire.apply(this, arguments as any);
-    };
-
-    try {
-      const { IndexHistoryProvider } = await import("../IndexHistoryProvider");
-      const provider = new IndexHistoryProvider({ secrets: mockSecrets } as any, workspaceContextMock);
-      await provider.getChildren();
-    } finally {
-      Module.prototype.require = originalRequire;
-    }
+    const { IndexHistoryProvider } = await import("../IndexHistoryProvider");
+    const provider = new IndexHistoryProvider(
+      {} as any,
+      workspaceContextMock,
+      keyManagementService,
+    );
+    await provider.getChildren();
 
     assert.strictEqual(
       getLocalObjectManagerCallCount,
       1,
-      "IndexHistoryProvider は WorkspaceContextService 経由で LocalObjectManager を取得する必要があります。"
+      "IndexHistoryProvider は WorkspaceContextService 経由で LocalObjectManager を取得する必要があります。",
     );
   });
 });

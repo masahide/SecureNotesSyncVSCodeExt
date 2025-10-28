@@ -8,13 +8,19 @@ export interface GitCommandOptions {
 }
 
 export interface IGitClient {
-  exec(args: string[], options: GitCommandOptions): Promise<{ stdout: string; stderr: string }>;
+  exec(
+    args: string[],
+    options: GitCommandOptions,
+  ): Promise<{ stdout: string; stderr: string }>;
 }
 
 export class NodeGitClient implements IGitClient {
   constructor(private readonly gitPath: string) {}
 
-  exec(args: string[], options: GitCommandOptions): Promise<{ stdout: string; stderr: string }> {
+  exec(
+    args: string[],
+    options: GitCommandOptions,
+  ): Promise<{ stdout: string; stderr: string }> {
     const { cwd, silent = false, env } = options;
     if (!silent) {
       logMessage(`Executing: ${this.gitPath} ${args.join(" ")} in ${cwd}`);
@@ -25,7 +31,11 @@ export class NodeGitClient implements IGitClient {
           if (!silent) {
             logMessageRed(`Execution failed: ${error}`);
           }
-          reject(new Error(`execFile error:${this.gitPath} ${args.join(" ")} \nstdout: '${stdout}'\nstderr: '${stderr}'`));
+          reject(
+            new Error(
+              `execFile error:${this.gitPath} ${args.join(" ")} \nstdout: '${stdout}'\nstderr: '${stderr}'`,
+            ),
+          );
         } else {
           if (!silent) {
             if (stdout) {

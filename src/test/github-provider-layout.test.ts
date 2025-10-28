@@ -32,7 +32,11 @@ async function run() {
         this.calls.push("prepareRemotesLayout");
       },
       getRemotesDirUri() {
-        return vscode.Uri.joinPath(vscode.Uri.file("/tmp/test-workspace"), ".secureNotes", "remotes");
+        return vscode.Uri.joinPath(
+          vscode.Uri.file("/tmp/test-workspace"),
+          ".secureNotes",
+          "remotes",
+        );
       },
     };
 
@@ -48,7 +52,7 @@ async function run() {
       workspaceUri,
       fileSystem,
       gitClient,
-      layoutManager
+      layoutManager,
     );
 
     await provider.initializeEmptyRemoteRepository();
@@ -56,13 +60,15 @@ async function run() {
     assert.strictEqual(
       layoutManager.calls.length,
       1,
-      "Layout manager should prepare remotes layout exactly once"
+      "Layout manager should prepare remotes layout exactly once",
     );
 
     console.log("✅ GitHubSyncProvider layout manager delegation test: PASSED");
     process.exit(0);
   } catch (error) {
-    console.error("❌ GitHubSyncProvider layout manager delegation test: FAILED");
+    console.error(
+      "❌ GitHubSyncProvider layout manager delegation test: FAILED",
+    );
     console.error(error);
     process.exit(1);
   } finally {

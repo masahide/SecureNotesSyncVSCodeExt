@@ -1,50 +1,50 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import { IWorkspaceContextService } from "../interfaces/IWorkspaceContextService";
+import { IKeyManagementService } from "../interfaces/IKeyManagementService";
 
 suite("IndexHistoryProvider AES key retrieval", () => {
-  test("getAESKey を通じて鍵を取得すること", async () => {
-    const Module = require("module");
-    const originalRequire = Module.prototype.require;
-    let getAesKeyCallCount = 0;
-
-    Module.prototype.require = function (id: string) {
-      if (id.endsWith("/extension") || id.endsWith("\\extension")) {
-        return {
-          getAESKey: async () => {
-            getAesKeyCallCount++;
-            return "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-          },
-        };
-      }
-      return originalRequire.apply(this, arguments as any);
+  test("KeyManagementService を通じて鍵を取得すること", async () => {
+    let getKeyCallCount = 0;
+    const keyManagementService: IKeyManagementService = {
+      getKey: async () => {
+        getKeyCallCount++;
+        return "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+      },
+      saveKey: async () => {
+        throw new Error("saveKey should not be called in this test");
+      },
+      invalidateCache: async () => {
+        throw new Error("invalidateCache should not be called in this test");
+      },
+      refreshKey: async () => {
+        throw new Error("refreshKey should not be called in this test");
+      },
+      markKeyFetched: async () => {
+        throw new Error("markKeyFetched should not be called in this test");
+      },
     };
 
     const workspaceContextMock: IWorkspaceContextService = {
       getWorkspaceUri: () => vscode.Uri.file("/tmp/workspace"),
-      getLocalObjectManager: () => ({
-        loadRemoteIndexes: async () => [],
-      }) as any,
+      getLocalObjectManager: () =>
+        ({
+          loadRemoteIndexes: async () => [],
+        }) as any,
     };
 
-    const mockSecrets = {
-      get: async () => {
-        throw new Error("secrets.get should not be called directly");
-      },
-    };
-
-    try {
-      const { IndexHistoryProvider } = await import("../IndexHistoryProvider");
-      const provider = new IndexHistoryProvider({ secrets: mockSecrets } as any, workspaceContextMock);
-      await provider.getChildren();
-    } finally {
-      Module.prototype.require = originalRequire;
-    }
+    const { IndexHistoryProvider } = await import("../IndexHistoryProvider");
+    const provider = new IndexHistoryProvider(
+      {} as any,
+      workspaceContextMock,
+      keyManagementService,
+    );
+    await provider.getChildren();
 
     assert.strictEqual(
-      getAesKeyCallCount,
+      getKeyCallCount,
       1,
-      "IndexHistoryProvider は getAESKey 経由で AES 鍵を取得する必要があります。"
+      "IndexHistoryProvider は KeyManagementService 経由で AES 鍵を取得する必要があります。",
     );
   });
 });

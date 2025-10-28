@@ -1,17 +1,30 @@
 // src/container/ContainerBuilder.ts
 
-import * as vscode from 'vscode';
-import { ServiceContainer, ServiceLifetime } from './ServiceContainer';
-import { ServiceKeys } from './ServiceKeys';
-import { ISyncService, SyncOptions } from '../interfaces/ISyncService';
-import { ISyncServiceFactory } from '../interfaces/ISyncServiceFactory';
-import { IStorageProvider } from '../storage/IStorageProvider';
-import { SyncServiceFactory } from '../factories/SyncServiceFactory';
-import { GitHubSyncProvider } from '../storage/GithubProvider';
-import { ConfigManager } from '../config/ConfigManager';
-import { BranchTreeViewProvider } from '../BranchTreeViewProvider';
-import { WorkspaceContextService } from '../services/WorkspaceContextService';
-import { IWorkspaceContextService } from '../interfaces/IWorkspaceContextService';
+import * as vscode from "vscode";
+import { ServiceContainer, ServiceLifetime } from "./ServiceContainer";
+import { ServiceKeys } from "./ServiceKeys";
+import { ISyncService, SyncOptions } from "../interfaces/ISyncService";
+import { ISyncServiceFactory } from "../interfaces/ISyncServiceFactory";
+import { IStorageProvider } from "../storage/IStorageProvider";
+import { SyncServiceFactory } from "../factories/SyncServiceFactory";
+import {
+  GitHubSyncProvider,
+  findGitExecutable,
+} from "../storage/GithubProvider";
+import { ConfigManager } from "../config/ConfigManager";
+import { BranchTreeViewProvider } from "../BranchTreeViewProvider";
+import { WorkspaceContextService } from "../services/WorkspaceContextService";
+import { IWorkspaceContextService } from "../interfaces/IWorkspaceContextService";
+import { EncryptionService } from "../services/EncryptionService";
+import { IEncryptionService } from "../interfaces/IEncryptionService";
+import { KeyManagementService } from "../services/KeyManagementService";
+import { IKeyManagementService } from "../interfaces/IKeyManagementService";
+import { IFileSystem, VsCodeFileSystem } from "../storage/fileSystem";
+import { IGitClient, NodeGitClient } from "../storage/gitClient";
+import {
+  ISecureNotesLayoutManager,
+  SecureNotesLayoutManager,
+} from "../storage/layoutManager";
 
 /**
  * サービスコンテナの構築を担当するクラス
@@ -30,13 +43,18 @@ export class ContainerBuilder {
     // ファクトリーサービス（シングルトン）
     this.container.registerSingleton<ISyncServiceFactory>(
       ServiceKeys.SYNC_SERVICE_FACTORY,
-      () => new SyncServiceFactory()
+      () => new SyncServiceFactory(),
     );
 
     // 設定管理サービス（シングルトン）
     this.container.registerSingleton<typeof ConfigManager>(
       ServiceKeys.CONFIG_MANAGER,
-      () => ConfigManager
+      () => ConfigManager,
+    );
+
+    this.container.registerSingleton<IEncryptionService>(
+      ServiceKeys.ENCRYPTION_SERVICE,
+      () => new EncryptionService(),
     );
 
     // LocalObjectManagerは動的に登録されるため、ここでは登録しない
@@ -51,20 +69,39 @@ export class ContainerBuilder {
     // Extension Context（インスタンス登録）
     this.container.registerInstance<vscode.ExtensionContext>(
       ServiceKeys.EXTENSION_CONTEXT,
-      context
+      context,
     );
 
     this.container.registerSingleton<IWorkspaceContextService>(
       ServiceKeys.WORKSPACE_CONTEXT,
-      () => new WorkspaceContextService()
+      () => new WorkspaceContextService(),
+    );
+
+    this.container.registerSingleton<IKeyManagementService>(
+      ServiceKeys.KEY_MANAGEMENT_SERVICE,
+      (extensionContext: vscode.ExtensionContext) =>
+        new KeyManagementService(extensionContext),
+      [ServiceKeys.EXTENSION_CONTEXT],
     );
 
     // Branch Tree Provider（シングルトン）
     this.container.registerSingleton<BranchTreeViewProvider>(
       ServiceKeys.BRANCH_PROVIDER,
-      (extensionContext: vscode.ExtensionContext, workspaceContext: IWorkspaceContextService) =>
-        new BranchTreeViewProvider(extensionContext, workspaceContext),
-      [ServiceKeys.EXTENSION_CONTEXT, ServiceKeys.WORKSPACE_CONTEXT]
+      (
+        extensionContext: vscode.ExtensionContext,
+        workspaceContext: IWorkspaceContextService,
+        keyManagementService: IKeyManagementService,
+      ) =>
+        new BranchTreeViewProvider(
+          extensionContext,
+          workspaceContext,
+          keyManagementService,
+        ),
+      [
+        ServiceKeys.EXTENSION_CONTEXT,
+        ServiceKeys.WORKSPACE_CONTEXT,
+        ServiceKeys.KEY_MANAGEMENT_SERVICE,
+      ],
     );
 
     return this;
@@ -74,15 +111,54 @@ export class ContainerBuilder {
    * ストレージサービスを登録
    */
   registerStorageServices(): ContainerBuilder {
-    // GitHub Provider（一時的 - 設定に依存するため）
+    this.container.registerSingleton<IFileSystem>(
+      ServiceKeys.FILE_SYSTEM,
+      () => new VsCodeFileSystem(),
+    );
+
+    this.container.registerSingleton<IGitClient>(
+      ServiceKeys.GIT_CLIENT,
+      () => new NodeGitClient(findGitExecutable()),
+    );
+
+    this.container.registerSingleton<ISecureNotesLayoutManager>(
+      ServiceKeys.LAYOUT_MANAGER,
+      (workspaceContext: IWorkspaceContextService, fileSystem: IFileSystem) =>
+        new SecureNotesLayoutManager(
+          workspaceContext.getWorkspaceUri(),
+          fileSystem,
+        ),
+      [ServiceKeys.WORKSPACE_CONTEXT, ServiceKeys.FILE_SYSTEM],
+    );
+
     this.container.registerTransient<GitHubSyncProvider>(
       ServiceKeys.GITHUB_PROVIDER,
-      (remoteUrl: string) => {
-        if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
-          throw new Error('No workspace folder found for GitHub provider');
+      (
+        workspaceContext: IWorkspaceContextService,
+        fileSystem: IFileSystem,
+        gitClient: IGitClient,
+        layoutManager: ISecureNotesLayoutManager,
+      ) => {
+        const workspaceUri = workspaceContext.getWorkspaceUri();
+        const remoteUrl =
+          ConfigManager.createStorageConfig().github?.remoteUrl ?? "";
+        if (!remoteUrl) {
+          throw new Error("Git remote URL is not configured");
         }
-        return new GitHubSyncProvider(remoteUrl, vscode.workspace.workspaceFolders[0].uri);
-      }
+        return new GitHubSyncProvider(
+          remoteUrl,
+          workspaceUri,
+          fileSystem,
+          gitClient,
+          layoutManager,
+        );
+      },
+      [
+        ServiceKeys.WORKSPACE_CONTEXT,
+        ServiceKeys.FILE_SYSTEM,
+        ServiceKeys.GIT_CLIENT,
+        ServiceKeys.LAYOUT_MANAGER,
+      ],
     );
 
     return this;
@@ -103,7 +179,7 @@ export class ContainerBuilder {
     // テスト用のモックファクトリー
     this.container.registerSingleton<ISyncServiceFactory>(
       ServiceKeys.SYNC_SERVICE_FACTORY,
-      () => new MockSyncServiceFactory()
+      () => new MockSyncServiceFactory(),
     );
 
     return this;
@@ -116,7 +192,7 @@ export class ContainerBuilder {
     key: string,
     factory: (...args: any[]) => T,
     lifetime: ServiceLifetime = ServiceLifetime.Transient,
-    dependencies: string[] = []
+    dependencies: string[] = [],
   ): ContainerBuilder {
     switch (lifetime) {
       case ServiceLifetime.Singleton:
@@ -167,26 +243,35 @@ export class ContainerBuilder {
  * テスト用のモックファクトリー
  */
 class MockSyncServiceFactory implements ISyncServiceFactory {
-  createSyncService(config: any, context: vscode.ExtensionContext): ISyncService {
+  createSyncService(
+    config: any,
+    context: vscode.ExtensionContext,
+  ): ISyncService {
     return {
       isRepositoryInitialized: async () => true,
       initializeNewStorage: async () => true,
       importExistingStorage: async () => true,
       performIncrementalSync: async () => true,
-      updateSyncOptions: (context: vscode.ExtensionContext, options: SyncOptions) => { },
-      getSyncOptions: (): SyncOptions => ({ environmentId: 'test', encryptionKey: 'test' })
+      updateSyncOptions: (
+        context: vscode.ExtensionContext,
+        options: SyncOptions,
+      ) => {},
+      getSyncOptions: (): SyncOptions => ({
+        environmentId: "test",
+        encryptionKey: "test",
+      }),
     };
   }
 
   createStorageProvider(config: any, encryptionKey: string): IStorageProvider {
     return {
       isInitialized: async () => true,
-      initialize: async () => { },
+      initialize: async () => {},
       download: async () => true,
       upload: async () => true,
       hasRemoteData: async () => true,
       cloneRemoteStorage: async () => true,
-      pullRemoteChanges: async (_branch?: string) => false
+      pullRemoteChanges: async (_branch?: string) => false,
     };
   }
 }

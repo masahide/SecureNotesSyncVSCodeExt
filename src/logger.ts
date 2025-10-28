@@ -10,7 +10,7 @@ class aMyPseudoterminal implements vscode.Pseudoterminal {
   // 端末が開かれたときに呼ばれる
   open(initialDimensions: vscode.TerminalDimensions | undefined): void {
     // 初期メッセージの出力
-    this.writeEmitter.fire('SecureNoteSync Log terminal started\r\n');
+    this.writeEmitter.fire("SecureNoteSync Log terminal started\r\n");
   }
 
   // 端末が閉じられたときに呼ばれる
@@ -34,7 +34,7 @@ class MyPseudoterminal implements vscode.Pseudoterminal {
     // open 時にバッファの内容をフラッシュする
     if (this.buffer.length > 0) {
       // 複数の文字列を連結して一度に出力
-      this.buffer.forEach(text => this.write(text));
+      this.buffer.forEach((text) => this.write(text));
       this.buffer = [];
     }
   }
@@ -42,9 +42,9 @@ class MyPseudoterminal implements vscode.Pseudoterminal {
   // 外部から文字列を出力するためのメソッド
   public write(text: string): void {
     if (this.isOpen) {
-      text = text.replace(/\r\n/g, '\n');
+      text = text.replace(/\r\n/g, "\n");
       text = text.trimEnd();
-      text = text.replace(/\n/g, '\r\n');
+      text = text.replace(/\n/g, "\r\n");
       this.writeEmitter.fire(`${text}\r\n`);
     } else {
       // open が呼ばれる前に出力された文字列はバッファに追加
@@ -63,12 +63,11 @@ export function showOutputTerminal(terminalName: string) {
   outputTerminal.show();
 }
 
-
 /**
  * 現在のローカル日時を ISO 8601 形式 (例: 2023-11-03T15:28:05+07:00) で返す
  */
 function getLocalISOStringWithOffset(date: Date = new Date()): string {
-  const pad = (n: number) => n < 10 ? '0' + n : n;
+  const pad = (n: number) => (n < 10 ? "0" + n : n);
   const year = date.getFullYear();
   const month = pad(date.getMonth() + 1);
   const day = pad(date.getDate());
@@ -77,20 +76,19 @@ function getLocalISOStringWithOffset(date: Date = new Date()): string {
   const second = pad(date.getSeconds());
   // getTimezoneOffset() は分単位 (UTCとの差。東側なら負の値)
   const offset = -date.getTimezoneOffset();
-  const sign = offset >= 0 ? '+' : '-';
+  const sign = offset >= 0 ? "+" : "-";
   const offsetHours = pad(Math.floor(Math.abs(offset) / 60));
   const offsetMinutes = pad(Math.abs(offset) % 60);
   return `${year}-${month}-${day}T${hour}:${minute}:${second}${sign}${offsetHours}:${offsetMinutes}`;
 }
 
-
 // ANSIカラーコードの定義
 const ANSI_COLORS = {
-  RED: '\x1b[31m',
-  GREEN: '\x1b[32m',
-  YELLOW: '\x1b[33m',
-  BLUE: '\x1b[34m',
-  RESET: '\x1b[0m'
+  RED: "\x1b[31m",
+  GREEN: "\x1b[32m",
+  YELLOW: "\x1b[33m",
+  BLUE: "\x1b[34m",
+  RESET: "\x1b[0m",
 };
 
 // カラー表示関数

@@ -3,10 +3,12 @@
 本ドキュメントはフェーズ2「DI 体制の整備（非破壊の導入）」の方針をまとめます。実装はフェーズ5以降で行い、ここでは合意事項を示します。
 
 ## 目的
+
 - LocalObjectManager などのコアサービスを DI で一貫提供し、直接 new を排する。
 - workspaceUri は必ず DI で注入。AES鍵はインスタンスに保持せず、呼び出し時の options で渡す。
 
 ## コンテナ/ロケータ運用
+
 - ServiceContainer/ServiceLocator を正とする。
 - 生成・登録:
   - extension.activate で `workspaceUri` を基に LocalObjectManager を1インスタンス生成し、`ServiceKeys.LOCAL_OBJECT_MANAGER` として registerInstance する（現状維持）。
@@ -16,6 +18,7 @@
   - 直接 `new LocalObjectManager(...)` を書かない（フェーズ5で是正）。
 
 ## 依存の注入ポリシー
+
 - workspaceUri:
   - LocalObjectManager の ctor に注入（将来は `workspaceUri` 必須のみに簡素化）。
   - Provider（GitHubSyncProvider）側も `workspaceUri` はコンストラクタ注入（フォールバック廃止はフェーズ7）。
@@ -24,6 +27,7 @@
   - インスタンスに鍵を保持しない（鍵ローテーション/セキュリティのため）。
 
 ## 守るべきルール
+
 - 直接 new 禁止:
   - SyncServiceFactory/SyncService/GitHubSyncProvider 等で `new LocalObjectManager(...)` を行わない。
 - グローバル依存禁止:
@@ -31,6 +35,7 @@
   - dynamic import による設計上不要な遅延依存を置かない（`await import('./LocalObjectManager')` を禁止）。
 
 ## 規約（Lint で担保）
+
 - dynamic import 禁止（src 配下・テスト除外）
   - ESLint: `no-restricted-syntax` にて `ImportExpression` をエラー化。
 - `vscode.extensions.getExtension` 使用禁止（src 配下・テスト除外）
@@ -39,8 +44,10 @@
   - 工場/サービスは ServiceLocator 経由で取得し、グローバル参照を持たない。
 
 ## テスト方針
+
 - LocalObjectManager をモック/実体いずれでも、`workspaceUri` をテスト用一時ディレクトリとして明示注入。
 - IStorageProvider モックは Git I/O に限定（暗号/復号は SyncService+LocalObjectManager の責務）。
 
 ## マルチルート
+
 - 現段階では先頭ワークスペース（または設定で明示指定）を対象とする。マルチルート対応は別スコープで検討。

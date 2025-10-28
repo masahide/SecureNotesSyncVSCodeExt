@@ -30,7 +30,11 @@ async function run() {
     const layoutManager = {
       async prepareRemotesLayout() {},
       getRemotesDirUri() {
-        return vscode.Uri.joinPath(vscode.Uri.file("/tmp/test-workspace"), ".secureNotes", "remotes");
+        return vscode.Uri.joinPath(
+          vscode.Uri.file("/tmp/test-workspace"),
+          ".secureNotes",
+          "remotes",
+        );
       },
     };
 
@@ -41,24 +45,41 @@ async function run() {
       workspaceUri,
       fileSystem,
       gitClient,
-      layoutManager
+      layoutManager,
     );
 
     await provider.upload("main");
     await provider.pullRemoteChanges();
 
-    const fetchCalls = gitClient.calls.filter((call) => call.args[0] === "fetch");
+    const fetchCalls = gitClient.calls.filter(
+      (call) => call.args[0] === "fetch",
+    );
     const pushCalls = gitClient.calls.filter((call) => call.args[0] === "push");
-    const resetCalls = gitClient.calls.filter((call) => call.args[0] === "reset");
+    const resetCalls = gitClient.calls.filter(
+      (call) => call.args[0] === "reset",
+    );
 
-    assert.ok(fetchCalls.length >= 1, "fetch should be called via high-level API");
-    assert.ok(pushCalls.length >= 1, "push should be called via high-level API");
-    assert.ok(resetCalls.length >= 1, "reset should be called via high-level API");
+    assert.ok(
+      fetchCalls.length >= 1,
+      "fetch should be called via high-level API",
+    );
+    assert.ok(
+      pushCalls.length >= 1,
+      "push should be called via high-level API",
+    );
+    assert.ok(
+      resetCalls.length >= 1,
+      "reset should be called via high-level API",
+    );
 
-    console.log("✅ GitHubSyncProvider upload/download orchestration test: PASSED");
+    console.log(
+      "✅ GitHubSyncProvider upload/download orchestration test: PASSED",
+    );
     process.exit(0);
   } catch (error) {
-    console.error("❌ GitHubSyncProvider upload/download orchestration test: FAILED");
+    console.error(
+      "❌ GitHubSyncProvider upload/download orchestration test: FAILED",
+    );
     console.error(error);
     process.exit(1);
   } finally {
