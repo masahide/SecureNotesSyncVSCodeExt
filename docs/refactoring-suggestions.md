@@ -1,69 +1,42 @@
-# リファクタリング提案
+# リファクタリング TDD TODO リスト
 
-このドキュメントでは、DRY 原則およびベストプラクティスに基づいて `SecureNotesSync` 拡張機能のコードベースをリファクタリングする機会を提案します。
-
----
-
-## 1. コマンドハンドラーのロジックをクラスにカプセル化する
-
-- **リファクタリング対象ファイル**: `src/extension.ts`
-- **現状**: `activate` 関数内で `handleSyncNotes` や `handleInitializeNewRepository` など多くのコマンドハンドラーが実装されており、エラーハンドリング、暗号鍵の取得、`SyncService` の初期化などの前処理ロジックが重複しています。
-- **提案**:
-
-  1. 各コマンドごとにクラスを作成（例: `SyncCommand`, `InitializeCommand`）。
-  2. 各コマンドクラスのコンストラクタで必要な依存関係（例: `ISyncService`, `IKeyManagementService`）を受け取る。
-  3. コマンドの実行ロジックをクラス内の `execute` メソッドに実装。
-  4. `extension.ts` ではコマンドクラスを生成し、`vscode.commands.registerCommand` に `execute` を登録するだけにする。
-
-- **メリット**:
-
-  - `extension.ts` がスリム化され、エントリポイントとしての責務に集中できる。
-  - 各コマンドのロジックがカプセル化され、単体テストが容易になる。
-  - 初期化やエラーハンドリングの重複を共通クラスや共通サービスで集中管理できる。
+このドキュメントは、`SecureNotesSync` 拡張機能に対してリファクタリングを TDD サイクル（Red → Green → Refactor）で進めるための TODO チェックリストです。各項目ごとに明確な完了条件を設け、タスクの進捗が可視化されるよう整理しています。
 
 ---
 
-## 2. 暗号化ロジックの責務を分離する
+## 1. 暗号化ロジックの責務分離（TDD TODO）
+- **対象**: `src/storage/LocalObjectManager.ts`, `src/extension.ts`
+- **背景**: 暗号処理と鍵管理が各所に散在しており、テストや責務分離が難しい状態。
 
-- **リファクタリング対象ファイル**: `src/storage/LocalObjectManager.ts`, `src/extension.ts`
-- **現状**: AES 暗号化/復号化ロジック（`encryptContent`, `decryptContent`）が `LocalObjectManager` 内に直接実装されている。また、暗号鍵取得（1Password 連携、キャッシュ処理など）の複雑なロジックが `extension.ts` の `getAESKey` 関数に存在する。
-- **提案**:
+### Red
+- [ ] `EncryptionService` と `KeyManagementService` の期待動作を定義するテスト（暗号化/復号、1Password 連携キャッシュの期限切れシナリオを含む）を追加する。
+- [ ] `LocalObjectManager` および `BranchTreeViewProvider` から新サービスをモックしたテストケースを追加し、既存ロジックが未実装のために失敗することを確認する。
 
-  1. `EncryptionService` クラスを作成し、`encrypt` / `decrypt` メソッドを実装。`LocalObjectManager` はこのサービスをコンストラクタで受け取り、暗号化処理を委譲する。
-  2. `KeyManagementService` クラスを作成し、`getAESKey` ロジックを移動。`vscode.ExtensionContext` および `ConfigManager` に依存し、シークレットストレージや 1Password からの鍵取得やキャッシュ管理を担う。
-  3. 新たに作成したサービスを DI コンテナに登録し、必要な箇所に注入する。
+### Green
+- [ ] `src/services/EncryptionService.ts` を実装し、Red で追加した暗号化関連テストを通す。
+- [ ] `src/services/KeyManagementService.ts` を実装し、1Password キャッシュ更新を含むキー取得テストを通す。
+- [ ] `LocalObjectManager` を `EncryptionService` 経由で暗号化/復号するように修正し、関連テストをグリーンにする。
+- [ ] `BranchTreeViewProvider` / `IndexHistoryProvider` / コマンドハンドラーを `KeyManagementService` に切り替え、関連テストをグリーンにする。
 
-- **メリット**:
-
-  - 暗号化という重要な関心事を専用クラスに分離することで、コードの見通しがよくなる。
-  - `LocalObjectManager` の責務が軽くなり、ファイルやインデックスの管理という本来の目的に集中できる。
-  - 鍵管理ロジックをモックしやすくなり、テストが容易になる。
-
----
-
-## 3. 共通の TreeDataProvider ロジックを基底クラスに集約する
-
-- **リファクタリング対象ファイル**: `src/BranchTreeViewProvider.ts`, `src/IndexHistoryProvider.ts`
-- **現状**: 両方の `TreeDataProvider` 実装に `_onDidChangeTreeData`, `onDidChangeTreeData`, `refresh`, `getTreeItem` などのボイラープレートコードが重複している。
-- **提案**:
-
-  1. ジェネリックな `BaseTreeViewProvider<T>` 抽象クラスを作成する。
-  2. `_onDidChangeTreeData` などの共通プロパティや `refresh`, `getTreeItem` メソッドを基底クラスに実装する。
-  3. `BranchTreeViewProvider` と `IndexHistoryProvider` はこの基底クラスを継承し、`getChildren` や固有のロジックに集中する。
-
-- **メリット**:
-
-  - `TreeDataProvider` 実装のボイラープレートを削減。
-  - 今後新たな `TreeDataProvider` を追加する際の共通基盤ができる。
+### Refactor
+- [ ] `ContainerBuilder` / `ServiceLocator` に新サービスを登録し、依存解決が一元化されていることを確認する。
+- [ ] `LocalObjectManager` から暗号化・鍵取得の private 実装を削除し、コードの重複がない状態でテストが全てパスすることを確認する。
+- [ ] 暗号化・鍵管理のユニットテストにテストダブルを導入し、モック差し替えが容易であることを確認する。
 
 ---
 
-## 4. `GithubProvider` の依存関係をコンストラクタインジェクションに統一する
+## 2. GitHubSyncProvider の依存注入統一（TDD TODO）
+- **対象**: `src/storage/GithubProvider.ts`
+- **背景**: 依存生成をクラス内部で行っており、テストでモック化が困難。
 
-- **リファクタリング対象ファイル**: `src/storage/GithubProvider.ts`
-- **現状**: `GithubProvider` のコンストラクタは `fileSystem`, `gitClient`, `layoutManager` をオプション引数として受け取り、未指定の場合は内部で `new` によりデフォルト実装を生成している。
-- **提案**: これらの依存関係を必須のコンストラクタ引数に変更し、外部から常に注入するようにする。`ContainerBuilder.ts` の DI 登録設定を更新し、依存解決を行う。
-- **メリット**:
+### Red
+- [ ] 依存を外部注入できることを前提にした `GitHubSyncProvider` のテスト（モック `fileSystem` / `gitClient` / `layoutManager`）を追加し、現状コードが失敗することを確認する。
+- [ ] `ContainerBuilder` が依存未登録の場合に失敗するテストを追加し、DI 更新の必要性を示す。
 
-  - 依存関係が明示的になり、テスト時にモックを注入しやすくなる。
-  - クラスの責務が Git 操作のみに限定され、依存オブジェクト生成の知識を持たなくなる（`new` の削除）。
+### Green
+- [ ] `GitHubSyncProvider` のコンストラクタを依存必須化し、Red で追加したテストを通す。
+- [ ] `factories/` もしくは `ContainerBuilder` にデフォルト実装を提供するファクトリを追加し、依存注入で同期フローが成功するテストをグリーンにする。
+
+### Refactor
+- [ ] `GitHubSyncProvider` 内に残っている `new` による直接生成コードを除去し、DI からの提供に統一されていることを確認する。
+- [ ] 主要な統合テストでモック差し替えが容易になったことを確認し、テストコードの重複を整理する。
