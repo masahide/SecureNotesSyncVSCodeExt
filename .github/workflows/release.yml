@@ -32,14 +32,19 @@ jobs:
       - name: Update package version
         id: version
         run: |
-          VERSION=$(TZ=Asia/Tokyo date '+%Y.%-m.9%d%H%M')
+          VERSION=$(TZ=Asia/Tokyo date '+%Y.%-m.%9d%H%M')
           node -e "const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.version='${VERSION}';fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Refresh lockfiles
         run: |
-          pnpm install
+          pnpm install --lockfile-only
           npm install --package-lock-only
+
+      - name: Install dependencies for packaging
+        run: |
+          rm -rf node_modules
+          npm install
 
       - name: Build VSIX package
         id: package
