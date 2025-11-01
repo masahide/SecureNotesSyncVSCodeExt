@@ -1,0 +1,83 @@
+name: Release Package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+          run_install: false
+
+      - name: Update package version
+        id: version
+        run: |
+          VERSION=$(TZ=Asia/Tokyo date '+%Y.%m.%d%H%M%S')
+          node -e "const fs=require('fs');const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.version='${VERSION}';fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh lockfiles
+        run: |
+          pnpm install
+          npm install --package-lock-only
+
+      - name: Build VSIX package
+        id: package
+        run: |
+          rm -f *.vsix
+          pnpm dlx vsce package
+          FILE=$(ls secure-notes-sync-*.vsix | tail -n 1)
+          echo "vsix=${FILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Detect changes
+        id: detect_changes
+        run: |
+          if [[ -n "$(git status --porcelain)" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit version bump
+        if: steps.detect_changes.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json pnpm-lock.yaml
+          git commit -m "chore: release ${VERSION}"
+
+      - name: Push changes
+        if: steps.detect_changes.outputs.changed == 'true'
+        run: |
+          git push origin HEAD:${GITHUB_REF_NAME}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          files: ${{ steps.package.outputs.vsix }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
