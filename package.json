@@ -2,7 +2,7 @@
   "name": "secure-notes-sync",
   "displayName": "Secure Notes Sync",
   "description": "A VSCode extension for securely syncing notes with a GitHub repository.",
-  "version": "2025.6.291153",
+  "version": "2025.6.292204",
   "publisher": "MasahideYAMASAKI",
   "engines": {
     "vscode": "^1.96.0"
@@ -34,16 +34,26 @@
           "id": "secureNotesBranchesView",
           "name": "Branches"
         }
+      ],
+      "explorer": [
+        {
+          "id": "secureNotes.branchList",
+          "name": "Branches"
+        },
+        {
+          "id": "secureNotes.indexHistory",
+          "name": "Index History"
+        }
       ]
     },
     "menus": {
       "view/item/context": [
         {
-          "command": "extension.createBranchFromIndex",
+          "command": "secureNotes.createBranchFromIndex",
           "when": "view == secureNotesBranchesView && viewItem == indexItem"
         },
         {
-          "command": "extension.checkoutBranch",
+          "command": "secureNotes.checkoutBranch",
           "when": "view == secureNotesBranchesView && viewItem == branchItem"
         }
       ]
@@ -91,71 +101,90 @@
     },
     "commands": [
       {
-        "command": "extension.generateAESKey",
-        "title": "Generate AES Key"
+        "command": "secureNotes.sync",
+        "title": "SecureNotes: Sync"
       },
       {
-        "command": "extension.syncNotes",
-        "title": "Sync Notes"
+        "command": "secureNotes.initializeNewStorage",
+        "title": "SecureNotes: Initialize New Storage"
       },
       {
-        "command": "extension.copyAESKeyToClipboard",
-        "title": "Copy AES Key to Clipboard"
+        "command": "secureNotes.importExistingStorage",
+        "title": "SecureNotes: Import Existing Storage"
       },
       {
-        "command": "extension.setAESKey",
-        "title": "Set AES Key"
+        "command": "secureNotes.previewIndex",
+        "title": "SecureNotes: Preview Index"
       },
       {
-        "command": "extension.refreshAESKey",
-        "title": "Refresh AES Key"
+        "command": "secureNotes.createBranchFromIndex",
+        "title": "SecureNotes: Create Branch from Index"
       },
       {
-        "command": "extension.insertCurrentTime",
-        "title": "Insert Current Time"
+        "command": "secureNotes.checkoutBranch",
+        "title": "SecureNotes: Checkout Branch"
       },
       {
-        "command": "extension.generateAESKey",
-        "title": "Generate AES Key"
+        "command": "secureNotes.setAESKey",
+        "title": "SecureNotes: Set AES Key"
       },
       {
-        "command": "extension.createBranchFromIndex",
-        "title": "Create Branch from Index"
+        "command": "secureNotes.generateAESKey",
+        "title": "SecureNotes: Generate AES Key"
       },
       {
-        "command": "extension.checkoutBranch",
-        "title": "Checkout Branch"
+        "command": "secureNotes.copyAESKeyToClipboard",
+        "title": "SecureNotes: Copy AES Key to Clipboard"
+      },
+      {
+        "command": "secureNotes.refreshAESKey",
+        "title": "SecureNotes: Refresh AES Key"
+      },
+      {
+        "command": "secureNotes.insertCurrentTime",
+        "title": "SecureNotes: Insert Current Time"
       }
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run package",
+    "vscode:prepublish": "pnpm run package",
     "compile": "webpack",
     "watch": "webpack --watch",
     "package": "webpack --mode production --devtool hidden-source-map",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "typecheck": "tsc -p . --noEmit",
+    "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "xvfb-run -a vscode-test",
+    "test:headless": "xvfb-run -a vscode-test",
+    "test:local": "vscode-test",
+    "test:sync": "pnpm run compile-tests && node ./out/test/alternative-test-runner.js",
+    "test:incremental": "pnpm run compile-tests && pnpm run compile",
+    "test:unit": "tsx src/test/unit-test.ts",
+    "test:fast": "pnpm run test:unit && pnpm run lint",
+    "format": "prettier --write .",
+    "verify": "pnpm run typecheck && pnpm run lint && pnpm run test"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
-    "@types/vscode": "^1.96.0",
+    "@types/node": "~24.9.2",
+    "@types/vscode": "^1.105.0",
     "@types/which": "^3.0.4",
-    "@typescript-eslint/eslint-plugin": "^8.20.0",
-    "@typescript-eslint/parser": "^8.20.0",
-    "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.4.1",
-    "eslint": "^9.18.0",
-    "ts-loader": "^9.5.2",
-    "typescript": "^5.7.3",
-    "webpack": "^5.97.1",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.46.2",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.0",
+    "prettier": "^3.6.2",
+    "ts-loader": "^9.5.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "webpack": "^5.102.1",
     "webpack-cli": "^6.0.1"
   },
   "dependencies": {
-    "uuid": "^11.0.5",
+    "uuid": "^13.0.0",
     "which": "^5.0.0"
   }
 }

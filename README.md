@@ -34,7 +34,7 @@ A Visual Studio Code extension for securely managing and synchronizing notes (or
 1. Open Command Palette (`Ctrl+Shift+P`/`Cmd+Shift+P`).
 2. **Generate AES Key** or **Set AES Key** to configure encryption.
 3. Set `SecureNotesSync.gitRemoteUrl` to your GitHub repo (e.g., `git@github.com:user/repo.git`).
-4. Run **Sync Notes** to initialize the `.secureNotes` structure and push encrypted files.
+4. For a new repo, run **SecureNotes: Initialize New Storage**. For an existing repo with data, run **SecureNotes: Import Existing Storage**. Then use **SecureNotes: Sync** for incremental updates.
 
 ## Commands
 
@@ -43,26 +43,35 @@ Search these in the Command Palette:
 1. **Generate AES Key**  
    Creates a new 32-byte key stored in VS Code Secrets.
 
-2. **Sync Notes**  
+2. **Initialize New Storage**  
+   Create and initialize a new remote storage (encrypt local files and push the first commit).
+
+3. **Import Existing Storage**  
+   Clone existing remote storage and expand files into the workspace.
+
+4. **Sync**  
    Manually sync encrypted files with GitHub (pull, merge conflicts, push).
 
-3. **Create Branch from Index**  
+5. **Create Branch from Index**  
    Create a new branch from a selected historical index (right-click index in Tree View).
 
-4. **Checkout Branch**  
+6. **Checkout Branch**  
    Switch branches, updating the workspace to the selected branch's state (right-click branch in Tree View).
 
-5. **Copy AES Key**  
+7. **Copy AES Key**  
    Copy the AES key to your clipboard.
 
-6. **Set AES Key**  
+8. **Set AES Key**  
    Manually input/update the AES key.
 
-7. **Refresh AES Key**  
+9. **Refresh AES Key**  
    Force re-fetch the AES key from 1Password.
 
-8. **Insert Current Time**  
-   Add timestamp to the active editor.
+10. **Insert Current Time**  
+    Add timestamp to the active editor.
+
+11. **Preview Index**  
+    Open a JSON preview of a given index file.
 
 ## Configuration
 
@@ -101,6 +110,27 @@ Configure in VS Code settings (`File > Preferences > Settings`):
    - Resolves conflicts by prompting or saving remote versions as `conflict-*` files.
    - Pushes merged changes to GitHub.
 3. **Branches**: Each branch references a chain of indexes. Checkout switches the workspace to that branch's latest state.
+
+## Architecture
+
+- Provider (GitHubSyncProvider): Git I/O only (init/clone/fetch/reset/checkout/push). No crypto or index logic.
+- SyncService: Orchestrates flows (initialize/import/incremental sync), calls LocalObjectManager for crypto/index, and coordinates Git ops via Provider.
+- LocalObjectManager: Handles encryption/decryption and index management under the injected `workspaceUri`; receives `encryptionKey` and `environmentId` per call via options.
+- DI Policy: All services are obtained via the container/locator; `workspaceUri` is required. Do not use dynamic `import()` or `vscode.extensions.getExtension(...)` in source code.
+
+## Sync Flows
+
+1. Initialize New Storage
+   - LocalObjectManager: generate initial index and encrypted objects, persist under `.secureNotes`.
+   - Provider: initialize Git repository and push the first commit.
+
+2. Import Existing Storage
+   - Provider: clone/fetch/reset to the latest remote state.
+   - LocalObjectManager: load the latest remote index and expand files into the workspace.
+
+3. Incremental Sync
+   - Provider: pull changes; if updated, SyncService reconciles and saves encrypted objects.
+   - Provider: push when there are new commits.
 
 ## Using 1Password
 

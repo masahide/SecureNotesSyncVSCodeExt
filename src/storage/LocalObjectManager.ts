@@ -1,6 +1,5 @@
 // src/LocalObjectManager.ts
 import * as vscode from "vscode";
-import * as crypto from "crypto";
 import { logMessage } from "../logger";
 import {
   IndexFile,
@@ -9,9 +8,54 @@ import {
   LocalObjectManagerOptions,
 } from "../types";
 import { v7 as uuidv7 } from "uuid";
+import * as path from "path";
+import * as crypto from "crypto";
+import { IEncryptionService } from "../interfaces/IEncryptionService";
+
+/**
+ * ファイルパスを正規化してUnix形式（/区切り）に統一する
+ * Windows環境でも常に/区切りを使用することで、クロスプラットフォーム互換性を確保
+ */
+function normalizeFilePath(filePath: string): string {
+  // Windows形式のパス区切り文字（\）をUnix形式（/）に変換
+  return filePath.replace(/\\/g, "/");
+}
+
+/**
+ * ワークスペースからの相対パスを取得し、正規化する
+ */
+function getRelativePath(
+  workspaceUri: vscode.Uri,
+  fileUri: vscode.Uri,
+): string {
+  const relativePath = path.relative(workspaceUri.fsPath, fileUri.fsPath);
+  return normalizeFilePath(relativePath);
+}
 
 const secureNotesDir = ".secureNotes";
-const objectDirName = "objects";
+const ignorePath = [
+  `${secureNotesDir}/**`,
+  `**/node_modules/**`,
+  `.vscode/**`,
+  `conflict-local/**`,
+];
+
+/**
+ * ファイルパスがignorePathに含まれるかどうかをチェックする関数
+ */
+function isIgnoredPath(filePath: string): boolean {
+  const patterns = [
+    secureNotesDir,
+    "node_modules",
+    ".vscode",
+    "conflict-local",
+  ];
+
+  return patterns.some((pattern) => {
+    // パターンがファイルパスに含まれているかチェック
+    return filePath.includes(pattern) || filePath.startsWith(pattern + "/");
+  });
+}
 const remotesDirName = "remotes";
 const indexDirName = "indexes";
 const filesDirName = "files";
@@ -19,51 +63,196 @@ const refsDirName = "refs";
 const branchName = "main";
 const wsIndexFilename = "wsIndex.json";
 const HEAD_FILE_NAME = "HEAD"; // .secureNotes/HEAD というファイルにブランチ名を保存
-const rootUri = getRootUri();
-export const secureNootesUri = vscode.Uri.joinPath(rootUri, secureNotesDir);
-export const remotesDirUri = vscode.Uri.joinPath(
-  secureNootesUri,
-  remotesDirName
-);
-//export const objectDirUri = vscode.Uri.joinPath(secureNootesUri, objectDirName);
-export const remoteRefsDirUri = vscode.Uri.joinPath(remotesDirUri, refsDirName);
-export const remoteRefBranchUri = vscode.Uri.joinPath(
-  remoteRefsDirUri,
-  branchName
-);
-const wsIndexUri = vscode.Uri.joinPath(secureNootesUri, wsIndexFilename);
-
-const indexDirUri = vscode.Uri.joinPath(remotesDirUri, indexDirName);
-const filesDirUri = vscode.Uri.joinPath(remotesDirUri, filesDirName);
-
-interface FileIndex {
-  originalFile: string;
-  encryptedFile: string;
-}
-
-// ワークスペースフォルダを取得
-function getRootUri(): vscode.Uri {
-  const workspaceUri = vscode.workspace.workspaceFolders
-    ? vscode.workspace.workspaceFolders[0].uri
-    : undefined;
-  if (!workspaceUri) {
-    throw new Error("No workspace folder found.");
-  }
-  return workspaceUri;
-}
+// 旧実装のための関数群はフェーズ7で撤去予定（本クラス内では使用しない）
+// getRootUri/getSecureNotesUri 等のグローバル関数依存は排除する
 
 export class LocalObjectManager {
+  private workspaceDir: string;
+  private environmentId: string;
+  private readonly encryptionService: IEncryptionService;
+
+  // workspaceUri のみを必須とし、鍵は各メソッド呼び出しの options で受け取る
+  constructor(
+    workspaceUri: vscode.Uri,
+    encryptionService: IEncryptionService,
+    environmentId?: string,
+  ) {
+    this.workspaceDir = workspaceUri.fsPath;
+    this.environmentId = environmentId || "default";
+    this.encryptionService = encryptionService;
+  }
+
+  // インスタンスベースのパスユーティリティ
+  private getRootUri(): vscode.Uri {
+    return vscode.Uri.file(this.workspaceDir);
+  }
+  private toRelPath(uri: vscode.Uri): string {
+    const rel = path.relative(this.workspaceDir, uri.fsPath);
+    return normalizeFilePath(rel || uri.fsPath);
+  }
+  private getSecureNotesUri(): vscode.Uri {
+    return vscode.Uri.joinPath(this.getRootUri(), secureNotesDir);
+  }
+  private getRemotesDirUri(): vscode.Uri {
+    return vscode.Uri.joinPath(this.getSecureNotesUri(), remotesDirName);
+  }
+  private getRemoteRefsDirUri(): vscode.Uri {
+    return vscode.Uri.joinPath(this.getRemotesDirUri(), refsDirName);
+  }
+  private getRemoteRefBranchUri(): vscode.Uri {
+    return vscode.Uri.joinPath(this.getRemoteRefsDirUri(), branchName);
+  }
+  private getWsIndexUri(): vscode.Uri {
+    return vscode.Uri.joinPath(this.getSecureNotesUri(), wsIndexFilename);
+  }
+  private getIndexDirUri(): vscode.Uri {
+    return vscode.Uri.joinPath(this.getRemotesDirUri(), indexDirName);
+  }
+  private getFilesDirUri(): vscode.Uri {
+    return vscode.Uri.joinPath(this.getRemotesDirUri(), filesDirName);
+  }
+  // refs ディレクトリURIの公開アクセサ（TreeView等から参照）
+  public getRefsDirUri(): vscode.Uri {
+    return this.getRemoteRefsDirUri();
+  }
+
+  /**
+   * デフォルトオプションとオーバーライドオプションをマージ
+   */
+  private getEffectiveOptions(
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
+  ): LocalObjectManagerOptions {
+    return {
+      encryptionKey: overrideOptions?.encryptionKey ?? "",
+      environmentId: overrideOptions?.environmentId ?? this.environmentId,
+    };
+  }
+
+  /**
+   * ワークスペースファイルの暗号化・保存（新規リポジトリ用）
+   */
+  public async encryptAndSaveWorkspaceFiles(
+    branchName: string = "main",
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
+  ): Promise<IndexFile> {
+    const options = this.getEffectiveOptions(overrideOptions);
+    // 空のインデックスから開始
+    const emptyIndex: IndexFile = {
+      uuid: "",
+      parentUuids: [],
+      environmentId: options.environmentId,
+      files: [],
+      timestamp: 0,
+    };
+
+    // ワークスペースファイルをスキャンしてインデックスを作成
+    const localIndex = await this.generateLocalIndexFile(emptyIndex, options);
+
+    // ファイルを暗号化して保存
+    await this.saveEncryptedObjects(localIndex.files, emptyIndex, options);
+
+    // インデックスファイルを保存
+    await this.saveIndexFile(localIndex, branchName, options);
+
+    // ワークスペースインデックスを保存
+    await this.saveWsIndexFile(localIndex, options);
+
+    return localIndex;
+  }
+
+  /**
+   * 個別ファイルの復号化・復元
+   */
+  public async decryptAndRestoreFile(
+    fileEntry: FileEntry,
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
+  ): Promise<void> {
+    await this.fetchDecryptAndSaveFile(
+      fileEntry.path,
+      fileEntry.hash,
+      undefined,
+      overrideOptions,
+    );
+  }
+
+  /**
+   * リモートインデックスファイル読み込み
+   */
+  public async loadRemoteIndexes(
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
+  ): Promise<IndexFile[]> {
+    logMessage("LocalObjectManager: loadRemoteIndexes called");
+
+    const indexes: IndexFile[] = [];
+    const indexDirUri = this.getIndexDirUri();
+
+    try {
+      // インデックスディレクトリ内のすべてのサブディレクトリを取得
+      const indexDirs = await vscode.workspace.fs.readDirectory(indexDirUri);
+
+      for (const [dirName, fileType] of indexDirs) {
+        if (fileType === vscode.FileType.Directory) {
+          const subDirUri = vscode.Uri.joinPath(indexDirUri, dirName);
+          const files = await vscode.workspace.fs.readDirectory(subDirUri);
+
+          for (const [fileName, fileType] of files) {
+            if (fileType === vscode.FileType.File) {
+              const uuid = dirName + fileName;
+              try {
+                const index = await this.loadIndex(uuid, overrideOptions);
+                indexes.push(index);
+              } catch (error) {
+                logMessage(`Failed to load index ${uuid}: ${error}`);
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      logMessage(`No remote indexes found: ${error}`);
+    }
+
+    return indexes;
+  }
+
+  /**
+   * 最新インデックス特定
+   */
+  public async findLatestIndex(indexes: IndexFile[]): Promise<IndexFile> {
+    if (indexes.length === 0) {
+      throw new Error("No indexes provided");
+    }
+
+    // タイムスタンプで最新のインデックスを特定
+    let latestIndex = indexes[0];
+    for (const index of indexes) {
+      if (index.timestamp > latestIndex.timestamp) {
+        latestIndex = index;
+      }
+    }
+
+    return latestIndex;
+  }
+
+  /**
+   * ワークスペースインデックス更新
+   */
+  public async updateWorkspaceIndex(indexFile: IndexFile): Promise<void> {
+    await this.saveWsIndexFile(indexFile);
+  }
+
   /**
    * ワークスペース内ファイルを暗号化し、.secureNotes に保存
    */
-  public static async saveEncryptedObjects(
+  public async saveEncryptedObjects(
     localFiles: FileEntry[],
     latestIndex: IndexFile,
-    options: LocalObjectManagerOptions
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<boolean> {
+    const options = this.getEffectiveOptions(overrideOptions);
     // リモートのファイルハッシュ値のセットを作成
     const latestFileHashes = new Set(
-      latestIndex.files.map((file) => file.hash)
+      latestIndex.files.map((file) => file.hash),
     );
     let updated = false;
     for (const file of localFiles) {
@@ -74,27 +263,28 @@ export class LocalObjectManager {
         continue; // 既に存在する場合、アップロードをスキップ
       }
       // ファイルを読み込み
+      const rootUri = this.getRootUri();
       const fileUri = vscode.Uri.joinPath(rootUri, file.path);
       const fileContent = await vscode.workspace.fs.readFile(fileUri);
 
       // ファイルを暗号化
-      const encryptedContent = this.encryptContent(
+      const encryptedContent = this.encryptionService.encrypt(
         Buffer.from(fileContent),
-        options.encryptionKey
+        options.encryptionKey,
       );
 
       // objects directory に保存
-      //const { dirName, fileName } = this.getHashPathParts(file.hash);
-      //const encryptedFileName = vscode.Uri.joinPath(filesDirUri, dirName, fileName);
       const encryptedFileUri = this.getHashFilePathUri(file.hash);
       await vscode.workspace.fs.writeFile(encryptedFileUri, encryptedContent);
-      logMessage(`save file:${file.path}, to:${encryptedFileUri.path}`);
+      logMessage(
+        `save file:${file.path}, to:${this.toRelPath(encryptedFileUri)}`,
+      );
       updated = true;
     }
     return updated;
   }
 
-  private static getUUIDPathParts(uuid: string): {
+  private getUUIDPathParts(uuid: string): {
     dirName: string;
     fileName: string;
   } {
@@ -102,7 +292,7 @@ export class LocalObjectManager {
     const fileName = uuid.substring(6);
     return { dirName, fileName };
   }
-  private static getHashPathParts(uuid: string): {
+  private getHashPathParts(uuid: string): {
     dirName: string;
     fileName: string;
   } {
@@ -111,22 +301,72 @@ export class LocalObjectManager {
     return { dirName, fileName };
   }
 
-  private static getHashFilePathUri(hash: string): vscode.Uri {
+  private getHashFilePathUri(hash: string): vscode.Uri {
+    const filesDirUri = this.getFilesDirUri();
     const { dirName, fileName } = this.getHashPathParts(hash);
     return vscode.Uri.joinPath(filesDirUri, dirName, fileName);
   }
 
   /**
+   * インデックスファイル内のパス正規化とソートを一括で行うユーティリティ。
+   * duplicated 正規化処理をここに集約する。
+   */
+  protected normalizeIndexFile(indexFile: IndexFile): IndexFile {
+    indexFile.files = indexFile.files
+      .map((file) => ({
+        ...file,
+        path: normalizeFilePath(file.path),
+      }))
+      .sort((a, b) => a.path.localeCompare(b.path));
+
+    return indexFile;
+  }
+
+  /**
+   * コンフリクトファイル名を生成する共通ヘルパー。
+   */
+  protected buildConflictFilePath(
+    prefix: string,
+    filePath: string,
+    timestamp: Date,
+  ): string {
+    const formatted = this.formatTimestampJst(timestamp);
+    return `${prefix}/${formatted}/${filePath}`;
+  }
+
+  private formatTimestampJst(timestamp: Date): string {
+    const jstTime = timestamp.getTime() + 9 * 60 * 60 * 1000;
+    const jstDate = new Date(jstTime);
+    const year = jstDate.getUTCFullYear();
+    const month = (jstDate.getUTCMonth() + 1).toString().padStart(2, "0");
+    const day = jstDate.getUTCDate().toString().padStart(2, "0");
+    const hours = jstDate.getUTCHours().toString().padStart(2, "0");
+    const minutes = jstDate.getUTCMinutes().toString().padStart(2, "0");
+    const seconds = jstDate.getUTCSeconds().toString().padStart(2, "0");
+    const milliseconds = jstDate
+      .getUTCMilliseconds()
+      .toString()
+      .padStart(3, "0");
+    return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}-${milliseconds}`;
+  }
+
+  /**
    * wsIndexを読み込む関数
    */
-  public static async loadWsIndex(
-    options: LocalObjectManagerOptions
+  public async loadWsIndex(
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<IndexFile> {
+    const options = this.getEffectiveOptions(overrideOptions);
     try {
+      const wsIndexUri = this.getWsIndexUri();
       const content = await vscode.workspace.fs.readFile(wsIndexUri);
-      return JSON.parse(content.toString()) as IndexFile;
+      const indexFile = JSON.parse(content.toString()) as IndexFile;
+
+      return this.normalizeIndexFile(indexFile);
     } catch (error) {
-      logMessage(`Latest index file not found. Creating new index`);
+      logMessage(
+        `Latest index file not found at: ${this.toRelPath(this.getWsIndexUri())}. Creating new index`,
+      );
       return {
         uuid: "",
         parentUuids: [],
@@ -138,20 +378,23 @@ export class LocalObjectManager {
   }
 
   // リモートインデックスファイルを読み込む関数
-  public static async loadRemoteIndex(
-    options: LocalObjectManagerOptions
+  public async loadRemoteIndex(
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<IndexFile> {
+    const options = this.getEffectiveOptions(overrideOptions);
     try {
-      const encrypedUuid = await vscode.workspace.fs.readFile(
-        remoteRefBranchUri
-      );
-      const uuid = this.decryptContent(
+      const remoteRefBranchUri = this.getRemoteRefBranchUri();
+      const encrypedUuid =
+        await vscode.workspace.fs.readFile(remoteRefBranchUri);
+      const uuid = this.encryptionService.decrypt(
         Buffer.from(encrypedUuid),
-        options.encryptionKey
+        options.encryptionKey,
       );
-      return this.loadIndex(uuid.toString(), options);
+      return await this.loadIndex(uuid.toString(), options);
     } catch (error) {
-      logMessage(`Remote index file not found. Creating new index`);
+      logMessage(
+        `Remote ref not found at: ${this.toRelPath(this.getRemoteRefBranchUri())}. Creating new index`,
+      );
       return {
         uuid: "",
         parentUuids: [],
@@ -162,27 +405,30 @@ export class LocalObjectManager {
     }
   }
   // インデックスファイルを読み込む関数
-  public static async loadIndex(
+  public async loadIndex(
     uuid: string,
-    options: LocalObjectManagerOptions
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<IndexFile> {
+    const options = this.getEffectiveOptions(overrideOptions);
+    const indexDirUri = this.getIndexDirUri();
     const uuidparts = this.getUUIDPathParts(uuid);
     const encryptedIndex = await vscode.workspace.fs.readFile(
-      vscode.Uri.joinPath(indexDirUri, uuidparts.dirName, uuidparts.fileName)
+      vscode.Uri.joinPath(indexDirUri, uuidparts.dirName, uuidparts.fileName),
     );
-    const index = this.decryptContent(
+    const index = this.encryptionService.decrypt(
       Buffer.from(encryptedIndex),
-      options.encryptionKey
+      options.encryptionKey,
     );
-    return JSON.parse(index.toString());
+    const indexFile: IndexFile = JSON.parse(index.toString());
+    return this.normalizeIndexFile(indexFile);
   }
 
   /**
    * 新しい <UUID> を作成し保存
    */
-  public static createNewIndexFile(
+  public createNewIndexFile(
     localIndex: IndexFile,
-    parentIndexes: IndexFile[]
+    parentIndexes: IndexFile[],
   ): IndexFile {
     const newUUID = uuidv7();
     const newIndexFile: IndexFile = {
@@ -196,105 +442,88 @@ export class LocalObjectManager {
     return newIndexFile;
   }
 
-  /**
-   * AES-256-CBC で暗号化
-   */
-  private static encryptContent(content: Buffer, key: string): Buffer {
-    const iv = crypto.randomBytes(16);
-    const keyBuffer = Buffer.from(key, "hex");
-    const cipher = crypto.createCipheriv("aes-256-cbc", keyBuffer, iv);
-    const encrypted = Buffer.concat([cipher.update(content), cipher.final()]);
-    return Buffer.concat([iv, encrypted]);
-  }
-
-  /**
-   * AES-256-CBC で復号
-   */
-  private static decryptContent(encryptedContent: Buffer, key: string): Buffer {
-    const iv = encryptedContent.subarray(0, 16);
-    const encryptedText = encryptedContent.subarray(16);
-    const keyBuffer = Buffer.from(key, "hex");
-    const decipher = crypto.createDecipheriv("aes-256-cbc", keyBuffer, iv);
-    return Buffer.concat([decipher.update(encryptedText), decipher.final()]);
-  }
-
   // 復号化した内容を返す共通関数
-  private static async decryptFileFromLocalObject(
+  private async decryptFileFromLocalObject(
     fileHash: string,
-    options: LocalObjectManagerOptions
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<Uint8Array> {
+    const options = this.getEffectiveOptions(overrideOptions);
+    const filesDirUri = this.getFilesDirUri();
     const { dirName, fileName } = this.getHashPathParts(fileHash);
     const filePath = vscode.Uri.joinPath(filesDirUri, dirName, fileName);
     const content = await vscode.workspace.fs.readFile(filePath);
     try {
-      return this.decryptContent(Buffer.from(content), options.encryptionKey);
+      return this.encryptionService.decrypt(
+        Buffer.from(content),
+        options.encryptionKey,
+      );
     } catch (error: any) {
       logMessage(
-        `Failed to fetch or decrypt file: ${fileHash}.Error: ${error.message} `
+        `Failed to fetch or decrypt file: ${fileHash}.Error: ${error.message} `,
       );
       throw error;
     }
   }
   // オブジェクトディレクトリからファイルを取得し、ワークスペースに保存する共通関数
-  private static async fetchDecryptAndSaveFile(
+  private async fetchDecryptAndSaveFile(
     filePath: string,
     fileHash: string,
-    options: LocalObjectManagerOptions,
-    conflictFileName?: string
+    conflictFileName?: string,
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<void> {
+    const options = this.getEffectiveOptions(overrideOptions);
     try {
-      const decryptedContent = await this.decryptFileFromLocalObject(
-        fileHash,
-        options
-      );
       const savePath = conflictFileName ? conflictFileName : filePath;
 
-      // ローカルファイルパスを取得
-      const localUri = vscode.Uri.joinPath(
-        vscode.Uri.file(rootUri.fsPath),
-        savePath
+      // ignorePathに含まれるファイルは復元しない
+      if (isIgnoredPath(savePath)) {
+        logMessage(`Skipped restoring ignored file: ${savePath}`);
+        return;
+      }
+
+      const decryptedContent = await this.decryptFileFromLocalObject(
+        fileHash,
+        overrideOptions,
       );
+
+      // ローカルファイルパスを取得（正規化されたパスをローカルシステム用に変換）
+      const rootUri = this.getRootUri();
+      const localUri = vscode.Uri.joinPath(rootUri, savePath);
 
       // ローカルファイルに保存
       await vscode.workspace.fs.writeFile(localUri, decryptedContent);
       logMessage(`Saved remote file to local path: ${savePath} `);
     } catch (error: any) {
       logMessage(
-        `Failed to save remote file to local path: ${filePath}.Error: ${error.message} `
+        `Failed to save remote file to local path: ${filePath}.Error: ${error.message} `,
       );
       throw error;
     }
   }
 
   // ローカルファイルをコンフリクトファイルとしてリネームし、リモートファイルをローカルに保存
-  public static async localFileToConflictAndSaveRemote(
+  public async localFileToConflictAndSaveRemote(
     filePath: string,
     fileHash: string,
     timestamp: Date,
-    options: LocalObjectManagerOptions
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<void> {
-    // コンフリクト用のファイル名を生成（例: conflict-local-YYYYMMDD-HHmmss-ファイル名.ext）
-    const time = timestamp
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .replace("T", "_")
-      .split("Z")[0];
-    const conflictFileName = `conflict-local-${time}/${filePath}`;
+    // コンフリクト用のファイル名を生成（例: conflict-local/2025-11-01_09-14-12-400/ファイル名）
+    const conflictFileName = this.buildConflictFilePath(
+      "conflict-local",
+      filePath,
+      timestamp,
+    );
 
     // ローカルファイルのURIを取得
-    const localUri = vscode.Uri.joinPath(
-      vscode.Uri.file(rootUri.fsPath),
-      filePath
-    );
-    const conflictUri = vscode.Uri.joinPath(
-      vscode.Uri.file(rootUri.fsPath),
-      conflictFileName
-    );
+    const rootUri = this.getRootUri();
+    const localUri = vscode.Uri.joinPath(rootUri, filePath);
+    const conflictUri = vscode.Uri.joinPath(rootUri, conflictFileName);
 
     try {
       // コンフリクトファイルのディレクトリを作成
       await vscode.workspace.fs.createDirectory(
-        vscode.Uri.joinPath(conflictUri, "..")
+        vscode.Uri.joinPath(conflictUri, ".."),
       );
 
       // ローカルファイルをコンフリクトファイル名にリネーム
@@ -303,59 +532,66 @@ export class LocalObjectManager {
       await vscode.workspace.fs.delete(localUri, { useTrash: false });
 
       // リモートファイルをローカルに保存
-      await this.fetchDecryptAndSaveFile(filePath, fileHash, options);
+      await this.fetchDecryptAndSaveFile(
+        filePath,
+        fileHash,
+        undefined,
+        overrideOptions,
+      );
       logMessage(
-        `Moved local file to conflict file: ${conflictFileName} and saved remote file to ${filePath}`
+        `Moved local file to conflict file: ${conflictFileName} and saved remote file to ${filePath}`,
       );
     } catch (error: any) {
       logMessage(
-        `Failed to move local file and save remote: ${filePath}. Error: ${error.message}`
+        `Failed to move local file and save remote: ${filePath}. Error: ${error.message}`,
       );
       throw error;
     }
   }
 
   // リモートのファイルを別名で保存
-  public static async saveRemoteFileAsConflict(
+  public async saveRemoteFileAsConflict(
     filePath: string,
     fileHash: string,
     timestamp: Date,
-    options: LocalObjectManagerOptions
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<void> {
-    // コンフリクト用のファイル名を生成（例: conflict-remote-YYYYMMDD-HHmmss-ファイル名.ext）
+    // コンフリクト用のファイル名を生成（例: conflict-remote/2025-11-01_09-14-12-400/ファイル名）
     //const timestamp = new Date()
-    const time = timestamp
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .replace("T", "_")
-      .split("Z")[0];
-    const conflictFileName = `conflict-remote-${time}/${filePath}`;
+    const conflictFileName = this.buildConflictFilePath(
+      "conflict-remote",
+      filePath,
+      timestamp,
+    );
     await this.fetchDecryptAndSaveFile(
       filePath,
       fileHash,
-      options,
-      conflictFileName
+      conflictFileName,
+      overrideOptions,
     );
     logMessage(`Saved remote file as conflict file: ${conflictFileName} `);
   }
 
   // 検出された競合をユーザーに通知し、解決します。
-  public static async resolveConflicts(
+  public async resolveConflicts(
     conflicts: UpdateFiles[],
-    options: LocalObjectManagerOptions
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
+    conflictBaseTimestamp?: Date,
   ): Promise<boolean> {
+    const conflictTimestamp = conflictBaseTimestamp ?? new Date();
     for (const conflict of conflicts) {
-      switch (conflict.UpdatType) {
+      switch (conflict.UpdateType) {
         case "remoteUpdate":
         case "remoteAdd":
           // リモートの更新または追加の場合、リモートファイルを採用
           await this.fetchDecryptAndSaveFile(
             conflict.filePath,
             conflict.remoteHash,
-            options
+            undefined,
+            overrideOptions,
           );
           logMessage(
-            `Applied remote ${conflict.UpdatType} for: ${conflict.filePath}`
+            `Applied remote ${conflict.UpdateType} for: ${conflict.filePath}`,
           );
           break;
 
@@ -363,15 +599,14 @@ export class LocalObjectManager {
         case "localDelete":
           // ローカルの変更がある場合、ローカルファイルをコンフリクトとして保存し、リモートを採用
           if (conflict.localHash.length > 0) {
-            const now = new Date();
             await this.localFileToConflictAndSaveRemote(
               conflict.filePath,
               conflict.remoteHash,
-              now,
-              options
+              conflictTimestamp,
+              overrideOptions,
             );
             logMessage(
-              `Saved local as conflict and applied remote for: ${conflict.filePath}`
+              `Saved local as conflict and applied remote for: ${conflict.filePath}`,
             );
           }
           break;
@@ -389,14 +624,9 @@ export class LocalObjectManager {
             const deletedFileName = `deleted-${time}/${conflict.filePath}`;
 
             // ローカルファイルのURIを取得
-            const localUri = vscode.Uri.joinPath(
-              vscode.Uri.file(rootUri.fsPath),
-              conflict.filePath
-            );
-            const deletedUri = vscode.Uri.joinPath(
-              vscode.Uri.file(rootUri.fsPath),
-              deletedFileName
-            );
+            const rootUri = this.getRootUri();
+            const localUri = vscode.Uri.joinPath(rootUri, conflict.filePath);
+            const deletedUri = vscode.Uri.joinPath(rootUri, deletedFileName);
 
             try {
               // 削除済みファイルのディレクトリを作成
@@ -409,11 +639,11 @@ export class LocalObjectManager {
               await vscode.workspace.fs.writeFile(deletedUri, content);
               await vscode.workspace.fs.delete(localUri, { useTrash: false });
               logMessage(
-                `Moved locally modified file to deleted directory: ${deletedFileName}`
+                `Moved locally modified file to deleted directory: ${deletedFileName}`,
               );
             } catch (error: any) {
               logMessage(
-                `Failed to move file to deleted directory: ${error.message}`
+                `Failed to move file to deleted directory: ${error.message}`,
               );
               throw error;
             }
@@ -421,7 +651,7 @@ export class LocalObjectManager {
             // ローカルに変更がない場合は単純に削除
             await this.removeFile(conflict.filePath);
             logMessage(
-              `Removed local file due to remote delete: ${conflict.filePath}`
+              `Removed local file due to remote delete: ${conflict.filePath}`,
             );
           }
           break;
@@ -436,10 +666,10 @@ export class LocalObjectManager {
   }
 
   // ローカルとリモートのインデックスファイルを比較し、競合を検出します。
-  public static detectConflicts(
+  public detectConflicts(
     previousIndex: IndexFile,
     localIndex: IndexFile,
-    remoteIndex: IndexFile
+    remoteIndex: IndexFile,
   ): UpdateFiles[] {
     const conflicts: UpdateFiles[] = [];
 
@@ -478,7 +708,7 @@ export class LocalObjectManager {
           if (localFile.hash === prevHash) {
             // ローカルが変更されていない場合は remoteUpdate
             conflicts.push({
-              UpdatType: "remoteUpdate",
+              UpdateType: "remoteUpdate",
               filePath: path,
               localHash: localFile.hash,
               remoteHash: remoteFile.hash,
@@ -488,7 +718,7 @@ export class LocalObjectManager {
           } else if (remoteFile.hash === prevHash) {
             // リモートが変更されていない場合は localUpdate
             conflicts.push({
-              UpdatType: "localUpdate",
+              UpdateType: "localUpdate",
               filePath: path,
               localHash: localFile.hash,
               remoteHash: remoteFile.hash,
@@ -498,7 +728,7 @@ export class LocalObjectManager {
           } else {
             // 両方が変更されている場合は競合として扱う
             conflicts.push({
-              UpdatType:
+              UpdateType:
                 localFile.timestamp > remoteFile.timestamp
                   ? "localUpdate"
                   : "remoteUpdate",
@@ -515,7 +745,7 @@ export class LocalObjectManager {
         if (!prevFile) {
           // 新規追加
           conflicts.push({
-            UpdatType: "localAdd",
+            UpdateType: "localAdd",
             filePath: path,
             localHash: localFile.hash,
             remoteHash: "",
@@ -525,7 +755,7 @@ export class LocalObjectManager {
         } else if (!localFile.deleted) {
           // リモートで削除された
           conflicts.push({
-            UpdatType: "remoteDelete",
+            UpdateType: "remoteDelete",
             filePath: path,
             localHash: localFile.hash,
             remoteHash: "",
@@ -538,7 +768,7 @@ export class LocalObjectManager {
         if (!prevFile) {
           // 新規追加
           conflicts.push({
-            UpdatType: "remoteAdd",
+            UpdateType: "remoteAdd",
             filePath: path,
             localHash: "",
             remoteHash: remoteFile.hash,
@@ -548,7 +778,7 @@ export class LocalObjectManager {
         } else if (!remoteFile.deleted) {
           // ローカルで削除された
           conflicts.push({
-            UpdatType: "localDelete",
+            UpdateType: "localDelete",
             filePath: path,
             localHash: "",
             remoteHash: remoteFile.hash,
@@ -561,11 +791,45 @@ export class LocalObjectManager {
 
     return conflicts;
   }
-  // ローカルのワークスペースからファイルリスト、ハッシュ値、タイムスタンプを取得し、インデックスファイルを生成します。
-  static async generateLocalIndexFile(
-    previousIndex: IndexFile,
-    options: LocalObjectManagerOptions
+  /**
+   * 初期インデックスファイルを生成する（新規リポジトリ用）
+   */
+  public async generateInitialIndex(
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<IndexFile> {
+    const options = this.getEffectiveOptions(overrideOptions);
+    const emptyIndex: IndexFile = {
+      uuid: uuidv7(),
+      environmentId: options.environmentId,
+      parentUuids: [],
+      files: [],
+      timestamp: Date.now(),
+    };
+    return await this.generateLocalIndexFile(emptyIndex, overrideOptions);
+  }
+
+  /**
+   * 空のインデックスファイルを生成する（既存リポジトリ取り込み用）
+   */
+  public async generateEmptyIndex(
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
+  ): Promise<IndexFile> {
+    const options = this.getEffectiveOptions(overrideOptions);
+    return {
+      uuid: uuidv7(),
+      environmentId: options.environmentId,
+      parentUuids: [],
+      files: [],
+      timestamp: Date.now(),
+    };
+  }
+
+  // ローカルのワークスペースからファイルリスト、ハッシュ値、タイムスタンプを取得し、インデックスファイルを生成します。
+  public async generateLocalIndexFile(
+    previousIndex: IndexFile,
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
+  ): Promise<IndexFile> {
+    const options = this.getEffectiveOptions(overrideOptions);
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
       throw new Error("No workspace folders found.");
@@ -584,12 +848,14 @@ export class LocalObjectManager {
     for (const folder of workspaceFolders) {
       const filesInFolder = await vscode.workspace.findFiles(
         new vscode.RelativePattern(folder, "**/*"),
-        `{**/node_modules/**,${secureNotesDir}/**}`
+        `{${ignorePath.join(",")}}`,
       );
 
       for (const fileUri of filesInFolder) {
         const stat = await vscode.workspace.fs.stat(fileUri);
-        const relativePath = vscode.workspace.asRelativePath(fileUri, false);
+        // ワークスペースフォルダからの相対パスを正規化して取得
+        const relativePath = getRelativePath(folder.uri, fileUri);
+
         filesMap.set(relativePath, {
           path: relativePath,
           hash: "",
@@ -635,42 +901,54 @@ export class LocalObjectManager {
     return indexFile;
   }
   //wsIndexに保存する関数
-  public static async saveWsIndexFile(
+  public async saveWsIndexFile(
     indexFile: IndexFile,
-    options: LocalObjectManagerOptions
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<void> {
+    const wsIndexUri = this.getWsIndexUri();
     const indexContent = Buffer.from(
       JSON.stringify(indexFile, null, 2),
-      "utf-8"
+      "utf-8",
     );
     await vscode.workspace.fs.writeFile(wsIndexUri, indexContent);
   }
 
   // 新しいインデックスファイルをgit:localブランチに保存する関数
-  public static async saveIndexFile(
+  public async saveIndexFile(
     indexFile: IndexFile,
     branchName: string,
-    encryptionKey: string
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<void> {
+    const options = this.getEffectiveOptions(overrideOptions);
+    const indexDirUri = this.getIndexDirUri();
     const { dirName, fileName } = this.getUUIDPathParts(indexFile.uuid);
     const dirPath = vscode.Uri.joinPath(indexDirUri, dirName);
     await vscode.workspace.fs.createDirectory(dirPath);
 
+    // files配列をpath順にソートしてから保存
+    const sortedIndexFile: IndexFile = {
+      ...indexFile,
+      files: [...indexFile.files].sort((a, b) => a.path.localeCompare(b.path)),
+    };
+
     const indexContent = Buffer.from(
-      JSON.stringify(indexFile, null, 2),
-      "utf-8"
+      JSON.stringify(sortedIndexFile, null, 2),
+      "utf-8",
     );
-    const encryptedIndex = this.encryptContent(indexContent, encryptionKey);
+    const encryptedIndex = this.encryptionService.encrypt(
+      indexContent,
+      options.encryptionKey,
+    );
     const indexFilePath = vscode.Uri.joinPath(indexDirUri, dirName, fileName);
     await vscode.workspace.fs.writeFile(indexFilePath, encryptedIndex);
 
     // Update the ref for this branch
-    await this.saveBranchRef(branchName, indexFile.uuid, encryptionKey);
+    await this.saveBranchRef(branchName, indexFile.uuid, options);
   }
 
-  public static mergeIndexes(
+  public mergeIndexes(
     localIndex: IndexFile,
-    remoteIndex: IndexFile
+    remoteIndex: IndexFile,
   ): IndexFile {
     // 新しいUUIDを作成
     const newUUID = uuidv7();
@@ -712,16 +990,16 @@ export class LocalObjectManager {
   }
 
   // 新旧インデックスを比較し、追加されたファイルをローカルへ復元、削除されたファイルをローカルから削除する
-  public static async reflectFileChanges(
+  public async reflectFileChanges(
     oldIndex: IndexFile,
     newIndex: IndexFile,
-    options: LocalObjectManagerOptions,
-    forceCheckout: boolean
+    forceCheckout: boolean,
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<void> {
     logMessage(
-      `reflectFileChanges: Start. forceCheckout:${forceCheckout} oldIndex:${oldIndex.uuid}, newIndex:${newIndex.uuid}`
+      `reflectFileChanges: Start. forceCheckout:${forceCheckout} oldIndex:${oldIndex.uuid}, newIndex:${newIndex.uuid}`,
     );
-    const rootUri = getRootUri();
+    const rootUri = this.getRootUri();
 
     // oldIndex のファイルをMap化
     const oldMap = new Map<string, FileEntry>();
@@ -741,25 +1019,56 @@ export class LocalObjectManager {
       if (newFileEntry.deleted) {
         continue;
       }
-      if (!oldMap.has(filePath) || oldMap.get(filePath)?.deleted) {
-        // 新規ファイルをローカルへ復元
-        // まだローカルに実ファイルが無い場合、.secureNotes/remotes/... から復号して作成する
+
+      // ignorePathに含まれるファイルは復元しない
+      if (isIgnoredPath(filePath)) {
+        logMessage(`reflectFileChanges: Skipped ignored file -> ${filePath}`);
+        continue;
+      }
+
+      const oldFileEntry = oldMap.get(filePath);
+
+      // ファイルが新規追加された場合、または削除されていたファイルが復活した場合のみ復元
+      if (!oldFileEntry || oldFileEntry.deleted) {
         logMessage(`reflectFileChanges: File added -> ${filePath}`);
-        await LocalObjectManager.fetchDecryptAndSaveFile(
+        await this.fetchDecryptAndSaveFile(
           filePath,
           newFileEntry.hash,
-          options
+          undefined,
+          overrideOptions,
         );
       }
+      // ファイルが更新された場合（ハッシュ値が異なる場合）のみ復元
+      else if (oldFileEntry.hash !== newFileEntry.hash) {
+        logMessage(
+          `reflectFileChanges: File updated -> ${filePath} (hash changed)`,
+        );
+        await this.fetchDecryptAndSaveFile(
+          filePath,
+          newFileEntry.hash,
+          undefined,
+          overrideOptions,
+        );
+      }
+      /*else {
+        // ハッシュ値が同じ場合は復元をスキップ
+        logMessage(`reflectFileChanges: File unchanged -> ${filePath} (hash match, skipping restore)`);
+      }*/
     }
 
     // 2) 削除されたファイルの反映
     // oldIndex にはあるが newIndex では削除フラグがあるファイル
+    let forceCheckoutDeletions = 0;
+    let normalDeletions = 0;
+    let missingButNotDeleting = 0;
+    let deletedTimestampMismatch = 0;
+
     for (const [filePath, oldFileEntry] of oldMap.entries()) {
       const newfile = newMap.get(filePath);
       if (forceCheckout) {
         if (!newfile || newfile.deleted) {
           // 強制チェックアウトの場合、newIndexに存在しないファイルは削除
+          forceCheckoutDeletions++;
           this.removeFile(filePath);
         }
       } else {
@@ -768,13 +1077,49 @@ export class LocalObjectManager {
           newfile.deleted &&
           newfile.timestamp === oldFileEntry.timestamp // 削除フラグが立っているがタイムスタンプが同じ場合
         ) {
+          normalDeletions++;
           this.removeFile(filePath);
+        } else if (!newfile) {
+          missingButNotDeleting++;
+        } else if (newfile.deleted) {
+          deletedTimestampMismatch++;
         }
       }
     }
+
+    // 削除統計をログ出力
+    if (forceCheckoutDeletions > 0) {
+      logMessage(
+        `reflectFileChanges: Force checkout deletions: ${forceCheckoutDeletions} files`,
+      );
+    }
+    if (normalDeletions > 0) {
+      logMessage(
+        `reflectFileChanges: Normal deletions: ${normalDeletions} files`,
+      );
+    }
+    if (missingButNotDeleting > 0) {
+      logMessage(
+        `reflectFileChanges: Files missing in newIndex but not deleting: ${missingButNotDeleting} files`,
+      );
+    }
+    if (deletedTimestampMismatch > 0) {
+      logMessage(
+        `reflectFileChanges: Files marked as deleted but timestamp mismatch: ${deletedTimestampMismatch} files`,
+      );
+    }
   }
-  private static async removeFile(filePath: string): Promise<void> {
+  private async removeFile(filePath: string): Promise<void> {
+    // ignorePathに含まれるファイルは削除しない
+    if (isIgnoredPath(filePath)) {
+      logMessage(
+        `reflectFileChanges: Skipped removing ignored file -> ${filePath}`,
+      );
+      return;
+    }
+
     // ローカルワークスペースから削除
+    const rootUri = this.getRootUri();
     const localUri = vscode.Uri.joinPath(rootUri, filePath);
     try {
       try {
@@ -790,39 +1135,44 @@ export class LocalObjectManager {
         recursive: false,
         useTrash: false,
       });
-      logMessage(`reflectFileChanges: File removed -> ${filePath}`);
+      // 個別の削除ログは削除（統計で表示するため）
     } catch (error: any) {
-      // 存在しない場合などは単にログ出力
+      // エラーの場合のみログ出力
       logMessage(`warning: deleting file: ${filePath}. ${error.message}`);
     }
   }
-  public static getRefsDirUri(): vscode.Uri {
-    return remoteRefsDirUri; // .secureNotes/remotes/refs
-  }
+  // 旧APIの静的アクセサは撤去（不要）
 
   // Save the indexFile.uuid as the "latest" for the given branch
-  public static async saveBranchRef(
+  public async saveBranchRef(
     branchName: string,
     indexFileUuid: string,
-    encryptionKey: string
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<void> {
+    const options = this.getEffectiveOptions(overrideOptions);
+    const remoteRefsDirUri = this.getRemoteRefsDirUri();
     const refUri = vscode.Uri.joinPath(remoteRefsDirUri, branchName);
-    const encryptedUuid = this.encryptContent(
+    const encryptedUuid = this.encryptionService.encrypt(
       Buffer.from(indexFileUuid),
-      encryptionKey
+      options.encryptionKey,
     );
     await vscode.workspace.fs.writeFile(refUri, encryptedUuid);
   }
 
   // Read the "latest" indexFile.uuid in the given branch
-  public static async readBranchRef(
+  public async readBranchRef(
     branchName: string,
-    encryptionKey: string
+    overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<string | undefined> {
+    const options = this.getEffectiveOptions(overrideOptions);
+    const remoteRefsDirUri = this.getRemoteRefsDirUri();
     const refUri = vscode.Uri.joinPath(remoteRefsDirUri, branchName);
     try {
       const data = await vscode.workspace.fs.readFile(refUri);
-      const decrypted = this.decryptContent(Buffer.from(data), encryptionKey);
+      const decrypted = this.encryptionService.decrypt(
+        Buffer.from(data),
+        options.encryptionKey,
+      );
       return decrypted.toString();
     } catch {
       return undefined;
@@ -842,7 +1192,7 @@ export async function getCurrentBranchName(): Promise<string> {
     const headUri = vscode.Uri.joinPath(
       rootUri,
       ".secureNotes",
-      HEAD_FILE_NAME
+      HEAD_FILE_NAME,
     );
     const data = await vscode.workspace.fs.readFile(headUri);
     const branch = data.toString().trim();
@@ -857,6 +1207,10 @@ export async function getCurrentBranchName(): Promise<string> {
  * 現在のブランチ名を .secureNotes/HEAD に書き込む
  */
 export async function setCurrentBranchName(branchName: string): Promise<void> {
+  const rootUri = vscode.workspace.workspaceFolders?.[0].uri;
+  if (!rootUri) {
+    throw new Error("No workspace found to set branch name");
+  }
   const headUri = vscode.Uri.joinPath(rootUri, ".secureNotes", HEAD_FILE_NAME);
   await vscode.workspace.fs.writeFile(headUri, Buffer.from(branchName, "utf8"));
 }
