@@ -33,13 +33,23 @@ function getRelativePath(
 }
 
 const secureNotesDir = ".secureNotes";
-const ignorePath = [`${secureNotesDir}/**`, `**/node_modules/**`, `.vscode/**`];
+const ignorePath = [
+  `${secureNotesDir}/**`,
+  `**/node_modules/**`,
+  `.vscode/**`,
+  `conflict-local/**`,
+];
 
 /**
  * ファイルパスがignorePathに含まれるかどうかをチェックする関数
  */
 function isIgnoredPath(filePath: string): boolean {
-  const patterns = [secureNotesDir, "node_modules", ".vscode"];
+  const patterns = [
+    secureNotesDir,
+    "node_modules",
+    ".vscode",
+    "conflict-local",
+  ];
 
   return patterns.some((pattern) => {
     // パターンがファイルパスに含まれているかチェック
@@ -320,12 +330,24 @@ export class LocalObjectManager {
     filePath: string,
     timestamp: Date,
   ): string {
-    const time = timestamp
-      .toISOString()
-      .replace(/[:.]/g, "-")
-      .replace("T", "_")
-      .split("Z")[0];
-    return `${prefix}-${time}/${filePath}`;
+    const formatted = this.formatTimestampJst(timestamp);
+    return `${prefix}/${formatted}/${filePath}`;
+  }
+
+  private formatTimestampJst(timestamp: Date): string {
+    const jstTime = timestamp.getTime() + 9 * 60 * 60 * 1000;
+    const jstDate = new Date(jstTime);
+    const year = jstDate.getUTCFullYear();
+    const month = (jstDate.getUTCMonth() + 1).toString().padStart(2, "0");
+    const day = jstDate.getUTCDate().toString().padStart(2, "0");
+    const hours = jstDate.getUTCHours().toString().padStart(2, "0");
+    const minutes = jstDate.getUTCMinutes().toString().padStart(2, "0");
+    const seconds = jstDate.getUTCSeconds().toString().padStart(2, "0");
+    const milliseconds = jstDate
+      .getUTCMilliseconds()
+      .toString()
+      .padStart(3, "0");
+    return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}-${milliseconds}`;
   }
 
   /**
@@ -486,7 +508,7 @@ export class LocalObjectManager {
     timestamp: Date,
     overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<void> {
-    // コンフリクト用のファイル名を生成（例: conflict-local-YYYYMMDD-HHmmss-ファイル名.ext）
+    // コンフリクト用のファイル名を生成（例: conflict-local/2025-11-01_09-14-12-400/ファイル名）
     const conflictFileName = this.buildConflictFilePath(
       "conflict-local",
       filePath,
@@ -534,7 +556,7 @@ export class LocalObjectManager {
     timestamp: Date,
     overrideOptions?: Partial<LocalObjectManagerOptions>,
   ): Promise<void> {
-    // コンフリクト用のファイル名を生成（例: conflict-remote-YYYYMMDD-HHmmss-ファイル名.ext）
+    // コンフリクト用のファイル名を生成（例: conflict-remote/2025-11-01_09-14-12-400/ファイル名）
     //const timestamp = new Date()
     const conflictFileName = this.buildConflictFilePath(
       "conflict-remote",
@@ -554,7 +576,9 @@ export class LocalObjectManager {
   public async resolveConflicts(
     conflicts: UpdateFiles[],
     overrideOptions?: Partial<LocalObjectManagerOptions>,
+    conflictBaseTimestamp?: Date,
   ): Promise<boolean> {
+    const conflictTimestamp = conflictBaseTimestamp ?? new Date();
     for (const conflict of conflicts) {
       switch (conflict.UpdateType) {
         case "remoteUpdate":
@@ -575,11 +599,10 @@ export class LocalObjectManager {
         case "localDelete":
           // ローカルの変更がある場合、ローカルファイルをコンフリクトとして保存し、リモートを採用
           if (conflict.localHash.length > 0) {
-            const now = new Date();
             await this.localFileToConflictAndSaveRemote(
               conflict.filePath,
               conflict.remoteHash,
-              now,
+              conflictTimestamp,
               overrideOptions,
             );
             logMessage(

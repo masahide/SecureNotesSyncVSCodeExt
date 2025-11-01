@@ -138,6 +138,7 @@ export class SyncService implements ISyncService {
   async performIncrementalSync(): Promise<boolean> {
     try {
       logMessage("=== 増分同期処理フローを開始 ===");
+      const syncTimestamp = new Date();
 
       const currentBranch = await getCurrentBranchName();
       logMessage(`Current branch resolved for sync: ${currentBranch}`);
@@ -154,6 +155,7 @@ export class SyncService implements ISyncService {
         this.syncOptions,
         currentBranch,
         hasRemoteChanges,
+        syncTimestamp,
       );
 
       showInfo("既存ストレージからデータを復元し、増分同期を完了しました。");
@@ -174,6 +176,7 @@ export class SyncService implements ISyncService {
     options: SyncOptions,
     currentBranch: string,
     hasRemoteUpdates: boolean = false,
+    syncTimestamp: Date = new Date(),
   ): Promise<boolean> {
     // 1. 前回のインデックスを読み込み
     const previousIndex = await this.localObjectManager.loadWsIndex(options);
@@ -209,6 +212,7 @@ export class SyncService implements ISyncService {
         previousIndex,
         newLocalIndex,
         options,
+        syncTimestamp,
       );
       if (!mergeResult.success) {
         showInfo("Sync aborted due to unresolved conflicts.");
@@ -279,6 +283,7 @@ export class SyncService implements ISyncService {
     previousIndex: IndexFile,
     newLocalIndex: IndexFile,
     options: SyncOptions,
+    syncTimestamp: Date,
   ): Promise<{ success: boolean; mergedIndex: IndexFile }> {
     // リモートインデックスを読み込み
     const remoteIndex = await this.localObjectManager.loadRemoteIndex(options);
@@ -300,6 +305,7 @@ export class SyncService implements ISyncService {
       const conflictsResolved = await this.localObjectManager.resolveConflicts(
         conflicts,
         options,
+        syncTimestamp,
       );
       if (!conflictsResolved) {
         logMessage("Conflict resolution failed");
@@ -342,7 +348,11 @@ export class SyncService implements ISyncService {
     );
 
     // インデックスファイルを保存
-    await this.localObjectManager.saveIndexFile(finalIndex, currentBranch);
+    await this.localObjectManager.saveIndexFile(
+      finalIndex,
+      currentBranch,
+      options,
+    );
 
     // ワークスペースインデックスを保存
     await this.localObjectManager.saveWsIndexFile(finalIndex, options);

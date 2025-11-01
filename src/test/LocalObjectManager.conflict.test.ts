@@ -32,13 +32,13 @@ suite("LocalObjectManager conflict path helper", () => {
 
     assert.strictEqual(
       localPath,
-      "conflict-local-2024-01-02_03-04-05/notes/sample.md",
+      "conflict-local/2024-01-02_12-04-05-000/notes/sample.md",
       "ローカル側のコンフリクトパスが期待通りの形式で生成される必要があります。",
     );
 
     assert.strictEqual(
       remotePath,
-      "conflict-remote-2024-01-02_03-04-05/notes/sample.md",
+      "conflict-remote/2024-01-02_12-04-05-000/notes/sample.md",
       "リモート側のコンフリクトパスが期待通りの形式で生成される必要があります。",
     );
   });

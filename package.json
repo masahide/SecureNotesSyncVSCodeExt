@@ -153,6 +153,7 @@
     "package": "webpack --mode production --devtool hidden-source-map",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
+    "typecheck": "tsc -p . --noEmit",
     "pretest": "pnpm run compile-tests && pnpm run compile && pnpm run lint",
     "lint": "eslint src",
     "test": "xvfb-run -a vscode-test",
@@ -162,27 +163,28 @@
     "test:incremental": "pnpm run compile-tests && pnpm run compile",
     "test:unit": "tsx src/test/unit-test.ts",
     "test:fast": "pnpm run test:unit && pnpm run lint",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "verify": "pnpm run typecheck && pnpm run lint && pnpm run test"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
-    "@types/vscode": "^1.96.0",
+    "@types/node": "~24.9.2",
+    "@types/vscode": "^1.105.0",
     "@types/which": "^3.0.4",
-    "@typescript-eslint/eslint-plugin": "^8.20.0",
-    "@typescript-eslint/parser": "^8.20.0",
-    "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.4.1",
-    "eslint": "^9.18.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.2",
+    "@typescript-eslint/parser": "^8.46.2",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.0",
     "prettier": "^3.6.2",
-    "ts-loader": "^9.5.2",
-    "tsx": "^4.20.3",
-    "typescript": "^5.7.3",
-    "webpack": "^5.97.1",
+    "ts-loader": "^9.5.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "webpack": "^5.102.1",
     "webpack-cli": "^6.0.1"
   },
   "dependencies": {
-    "uuid": "^11.0.5",
+    "uuid": "^13.0.0",
     "which": "^5.0.0"
   }
 }

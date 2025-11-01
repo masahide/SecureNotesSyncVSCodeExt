@@ -101,6 +101,7 @@ class MockLocalObjectManager {
   static async resolveConflicts(
     conflicts: any[],
     options: SyncOptions,
+    conflictBaseTimestamp?: Date,
   ): Promise<boolean> {
     return true;
   }
