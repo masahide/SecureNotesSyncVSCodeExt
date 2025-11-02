@@ -2,152 +2,180 @@
 
 # Secure Notes Sync
 
-A Visual Studio Code extension for securely managing and synchronizing notes (or other files) with a GitHub repository. Files are automatically encrypted with an AES key before being pushed and stored remotely. Supports branch-based synchronization and historical version management.
+Secure Notes Sync is a Visual Studio Code extension that keeps sensitive notes under your control. All workspace files stay in plaintext locally while encrypted artifacts are synchronized to GitHub. AES-256-CBC encryption, `.secureNotes/` storage, and optional 1Password CLI integration provide explicit key management backed by Git-based observability.
 
-## Features
+## Design Principles
 
-- **Secure Sync**: Encrypt notes/files in your workspace into a hidden `.secureNotes` folder and sync with GitHub.
-- **Branch Management**: Create branches from specific historical indexes and switch between branches to manage different lines of development.
-- **Auto-Sync**: Optionally sync on save or after periods of inactivity.
-- **AES Key Management**:
-  - Generate/store 32-byte AES keys (64 hex characters).
-  - Retrieve keys from 1Password via CLI (optional).
-  - Copy keys to clipboard or refresh cached keys.
-- **Conflict Resolution**: Detect and resolve conflicts during merges.
-- **Time Insertion**: Insert current date/time into active editors.
-- **Tree View**: Visualize branches and historical indexes in the activity bar.
+1. **Local Sovereignty**  
+   Plaintext never leaves the workspace. GitHub (or any remote) only sees encrypted binaries, and deleting `.secureNotes/` removes all encrypted state.
+2. **Explicit Encryption**  
+   Each file is encrypted with AES-256-CBC using a per-file IV. Users decide how keys are sourced and are told when data is encrypted and with which key.
+3. **Git as Audit Trail**  
+   Git commits form an auditable history of encrypted objects. Every sync is traceable through index UUIDs aligned with Git branches.
 
-## Prerequisites
+## Key Capabilities
 
-- Visual Studio Code (version 1.96.0+).
-- Git installed and accessible in PATH.
-- (Optional) [1Password CLI](https://developer.1password.com/docs/cli/) for AES key retrieval.
+- AES-256-CBC encryption with per-file IVs and SHA-256 hashing for change detection.
+- `.secureNotes/` staging area containing indexes, encrypted files, refs, and Git mirror.
+- Integration with VS Code Secrets API or 1Password CLI for key retrieval and caching.
+- Branch and index Tree Views (`BranchTreeViewProvider`, `IndexHistoryProvider`) for visibility into remote history.
+- Auto-sync hooks on file save and window re-focus with configurable debounce timers.
+- Conflict detection with automatic segregation of local, remote, and deleted artifacts (`conflict-local/`, `conflict-remote/`, `deleted-*`).
+- Dedicated logging terminal plus VS Code notifications for success, warnings, and errors.
 
-## Installation
+## Core Architecture
 
-1. Install from VS Code Marketplace.
-2. Open/create a workspace folder for notes.
-3. Ensure Git is installed.
+- `src/extension.ts`: Entry point. Bootstraps the DI container, resolves AES keys, registers commands and event handlers, and wires Tree Views.
+- `src/container/` & `src/factories/`: Dependency injection infrastructure. `ContainerBuilder` registers default services; `ServiceLocator` exposes typed getters and manages disposal.
+- `src/config/ConfigManager.ts`: Builds `SyncConfig` from VS Code settings, persists `environmentId` in `globalState`, and validates key sources.
+- `src/SyncService.ts`: Orchestrates initialization, imports, incremental sync, conflict handling, and upload.
+- `src/storage/LocalObjectManager.ts`: Maintains `IndexFile` and `FileEntry` metadata, performs encryption/decryption, manages branch refs, and reflects changes into the workspace.
+- `src/storage/GithubProvider.ts`: Shells out to Git (`init`, `clone`, `fetch`, `reset`, `checkout`, `add`, `commit`, `push`) strictly for encrypted artifacts under `.secureNotes/remotes`.
+- `src/BranchTreeViewProvider.ts` / `src/IndexHistoryProvider.ts`: Render branch lists and index history; respond to refreshes after sync.
+- `src/logger.ts`: Routes structured log output to a dedicated terminal and bridges VS Code notification APIs.
 
-## Quick Start
+### Dependency Injection Model
 
-1. Open Command Palette (`Ctrl+Shift+P`/`Cmd+Shift+P`).
-2. **Generate AES Key** or **Set AES Key** to configure encryption.
-3. Set `SecureNotesSync.gitRemoteUrl` to your GitHub repo (e.g., `git@github.com:user/repo.git`).
-4. For a new repo, run **SecureNotes: Initialize New Storage**. For an existing repo with data, run **SecureNotes: Import Existing Storage**. Then use **SecureNotes: Sync** for incremental updates.
+- `ServiceContainer` handles singleton vs. transient scopes.
+- `ContainerBuilder.buildDefault(context)` registers core services; `LocalObjectManager` resolves lazily after initialization.
+- `ServiceLocator` provides typed accessors such as `getConfigManager()` or `getSyncServiceFactory()` and offers `dispose()` for teardown.
 
-## Commands
+## Data Model & Storage
 
-Search these in the Command Palette:
+```ts
+interface FileEntry {
+  path: string;
+  hash: string; // SHA-256 of plaintext
+  timestamp: number;
+  deleted?: boolean;
+}
 
-1. **Generate AES Key**  
-   Creates a new 32-byte key stored in VS Code Secrets.
+interface IndexFile {
+  uuid: string; // UUID v7
+  environmentId: string;
+  parentUuids: string[];
+  files: FileEntry[];
+  timestamp: number;
+}
+```
 
-2. **Initialize New Storage**  
-   Create and initialize a new remote storage (encrypt local files and push the first commit).
-
-3. **Import Existing Storage**  
-   Clone existing remote storage and expand files into the workspace.
-
-4. **Sync**  
-   Manually sync encrypted files with GitHub (pull, merge conflicts, push).
-
-5. **Create Branch from Index**  
-   Create a new branch from a selected historical index (right-click index in Tree View).
-
-6. **Checkout Branch**  
-   Switch branches, updating the workspace to the selected branch's state (right-click branch in Tree View).
-
-7. **Copy AES Key**  
-   Copy the AES key to your clipboard.
-
-8. **Set AES Key**  
-   Manually input/update the AES key.
-
-9. **Refresh AES Key**  
-   Force re-fetch the AES key from 1Password.
-
-10. **Insert Current Time**  
-    Add timestamp to the active editor.
-
-11. **Preview Index**  
-    Open a JSON preview of a given index file.
-
-## Configuration
-
-Configure in VS Code settings (`File > Preferences > Settings`):
-
-- **Git Remote URL** (`SecureNotesSync.gitRemoteUrl`)  
-  GitHub repo URL for sync (e.g., `git@github.com:user/repo.git`).
-
-- **Enable Auto-Sync** (`SecureNotesSync.enableAutoSync`)  
-  Sync automatically on save/inactivity. Default: `false`.
-
-- **Inactivity Timeout** (`SecureNotesSync.inactivityTimeoutSec`)  
-  Seconds before auto-sync triggers after window blur. Default: `60`.
-
-- **1Password URI** (`SecureNotesSync.onePasswordUri`)  
-  `op://` URI to fetch AES key (e.g., `op://Vault/Item/password`).
-
-- **1Password Account** (`SecureNotesSync.onePasswordAccount`)  
-  (Optional) 1Password account name for CLI.
-
-- **1Password Cache Timeout** (`SecureNotesSync.onePasswordCacheTimeout`)  
-  Duration to cache AES keys from 1Password (e.g., `1h`, `30d`). Default: `30d`.
-
-## Branch Management
-
-- **View Branches**: The activity bar shows all branches under **Secure Notes Branches**.
-- **Create Branch**: Right-click an index in the Tree View and select **Create Branch from Index**.
-- **Checkout Branch**: Right-click a branch and choose **Checkout Branch** to switch contexts.
-- Each branch maintains its own history of indexes, allowing parallel development.
-
-## How It Works
-
-1. Encrypted files and indexes are stored in `.secureNotes`, synced via Git.
-2. **Sync Notes**:
-   - Pulls remote changes and merges with local edits.
-   - Resolves conflicts by prompting or saving remote versions as `conflict-*` files.
-   - Pushes merged changes to GitHub.
-3. **Branches**: Each branch references a chain of indexes. Checkout switches the workspace to that branch's latest state.
-
-## Architecture
-
-- Provider (GitHubSyncProvider): Git I/O only (init/clone/fetch/reset/checkout/push). No crypto or index logic.
-- SyncService: Orchestrates flows (initialize/import/incremental sync), calls LocalObjectManager for crypto/index, and coordinates Git ops via Provider.
-- LocalObjectManager: Handles encryption/decryption and index management under the injected `workspaceUri`; receives `encryptionKey` and `environmentId` per call via options.
-- DI Policy: All services are obtained via the container/locator; `workspaceUri` is required. Do not use dynamic `import()` or `vscode.extensions.getExtension(...)` in source code.
+```
+.secureNotes/
+├── HEAD                 # Current branch name (plaintext)
+├── wsIndex.json         # Latest index (plaintext JSON)
+└── remotes/
+    ├── refs/<branch>    # Encrypted branch refs mapped to index UUIDs
+    ├── indexes/<uuid>   # Encrypted IndexFile objects
+    ├── files/<hash>     # AES-256-CBC encrypted file payloads
+    └── .git             # Git mirror used purely for encrypted artifacts
+```
 
 ## Sync Flows
 
-1. Initialize New Storage
-   - LocalObjectManager: generate initial index and encrypted objects, persist under `.secureNotes`.
-   - Provider: initialize Git repository and push the first commit.
+1. **Initialize New Storage (`secureNotes.initializeNewStorage`)**
+   - Prepares `.secureNotes/remotes`, writes `.gitattributes` (`* binary`), generates an initial index, encrypts existing files, and pushes the first commit.
+2. **Import Existing Storage (`secureNotes.importExistingStorage`)**
+   - Clones the remote mirror, decrypts the latest index, restores workspace files, updates `.secureNotes/HEAD`, and refreshes Tree Views.
+3. **Incremental Sync (`secureNotes.sync`)**
+   - Fetches remote changes, rebuilds the local index, detects conflicts, prefers remote data while preserving local copies under `conflict-local/`, re-encrypts pending updates, refreshes workspace files, and pushes if there are new commits.
 
-2. Import Existing Storage
-   - Provider: clone/fetch/reset to the latest remote state.
-   - LocalObjectManager: load the latest remote index and expand files into the workspace.
+## Auto-Sync Triggers
 
-3. Incremental Sync
-   - Provider: pull changes; if updated, SyncService reconciles and saves encrypted objects.
-   - Provider: push when there are new commits.
+- `onDidChangeWindowState`: If auto-sync is enabled and inactivity exceeds `inactivityTimeoutSec`, executes `secureNotes.sync`.
+- `onDidSaveTextDocument`: Starts a debounce timer defined by `saveSyncTimeoutSec`; repeated saves reset the timer until sync executes.
 
-## Using 1Password
+## GitHub Provider Responsibilities
 
-1. Set `onePasswordUri` to your key's `op://` URI.
-2. The extension caches the key based on `onePasswordCacheTimeout`.
-3. If retrieval fails, falls back to VS Code Secrets.
+- Discovers Git binary via `which` or platform-specific fallbacks.
+- Differentiates between fresh, empty, or existing remotes before initializing.
+- Wraps Git commands with logging and error propagation using `execFile`.
+- Ensures branch availability on upload (`git checkout <branch>` creating when necessary).
 
-## Contributing
+## Logging & Error Handling
 
-Issues/requests: [GitHub Repo](https://github.com/masahide/SecureNotesSyncVSCodeExt)
+- `logMessage*` methods colorize log output in a dedicated terminal.
+- `showInfo` / `showError` surface user-facing notifications.
+- `executeSyncOperation` wraps command handlers, guaranteeing controlled error reporting and consistent status returns.
+- Development builds can register manual test commands via `registerManualSyncTestCommand`.
+
+## Commands
+
+Invoke via the Command Palette:
+
+- **SecureNotes: Generate AES Key** — Create a new 32-byte key (64 hex chars) and store it in VS Code Secrets.
+- **SecureNotes: Set AES Key** — Manually input or update the AES key.
+- **SecureNotes: Copy AES Key** — Copy the current key to the clipboard.
+- **SecureNotes: Refresh AES Key** — Re-fetch and cache the key from 1Password CLI.
+- **SecureNotes: Initialize New Storage** — Encrypt current workspace files and push the inaugural commit.
+- **SecureNotes: Import Existing Storage** — Clone encrypted artifacts and restore plaintext into the workspace.
+- **SecureNotes: Sync** — Perform incremental sync (fetch, merge, encrypt, push).
+- **SecureNotes: Create Branch from Index** — Spawn a new branch from a selected historical index.
+- **SecureNotes: Checkout Branch** — Switch to another branch and reflect its state locally.
+- **SecureNotes: Preview Index** — Inspect decrypted index JSON in an editor.
+- **SecureNotes: Insert Current Time** — Insert the current timestamp into the active editor.
+
+## Configuration
+
+| Setting Key                                 | Type / Default | Description                                                      |
+| ------------------------------------------- | -------------- | ---------------------------------------------------------------- |
+| `SecureNotesSync.gitRemoteUrl`              | string         | GitHub repository URL used for encrypted artifact sync (required). |
+| `SecureNotesSync.enableAutoSync`            | boolean / `false` | Enables auto-sync on save and inactivity triggers.               |
+| `SecureNotesSync.inactivityTimeoutSec`      | number / `60`  | Seconds of inactivity after window focus loss before auto-sync.  |
+| `SecureNotesSync.saveSyncTimeoutSec`        | number / `5`   | Delay in seconds before sync after a file save event.            |
+| `SecureNotesSync.onePasswordUri`            | string         | `op://` URI pointing to the AES key in 1Password.                |
+| `SecureNotesSync.onePasswordAccount`        | string         | Optional 1Password account name passed to the CLI.               |
+| `SecureNotesSync.onePasswordCacheTimeout`   | string / `30d` | TTL for cached keys retrieved through 1Password CLI.             |
+
+## Security Model
+
+### Trust Boundaries
+
+| Component                | Trust Level          | Primary Risk                              | Mitigation                                      |
+| ------------------------ | -------------------- | ----------------------------------------- | ----------------------------------------------- |
+| VS Code Workspace        | ✅ Trusted            | Physical compromise / malware             | Recommend OS-level disk encryption & backups.   |
+| `.secureNotes/`          | ✅ Trusted            | IV reuse / accidental deletion            | Random IV generation and integrity checks.      |
+| GitHub Repository        | ❌ Untrusted          | Account leakage / collaborator visibility | All artifacts are AES-encrypted before upload.  |
+| 1Password CLI            | ✅ Trusted            | Vault breach / token compromise           | Account scoping and cache expiration controls.  |
+| VS Code Secrets API      | ⚠️ Semi-Trusted       | Cross-device sync of secrets              | Cache duration limited (`onePasswordCacheTimeout`). |
+
+### Threat Considerations
+
+- **Remote repository leakage**: Only encrypted blobs exist remotely; AES keys stay local.
+- **1Password session theft**: Cached CLI sessions expire per configured timeout; keys are also cached in VS Code Secrets separately.
+- **Local malware**: Plaintext exists solely in the workspace; encourage full-disk encryption.
+- **Sync conflicts**: Automated segregation of remote/local versions in dedicated conflict folders.
+- **IV reuse**: Prevented via `crypto.randomBytes(16)` per file.
+- **Key reuse across environments**: `environmentId` tags detect and warn about cross-environment key usage.
+
+## Requirements & Setup
+
+- Visual Studio Code 1.96.0 or later.
+- Git available on PATH.
+- Optional: [1Password CLI](https://developer.1password.com/docs/cli/) for secure key retrieval.
+
+### Installation
+
+1. Install the extension from the VS Code Marketplace.
+2. Open or create a workspace for your notes.
+3. Configure `SecureNotesSync.gitRemoteUrl` with your GitHub repository.
+
+### Quick Start
+
+1. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
+2. Run **SecureNotes: Generate AES Key** or **SecureNotes: Set AES Key**.
+3. (Optional) Configure 1Password settings if you want automatic key retrieval.
+4. For a fresh repository, run **SecureNotes: Initialize New Storage**. To adopt an existing encrypted dataset, run **SecureNotes: Import Existing Storage**.
+5. Use **SecureNotes: Sync** for manual or scheduled synchronization.
+
+## Roadmap
+
+- Add `secureNotes.rotateEncryptionKey` for key rotation and full re-encryption.
+- Investigate migration to AES-GCM for authenticated encryption.
+- Explore multi-device signature validation for index provenance.
+- Introduce sensitivity tagging to vary encryption policies per note.
 
 ## License
 
 See [LICENSE](https://github.com/masahide/SecureNotesSyncVSCodeExt/blob/main/LICENSE).
-
----
-
-Secure your notes effortlessly with branch-aware encryption sync! ⚡🔒
 
 ### End of README.md
