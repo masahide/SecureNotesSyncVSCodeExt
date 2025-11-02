@@ -116,27 +116,27 @@ Invoke via the Command Palette:
 
 ## Configuration
 
-| Setting Key                                 | Type / Default | Description                                                      |
-| ------------------------------------------- | -------------- | ---------------------------------------------------------------- |
-| `SecureNotesSync.gitRemoteUrl`              | string         | GitHub repository URL used for encrypted artifact sync (required). |
-| `SecureNotesSync.enableAutoSync`            | boolean / `false` | Enables auto-sync on save and inactivity triggers.               |
-| `SecureNotesSync.inactivityTimeoutSec`      | number / `60`  | Seconds of inactivity after window focus loss before auto-sync.  |
-| `SecureNotesSync.saveSyncTimeoutSec`        | number / `5`   | Delay in seconds before sync after a file save event.            |
-| `SecureNotesSync.onePasswordUri`            | string         | `op://` URI pointing to the AES key in 1Password.                |
-| `SecureNotesSync.onePasswordAccount`        | string         | Optional 1Password account name passed to the CLI.               |
-| `SecureNotesSync.onePasswordCacheTimeout`   | string / `30d` | TTL for cached keys retrieved through 1Password CLI.             |
+| Setting Key                               | Type / Default    | Description                                                        |
+| ----------------------------------------- | ----------------- | ------------------------------------------------------------------ |
+| `SecureNotesSync.gitRemoteUrl`            | string            | GitHub repository URL used for encrypted artifact sync (required). |
+| `SecureNotesSync.enableAutoSync`          | boolean / `false` | Enables auto-sync on save and inactivity triggers.                 |
+| `SecureNotesSync.inactivityTimeoutSec`    | number / `60`     | Seconds of inactivity after window focus loss before auto-sync.    |
+| `SecureNotesSync.saveSyncTimeoutSec`      | number / `5`      | Delay in seconds before sync after a file save event.              |
+| `SecureNotesSync.onePasswordUri`          | string            | `op://` URI pointing to the AES key in 1Password.                  |
+| `SecureNotesSync.onePasswordAccount`      | string            | Optional 1Password account name passed to the CLI.                 |
+| `SecureNotesSync.onePasswordCacheTimeout` | string / `30d`    | TTL for cached keys retrieved through 1Password CLI.               |
 
 ## Security Model
 
 ### Trust Boundaries
 
-| Component                | Trust Level          | Primary Risk                              | Mitigation                                      |
-| ------------------------ | -------------------- | ----------------------------------------- | ----------------------------------------------- |
-| VS Code Workspace        | ✅ Trusted            | Physical compromise / malware             | Recommend OS-level disk encryption & backups.   |
-| `.secureNotes/`          | ✅ Trusted            | IV reuse / accidental deletion            | Random IV generation and integrity checks.      |
-| GitHub Repository        | ❌ Untrusted          | Account leakage / collaborator visibility | All artifacts are AES-encrypted before upload.  |
-| 1Password CLI            | ✅ Trusted            | Vault breach / token compromise           | Account scoping and cache expiration controls.  |
-| VS Code Secrets API      | ⚠️ Semi-Trusted       | Cross-device sync of secrets              | Cache duration limited (`onePasswordCacheTimeout`). |
+| Component           | Trust Level     | Primary Risk                              | Mitigation                                          |
+| ------------------- | --------------- | ----------------------------------------- | --------------------------------------------------- |
+| VS Code Workspace   | ✅ Trusted      | Physical compromise / malware             | Recommend OS-level disk encryption & backups.       |
+| `.secureNotes/`     | ✅ Trusted      | IV reuse / accidental deletion            | Random IV generation and integrity checks.          |
+| GitHub Repository   | ❌ Untrusted    | Account leakage / collaborator visibility | All artifacts are AES-encrypted before upload.      |
+| 1Password CLI       | ✅ Trusted      | Vault breach / token compromise           | Account scoping and cache expiration controls.      |
+| VS Code Secrets API | ⚠️ Semi-Trusted | Cross-device sync of secrets              | Cache duration limited (`onePasswordCacheTimeout`). |
 
 ### Threat Considerations
 
