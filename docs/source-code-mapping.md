@@ -81,7 +81,7 @@ graph TD
 ### 競合処理
 
 - 競合検出: `LocalObjectManager.detectConflicts(previous, local, remote)`
-- 競合解決: `resolveConflicts()` がリモート優先で処理し、ローカル差分は `conflict-remote-<timestamp>/` または `deleted-<timestamp>/` に退避
+- 競合解決: `resolveConflicts()` がリモート優先で処理し、ローカル差分を `conflict-local/<YYYY-MM-DD_HH-mm-ss-SSS>/`、リモートとの差分を `conflict-remote/<YYYY-MM-DD_HH-mm-ss-SSS>/` に退避 (JST タイムスタンプ)、削除分は `deleted-<timestamp>/` に格納
 - 最終インデックス決定: `SyncService.handleRemoteUpdates()` 内でマージ後の Index を生成
 
 ## 自動同期 & イベント

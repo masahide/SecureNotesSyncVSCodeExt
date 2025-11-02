@@ -15,7 +15,7 @@
 
 - `SyncService` が新規初期化・既存取り込み・増分同期をカプセル化。
 - リモート状態の検出 (`pullRemoteChanges`) と暗号化オブジェクトの生成 (`LocalObjectManager.saveEncryptedObjects`) を分離し、語責務を明確化。
-- 競合検出 (`detectConflicts`) とリモート優先の解決 (`resolveConflicts`) を標準化し、退避ファイル命名規約 (`conflict-remote-*`, `deleted-*`) を統一。
+- 競合検出 (`detectConflicts`) とリモート優先の解決 (`resolveConflicts`) を標準化し、退避ファイルを JST タイムスタンプ付きディレクトリ (`conflict-local/<…>` / `conflict-remote/<…>` / `deleted-<…>`) に整理。
 - 同期終了時は `saveIndexFile` → `saveWsIndexFile` → `reflectFileChanges` → `upload` の順で実行し、一貫した終端処理を保証。
 
 ### 3. Git I/O と暗号処理の分離

@@ -65,6 +65,8 @@ type LocalObjectManagerOptions = {
 
 暗号データは `[IV(16byte)][Ciphertext]` で保存し、IV はファイルごとに生成します。Hash 先頭2文字／UUID 先頭6文字でディレクトリを分割してファイル数を抑制します。
 
+競合発生時の退避ファイルはワークスペース直下に作成され、ローカル変更を `conflict-local/<YYYY-MM-DD_HH-mm-ss-SSS>/`、リモート変更を `conflict-remote/<YYYY-MM-DD_HH-mm-ss-SSS>/` に配置します。両者のタイムスタンプは JST (UTC+9) で生成され、1 回の同期中は同一フォルダにまとめられます。`conflict-local/` はローカルインデックス生成時の除外パスに追加されており、再同期で誤ってアップロードされません。
+
 ## 活性化とコマンド
 
 ### 拡張機能起動フロー
@@ -103,8 +105,8 @@ graph TD
     A[secureNotes.initializeNewStorage] --> B[initializeSyncService]
     B --> C[GitHubSyncProvider.initialize]
     C --> D[LocalObjectManager.generateInitialIndex]
-    D --> E[LocalObjectManager.saveIndexFile + saveWsIndexFile]
-    E --> F[GitHubSyncProvider.upload(main)]
+    D --> E["LocalObjectManager.saveIndexFile + saveWsIndexFile"]
+    E --> F["GitHubSyncProvider.upload(main)"]
     F --> G[完了通知]
 ```
 
@@ -121,7 +123,7 @@ graph TD
     C --> D[LocalObjectManager.loadRemoteIndex]
     D --> E[LocalObjectManager.saveWsIndexFile]
     E --> F[LocalObjectManager.generateEmptyIndex]
-    F --> G[reflectFileChanges(forceCheckout = true)]
+    F --> G["reflectFileChanges(forceCheckout = true)"]
     G --> H[BranchTreeViewProvider.refresh]
 ```
 
@@ -139,17 +141,18 @@ graph TD
     D --> E[LocalObjectManager.generateLocalIndexFile]
     E --> F{リモート更新あり?}
     F -->|Yes| G[LocalObjectManager.loadRemoteIndex]
-    G --> H[detectConflicts & resolveConflicts]
-    H --> I[マージ後 Index 決定]
+    G --> H[detectConflicts]
+    H --> I["resolveConflicts (remote優先)"]
+    I --> J[マージ後 Index 決定]
     F -->|No| I
-    I --> J[saveEncryptedObjects / saveIndexFile / saveWsIndexFile]
-    J --> K[reflectFileChanges(forceCheckout=false)]
-    K --> L[GitHubSyncProvider.upload(currentBranch)]
+    J --> K["saveEncryptedObjects / saveIndexFile / saveWsIndexFile"]
+    K --> L["reflectFileChanges(forceCheckout=false)"]
+    L --> M["GitHubSyncProvider.upload(currentBranch)"]
 ```
 
 - `pullRemoteChanges()` は `git fetch origin` 後、`git rev-parse HEAD` と `origin/main` を比較し差分があれば `git reset --hard origin/main`。
 - `detectConflicts()` はローカル／前回インデックス／リモートインデックスの差分を比較し、更新／削除／追加を分類。
-- `resolveConflicts()` はリモート優先。ローカル変更は `conflict-remote-<timestamp>/<path>`、削除競合は `deleted-<timestamp>/` に退避。
+- `resolveConflicts()` はリモート優先。ローカル変更は `conflict-local/<YYYY-MM-DD_HH-mm-ss-SSS>/<path>` に退避し、JST(UTC+9) 基準で一度の同期につき共通ディレクトリを使用する。リモート側との差分は `conflict-remote/<YYYY-MM-DD_HH-mm-ss-SSS>/<path>` に保存し、削除競合は `deleted-<timestamp>/` へ退避。
 - `saveEncryptedObjects()` は新規／更新／削除を評価し、暗号化ファイル (`files/`) と削除処理を行う。
 - `finalizeSync()` で `BranchTreeViewProvider.refresh()` を呼び出し、`upload()` を実行。
 
