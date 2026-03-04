@@ -2,10 +2,10 @@
   "name": "secure-notes-sync",
   "displayName": "Secure Notes Sync",
   "description": "A VSCode extension for securely syncing notes with a GitHub repository.",
-  "version": "2025.11.9012231",
+  "version": "2026.3.9042231",
   "publisher": "MasahideYAMASAKI",
   "engines": {
-    "vscode": "^1.105.0"
+    "vscode": "^1.109.0"
   },
   "categories": [
     "Other"
@@ -168,23 +168,25 @@
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
-    "@types/node": "~24.9.2",
-    "@types/vscode": "^1.105.0",
+    "@types/node": "~25.3.3",
+    "@types/vscode": "^1.109.0",
     "@types/which": "^3.0.4",
-    "@typescript-eslint/eslint-plugin": "^8.46.2",
-    "@typescript-eslint/parser": "^8.46.2",
-    "@vscode/test-cli": "^0.0.12",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "@vscode/test-cli": "^0.0.11",
     "@vscode/test-electron": "^2.5.2",
-    "eslint": "^9.39.0",
-    "prettier": "^3.6.2",
+    "eslint": "^10.0.2",
+    "mocha": "^11.3.0",
+    "prettier": "^3.8.1",
+    "serialize-javascript": "^7.0.4",
     "ts-loader": "^9.5.4",
-    "tsx": "^4.20.6",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "webpack": "^5.105.4",
     "webpack-cli": "^6.0.1"
   },
   "dependencies": {
     "uuid": "^13.0.0",
-    "which": "^5.0.0"
+    "which": "^6.0.1"
   }
 }
