@@ -99,7 +99,7 @@
 
 ### Testing Guidelines
 
-- Use VS Code Test Framework for extension testing
+- Use `@vscode/test-electron` with the custom compatibility runner in `src/test/framework.ts` for extension testing
 - Test encryption/decryption operations thoroughly
 - Mock external dependencies (Git, 1Password CLI)
 - Test error conditions and edge cases

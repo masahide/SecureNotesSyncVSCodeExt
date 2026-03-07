@@ -54,7 +54,14 @@ async function run() {
     };
 
     const layoutManager = {
-      async prepareRemotesLayout() {},
+      async prepareRemotesLayout() {
+        const remotesDirUri = this.getRemotesDirUri();
+        await safeFileSystem.createDirectory(remotesDirUri);
+        await safeFileSystem.writeFile(
+          vscode.Uri.joinPath(remotesDirUri, ".gitattributes"),
+          new TextEncoder().encode("* binary"),
+        );
+      },
       getRemotesDirUri() {
         return vscode.Uri.joinPath(workspaceUri, ".secureNotes", "remotes");
       },

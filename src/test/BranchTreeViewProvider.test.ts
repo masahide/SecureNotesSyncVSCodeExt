@@ -1,4 +1,7 @@
 import * as assert from "assert";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import * as vscode from "vscode";
 import { IWorkspaceContextService } from "../interfaces/IWorkspaceContextService";
 import { IKeyManagementService } from "../interfaces/IKeyManagementService";
@@ -6,20 +9,19 @@ import { IKeyManagementService } from "../interfaces/IKeyManagementService";
 suite("BranchTreeViewProvider DI enforcement", () => {
   test("WorkspaceContextService を経由して LocalObjectManager を取得すること", async () => {
     let getLocalObjectManagerCallCount = 0;
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "branch-provider-"));
+    const refsDir = path.join(tempDir, ".secureNotes", "remotes", "refs");
+    fs.mkdirSync(refsDir, { recursive: true });
 
     const workspaceContextMock: IWorkspaceContextService = {
-      getWorkspaceUri: () => vscode.Uri.file("/tmp/workspace"),
+      getWorkspaceUri: () => vscode.Uri.file(tempDir),
       getLocalObjectManager: () => {
         getLocalObjectManagerCallCount++;
         return {
-          getRefsDirUri: () =>
-            vscode.Uri.file("/tmp/workspace/.secureNotes/remotes/refs"),
+          getRefsDirUri: () => vscode.Uri.file(refsDir),
         } as any;
       },
     };
-
-    const originalReadDirectory = vscode.workspace.fs.readDirectory;
-    vscode.workspace.fs.readDirectory = async () => [];
 
     const keyManagementService: IKeyManagementService = {
       getKey: async () =>
@@ -49,7 +51,7 @@ suite("BranchTreeViewProvider DI enforcement", () => {
       );
       await provider.getChildren();
     } finally {
-      vscode.workspace.fs.readDirectory = originalReadDirectory;
+      fs.rmSync(tempDir, { recursive: true, force: true });
     }
 
     assert.strictEqual(

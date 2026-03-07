@@ -9,24 +9,25 @@
 
 ## Build, Test, and Development Commands
 
-- `pnpm run compile` — webpack build for local development.
-- `pnpm run watch` — rebuild on file changes.
-- `pnpm run package` — production bundle with hidden source maps.
-- `pnpm run lint` — run ESLint on `src/`.
-- `pnpm test` / `pnpm run test:headless` / `pnpm run test:local` / `pnpm run test:unit` — execute VS Code or TS-only test suites as required.
+- `npm run compile` — webpack build for local development.
+- `npm run watch` — rebuild on file changes.
+- `npm run package` — production bundle with hidden source maps.
+- `npm run lint` — run ESLint on `src/`.
+- `npm test` / `npm run test:headless` / `npm run test:local` / `npm run test:unit` — execute VS Code host or TS-only test suites as required.
 
 ## Coding Style & Naming Conventions
 
 - TypeScript strict mode, 2-space indent, semicolons required; Prettier enforces formatting.
-- ESLint rules in `eslint.config.mjs`; run `pnpm run lint -- --fix` for quick cleanups.
+- ESLint rules in `eslint.config.mjs`; run `npm run lint -- --fix` for quick cleanups.
 - Use descriptive PascalCase for classes, camelCase for functions, and CONSTANT_CASE for configuration keys.
 - Group imports by module type as detailed in `GEMINI.md`; avoid default exports unless the module exports a single concern.
 
 ## Testing Guidelines
 
-- Prefer TS-based unit tests with `tsx`, colocated under `src/test/unit`.
+- Prefer TS-based unit tests compiled with `tsc` and executed from `out/test/`.
 - Integration and VS Code host tests belong in `src/test/integration` and `src/test/suite`.
-- Name specs with `.test.ts`; structure suite names to reflect feature and scenario (`describe('StorageService -> encrypt()')`).
+- Name specs with `.test.ts`; structure suite names to reflect feature and scenario (`suite('StorageService -> encrypt()', ...)`).
+- VS Code host tests use the custom compatibility runner under `src/test/framework.ts` and are launched via `@vscode/test-electron`.
 - Aim to cover error handling, telemetry, and file I/O edge cases; consult `GEMINI.md` for required fixtures.
 
 ## Commit & Pull Request Guidelines

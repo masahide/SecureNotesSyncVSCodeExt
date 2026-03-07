@@ -37,7 +37,35 @@ suite("Auto sync configuration usage", () => {
       }
 
       if (id === "vscode") {
+        class TreeItem {
+          constructor(
+            public readonly label?: string,
+            public readonly collapsibleState?: number,
+          ) {}
+        }
+
+        class EventEmitter<T> {
+          public readonly event = (_listener: (value: T) => void) => ({
+            dispose: () => undefined,
+          });
+          fire(_value?: T) {}
+          dispose() {}
+        }
+
         return {
+          TreeItem,
+          TreeItemCollapsibleState: {
+            None: 0,
+            Collapsed: 1,
+            Expanded: 2,
+          },
+          EventEmitter,
+          Uri: {
+            file: (p: string) => ({ fsPath: p }),
+            joinPath: (base: { fsPath: string }, ...segments: string[]) => ({
+              fsPath: [base.fsPath, ...segments].join("/"),
+            }),
+          },
           window: {
             onDidChangeWindowState: (
               listener: (state: { focused: boolean }) => void,
@@ -57,6 +85,7 @@ suite("Auto sync configuration usage", () => {
               throw new Error("legacy configuration access");
             },
             fs: {
+              readDirectory: async () => [],
               writeFile: async () => undefined,
               delete: async () => undefined,
               createDirectory: async () => undefined,

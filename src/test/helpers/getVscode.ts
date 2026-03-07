@@ -54,7 +54,6 @@ let cached: VsCodeModule | undefined;
 export function getVscode(): VsCodeModule {
   if (!cached) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       cached = require("vscode") as VsCodeModule;
     } catch {
       cached = createStub();

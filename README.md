@@ -167,6 +167,17 @@ Invoke via the Command Palette:
 4. For a fresh repository, run **SecureNotes: Initialize New Storage**. To adopt an existing encrypted dataset, run **SecureNotes: Import Existing Storage**.
 5. Use **SecureNotes: Sync** for manual or scheduled synchronization.
 
+## Testing
+
+- `npm run compile-tests`: Compile TypeScript test sources into `out/test/`.
+- `npm test`: Build the extension and execute the full VS Code host test suite through the custom runner under `src/test/`.
+- `npm run test:headless`: Headless alias for the full VS Code host test suite.
+- `npm run test:local`: Run the full VS Code host test suite without `xvfb-run`.
+- `npm run test:sync`: Run the focused `SyncService.test.ts` VS Code host suite.
+- `npm run test:unit`: Run the TS-only unit script.
+
+The repository no longer uses `mocha` or `@vscode/test-cli`. VS Code host tests are discovered from `out/test/**/*.test.js` by the custom compatibility runner loaded through `@vscode/test-electron`.
+
 ## Roadmap
 
 - Add `secureNotes.rotateEncryptionKey` for key rotation and full re-encryption.

@@ -44,6 +44,9 @@ import { SyncService, SyncDependencies } from "../SyncService";
 import { SyncOptions } from "../interfaces/ISyncService";
 import { IndexFile, FileEntry } from "../types";
 import { IBranchTreeViewProvider } from "../interfaces/IBranchTreeViewProvider";
+import { ServiceContainer } from "../container/ServiceContainer";
+import { ServiceLocator } from "../container/ServiceLocator";
+import { ServiceKeys } from "../container/ServiceKeys";
 
 // モックオブジェクト
 class MockLocalObjectManager {
@@ -111,7 +114,19 @@ class MockLocalObjectManager {
     previousIndex: IndexFile,
     options: SyncOptions,
   ): Promise<boolean> {
-    return files.length > 0;
+    if (files.length !== previousIndex.files.length) {
+      return true;
+    }
+
+    return files.some((file, index) => {
+      const previousFile = previousIndex.files[index];
+      return (
+        !previousFile ||
+        previousFile.path !== file.path ||
+        previousFile.hash !== file.hash ||
+        previousFile.timestamp !== file.timestamp
+      );
+    });
   }
 
   static async saveIndexFile(
@@ -161,6 +176,107 @@ class MockLocalObjectManager {
 
   async loadRemoteIndexes(): Promise<IndexFile[]> {
     return [];
+  }
+
+  async loadWsIndex(options: SyncOptions): Promise<IndexFile> {
+    return MockLocalObjectManager.loadWsIndex(options);
+  }
+
+  async generateLocalIndexFile(
+    previousIndex: IndexFile,
+    options: SyncOptions,
+  ): Promise<IndexFile> {
+    return MockLocalObjectManager.generateLocalIndexFile(previousIndex, options);
+  }
+
+  async loadRemoteIndex(options: SyncOptions): Promise<IndexFile> {
+    return MockLocalObjectManager.loadRemoteIndex(options);
+  }
+
+  async detectConflicts(
+    previousIndex: IndexFile,
+    newLocalIndex: IndexFile,
+    remoteIndex: IndexFile,
+  ): Promise<any[]> {
+    return MockLocalObjectManager.detectConflicts(
+      previousIndex,
+      newLocalIndex,
+      remoteIndex,
+    );
+  }
+
+  async resolveConflicts(
+    conflicts: any[],
+    options: SyncOptions,
+    conflictBaseTimestamp?: Date,
+  ): Promise<boolean> {
+    return MockLocalObjectManager.resolveConflicts(
+      conflicts,
+      options,
+      conflictBaseTimestamp,
+    );
+  }
+
+  async saveEncryptedObjects(
+    files: FileEntry[],
+    previousIndex: IndexFile,
+    options: SyncOptions,
+  ): Promise<boolean> {
+    return MockLocalObjectManager.saveEncryptedObjects(
+      files,
+      previousIndex,
+      options,
+    );
+  }
+
+  async saveIndexFile(
+    indexFile: IndexFile,
+    branchName: string,
+    options: SyncOptions,
+  ): Promise<void> {
+    return MockLocalObjectManager.saveIndexFile(
+      indexFile,
+      branchName,
+      options.encryptionKey,
+    );
+  }
+
+  async saveWsIndexFile(
+    indexFile: IndexFile,
+    options: SyncOptions,
+  ): Promise<void> {
+    return MockLocalObjectManager.saveWsIndexFile(indexFile, options);
+  }
+
+  async reflectFileChanges(
+    previousIndex: IndexFile,
+    newIndex: IndexFile,
+    isCheckout: boolean,
+    options: SyncOptions,
+  ): Promise<void> {
+    return MockLocalObjectManager.reflectFileChanges(
+      previousIndex,
+      newIndex,
+      options,
+      isCheckout,
+    );
+  }
+
+  async generateInitialIndex(options: SyncOptions): Promise<IndexFile> {
+    return MockLocalObjectManager.generateLocalIndexFile(
+      await this.generateEmptyIndex(options),
+      options,
+    );
+  }
+
+  async generateEmptyIndex(options: SyncOptions): Promise<IndexFile> {
+    return {
+      uuid: "",
+      environmentId: options.environmentId,
+      parentUuids: [],
+      files: [],
+      timestamp: 0,
+    };
   }
 
   async findLatestIndex(indexes: IndexFile[]): Promise<IndexFile> {
@@ -387,29 +503,13 @@ suite("SyncService Test Suite", () => {
   });
 
   test("増分同期処理 - リモート更新ありの場合", async () => {
-    // モックの動作を設定
     const mockGitHubProvider = mockDependencies.storageProvider as any;
-
-    // リモートリポジトリが存在する場合
-    mockGitHubProvider.checkRemoteRepositoryExists = async () => true;
-    mockGitHubProvider.checkRemoteRepositoryIsEmpty = async () => false;
-
-    let cloneCalled = false;
-    let loadDataCalled = false;
-
-    mockGitHubProvider.cloneRemoteStorage = async () => {
-      cloneCalled = true;
-    };
-
-    mockGitHubProvider.loadAndDecryptRemoteData = async () => {
-      loadDataCalled = true;
-    };
+    mockGitHubProvider.shouldReportRemoteChanges = true;
 
     const result = await syncService.performIncrementalSync();
 
-    assert.strictEqual(result, true); // 既存リポジトリの場合はtrue
-    assert.strictEqual(cloneCalled, true);
-    assert.strictEqual(loadDataCalled, true);
+    assert.strictEqual(result, true);
+    assert.strictEqual(mockGitHubProvider.lastPulledBranch, "main");
   });
 
   test("増分同期処理 - 競合がある場合", async () => {
@@ -417,12 +517,7 @@ suite("SyncService Test Suite", () => {
     const mockGitHubProvider = mockDependencies.storageProvider as any;
     const mockLocalManager = mockDependencies.localObjectManager as any;
 
-    // リモートリポジトリが存在する場合
-    mockGitHubProvider.checkRemoteRepositoryExists = async () => true;
-    mockGitHubProvider.checkRemoteRepositoryIsEmpty = async () => false;
-
-    // 従来の増分同期処理でリモート更新があることをシミュレート
-    mockGitHubProvider.download = async () => true;
+    mockGitHubProvider.shouldReportRemoteChanges = true;
 
     let detectConflictsCalled = false;
     let resolveConflictsCalled = false;
@@ -449,9 +544,7 @@ suite("SyncService Test Suite", () => {
     const mockGitHubProvider = mockDependencies.storageProvider as any;
     const mockLocalManager = mockDependencies.localObjectManager as any;
 
-    // リモートリポジトリが存在する場合
-    mockGitHubProvider.checkRemoteRepositoryExists = async () => true;
-    mockGitHubProvider.checkRemoteRepositoryIsEmpty = async () => false;
+    mockGitHubProvider.shouldReportRemoteChanges = true;
 
     mockLocalManager.detectConflicts = async () => [
       { type: "conflict", file: "test.txt" },
@@ -469,12 +562,12 @@ suite("SyncService Test Suite", () => {
     const errorMockGitHubProvider = new MockGitHubSyncProvider(
       "https://github.com/test/repo.git",
     ) as any;
-    errorMockGitHubProvider.checkRemoteRepositoryExists = async () => {
+    errorMockGitHubProvider.pullRemoteChanges = async () => {
       throw new Error("Test error");
     };
 
     const errorMockDependencies = {
-      localObjectManager: MockLocalObjectManager as any,
+      localObjectManager: new MockLocalObjectManager() as any,
       storageProvider: errorMockGitHubProvider,
       branchProvider: new MockBranchProvider(),
     };
@@ -526,6 +619,28 @@ suite("SyncService Test Suite", () => {
 suite("SyncService Integration Test Suite", () => {
   test("SyncServiceFactory ファクトリー関数のテスト", () => {
     const { SyncServiceFactory } = require("../factories/SyncServiceFactory");
+    const container = new ServiceContainer();
+    container.registerInstance(
+      ServiceKeys.LOCAL_OBJECT_MANAGER,
+      new MockLocalObjectManager() as any,
+    );
+    container.registerInstance(ServiceKeys.FILE_SYSTEM, {
+      createDirectory: async () => undefined,
+      delete: async () => undefined,
+      writeFile: async () => undefined,
+      readFile: async () => new Uint8Array(),
+      readDirectory: async () => [],
+      stat: async () => ({ type: 1, ctime: 0, mtime: 0, size: 0 }),
+    } as any);
+    container.registerInstance(ServiceKeys.GIT_CLIENT, {
+      exec: async () => ({ stdout: "", stderr: "" }),
+    } as any);
+    container.registerInstance(ServiceKeys.LAYOUT_MANAGER, {
+      prepareRemotesLayout: async () => undefined,
+      getRemotesDirUri: () =>
+        vscode.Uri.file("/tmp/workspace/.secureNotes/remotes"),
+    } as any);
+    ServiceLocator.setContainer(container);
 
     const factory = new SyncServiceFactory();
     const config = {
@@ -545,9 +660,18 @@ suite("SyncService Integration Test Suite", () => {
       },
     } as any;
 
-    const syncService = factory.createSyncService(config, mockContext);
+    try {
+      Object.defineProperty(vscode.workspace, "workspaceFolders", {
+        value: [mockWorkspaceFolder],
+        writable: true,
+        configurable: true,
+      });
+      const syncService = factory.createSyncService(config, mockContext);
 
-    assert.ok(syncService);
-    assert.ok(syncService instanceof SyncService);
+      assert.ok(syncService);
+      assert.ok(syncService instanceof SyncService);
+    } finally {
+      ServiceLocator.dispose();
+    }
   });
 });
