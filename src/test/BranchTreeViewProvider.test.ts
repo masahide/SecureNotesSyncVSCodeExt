@@ -41,9 +41,8 @@ suite("BranchTreeViewProvider DI enforcement", () => {
     };
 
     try {
-      const { BranchTreeViewProvider } = await import(
-        "../BranchTreeViewProvider"
-      );
+      const { BranchTreeViewProvider } =
+        await import("../BranchTreeViewProvider");
       const provider = new BranchTreeViewProvider(
         {} as vscode.ExtensionContext,
         workspaceContextMock,

@@ -84,7 +84,8 @@ async function runTestCase(
     await testCase.fn();
     console.log(`PASS ${testName}`);
   } catch (error) {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    const message =
+      error instanceof Error ? (error.stack ?? error.message) : String(error);
     failures.push(`${testName}\n${message}`);
     console.error(`FAIL ${testName}`);
     console.error(message);
@@ -96,7 +97,8 @@ async function runTestCase(
     try {
       await runHooks(teardownHooks);
     } catch (error) {
-      const message = error instanceof Error ? error.stack ?? error.message : String(error);
+      const message =
+        error instanceof Error ? (error.stack ?? error.message) : String(error);
       failures.push(`${testName} [teardown]\n${message}`);
       console.error(`FAIL ${testName} [teardown]`);
       console.error(message);
@@ -104,7 +106,10 @@ async function runTestCase(
   }
 }
 
-async function runSuite(suiteNode: SuiteNode, failures: string[]): Promise<void> {
+async function runSuite(
+  suiteNode: SuiteNode,
+  failures: string[],
+): Promise<void> {
   for (const testCase of suiteNode.tests) {
     await runTestCase(suiteNode, testCase, failures);
   }

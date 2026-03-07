@@ -2,7 +2,11 @@ import * as fs from "fs";
 import * as path from "path";
 
 import { getVscode } from "./helpers/getVscode";
-import { installTestGlobals, resetTestRegistry, runRegisteredTests } from "./framework";
+import {
+  installTestGlobals,
+  resetTestRegistry,
+  runRegisteredTests,
+} from "./framework";
 
 function collectTestFiles(dir: string): string[] {
   const entries = fs.readdirSync(dir, { withFileTypes: true });

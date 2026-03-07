@@ -4,6 +4,7 @@ out/**
 node_modules/**
 src/**
 .gitignore
+.github/**
 .yarnrc
 webpack.config.js
 vsc-extension-quickstart.md
@@ -12,9 +13,5 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 **/.vscode-test.*
-!dist/**
-!assets/**
-!README.md
-!CHANGELOG.md
-!LICENSE
-!package.json
+combined_prompt.txt
+*.vsix

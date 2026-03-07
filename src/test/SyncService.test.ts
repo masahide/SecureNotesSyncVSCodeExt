@@ -186,7 +186,10 @@ class MockLocalObjectManager {
     previousIndex: IndexFile,
     options: SyncOptions,
   ): Promise<IndexFile> {
-    return MockLocalObjectManager.generateLocalIndexFile(previousIndex, options);
+    return MockLocalObjectManager.generateLocalIndexFile(
+      previousIndex,
+      options,
+    );
   }
 
   async loadRemoteIndex(options: SyncOptions): Promise<IndexFile> {

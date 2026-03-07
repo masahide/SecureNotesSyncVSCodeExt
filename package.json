@@ -14,7 +14,15 @@
     "type": "git",
     "url": "https://github.com/masahide/SecureNotesSyncVSCodeExt.git"
   },
-  "main": "./dist/extension.js",
+  "files": [
+    "dist/**",
+    "assets/**",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "main": "dist/extension.js",
   "activationEvents": [
     "workspaceContains:.secureNotes/wsIndex.json"
   ],

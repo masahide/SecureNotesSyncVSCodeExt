@@ -4,9 +4,7 @@ import { logMessage } from "./logger";
 import { IWorkspaceContextService } from "./interfaces/IWorkspaceContextService";
 import { IKeyManagementService } from "./interfaces/IKeyManagementService";
 
-export class IndexHistoryProvider
-  implements vscode.TreeDataProvider<IndexItem>
-{
+export class IndexHistoryProvider implements vscode.TreeDataProvider<IndexItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<
     IndexItem | undefined | null | void
   > = new vscode.EventEmitter<IndexItem | undefined | null | void>();
