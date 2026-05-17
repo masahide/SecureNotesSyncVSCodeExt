@@ -189,7 +189,7 @@
     "webpack-cli": "^6.0.1"
   },
   "dependencies": {
-    "uuid": "^13.0.0",
+    "uuid": "^14.0.0",
     "which": "^6.0.1"
   }
 }
